@@ -1,0 +1,24 @@
+{
+  "name": "@retronoodle/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsup src/main.ts --format esm --target node22 --out-dir dist --clean --noExternal @retronoodle/shared --noExternal @retronoodle/worker",
+    "start": "node dist/main.js",
+    "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.3.0",
+    "@retronoodle/shared": "workspace:*",
+    "@retronoodle/worker": "workspace:*",
+    "fastify": "^5.12.5"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.1",
+    "tsx": "^4.23.15"
+  }
+}
