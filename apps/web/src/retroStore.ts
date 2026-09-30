@@ -25,6 +25,19 @@ export interface RetroStoreState<TBoard> {
    * `applyServerEvent` via the same broadcast every other client gets, not a second local path. */
   sendMutation: (args: { optimisticReduce: (board: TBoard) => TBoard; send: () => Promise<Response> }) => Promise<void>;
 
+  /** Applies `patch` to the board immediately, without touching `lastAppliedSeq` (RN-011). For
+   * state that arrives outside the retro's main seq-ordered event stream — e.g. the author's own
+   * private `user:{id}` channel, which patches in a hidden card's real text alongside (not
+   * instead of) the redacted version everyone gets on the shared channel at the same seq. Two
+   * broadcasts of the same seq would otherwise collide in `applyServerEvent`'s seq gate. */
+  applyLocalPatch: (patch: (board: TBoard) => TBoard) => void;
+
+  /** Replaces the board and seq wholesale, discarding any buffered out-of-order events (RN-011:
+   * used when the client refetches after a phase transition it can't otherwise resync from — see
+   * BoardPage.tsx). A general "hard resync" primitive; this file still has no opinion on what a
+   * board contains. */
+  resetBoard: (board: TBoard, seq: number) => void;
+
   clearError: () => void;
 }
 
@@ -90,6 +103,13 @@ export function createRetroStore<TBoard>(
       } catch {
         set({ board: boardBeforeMutation, lastError: 'Network error — please try again.' });
       }
+    },
+
+    applyLocalPatch: (patch) => set((state) => ({ board: patch(state.board) })),
+
+    resetBoard: (board, seq) => {
+      buffered.clear();
+      set({ board, lastAppliedSeq: seq, lastError: null });
     },
 
     clearError: () => set({ lastError: null }),

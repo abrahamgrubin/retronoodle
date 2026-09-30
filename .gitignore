@@ -8,3 +8,6 @@ coverage/
 *.log
 .DS_Store
 supabase/.temp/
+/apps/web/playwright-report/
+/apps/web/test-results/
+/apps/web/blob-report/

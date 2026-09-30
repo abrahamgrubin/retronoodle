@@ -8,6 +8,7 @@ import { cardEditMutation } from './cardEdit.js';
 import { cardDeleteMutation } from './cardDelete.js';
 import { phaseNextMutation } from './phaseNext.js';
 import { phaseBackMutation } from './phaseBack.js';
+import { cardsRevealMutation } from './cardsReveal.js';
 
 export function createDefaultMutationRegistry(): MutationRegistry {
   const registry = new MutationRegistry();
@@ -19,5 +20,6 @@ export function createDefaultMutationRegistry(): MutationRegistry {
   // timer's Skip button (RN-012) sends this instead, so it's registered under its own type name.
   registry.register('phase.skip', phaseNextMutation);
   registry.register('phase.back', phaseBackMutation);
+  registry.register('cards.reveal', cardsRevealMutation);
   return registry;
 }

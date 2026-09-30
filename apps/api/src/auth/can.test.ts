@@ -67,6 +67,12 @@ describe('can — role x action matrix (Design 3.4, reconstructed for RN-005)', 
     ['retro.transitionPhase', retroAsMember, false],
     ['retro.transitionPhase', retroNonMember, false],
 
+    // retro.revealCards (RN-011): facilitator only — "the facilitator clicks Reveal".
+    ['retro.revealCards', retroAsFacilitator, true],
+    ['retro.revealCards', retroAsAdmin, false],
+    ['retro.revealCards', retroAsMember, false],
+    ['retro.revealCards', retroNonMember, false],
+
     // card.edit / card.delete: ownership, not a role — only the author, ever.
     ['card.edit', ownCard, true],
     ['card.edit', othersCard, false],

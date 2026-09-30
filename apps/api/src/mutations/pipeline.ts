@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
-import { MutationEnvelope } from '@retronoodle/shared';
+import { MutationEnvelope, type RetroPhase, type VisibleBoardCard } from '@retronoodle/shared';
 import type { AuthUser } from '../auth/index.js';
 import { can, type TeamRole } from '../auth/can.js';
 import type { RealtimeBus } from '../realtime/RealtimeBus.js';
+import { isCardCurrentlyHidden, toHiddenCard } from '../realtime/redact.js';
 import type { MutationRegistry, LockedRetro } from './registry.js';
 import { MutationRejected } from './errors.js';
 
@@ -22,6 +23,7 @@ interface LockAndCheckRow {
   team_id: string;
   facilitator_id: string;
   phase: string;
+  cards_revealed: boolean;
   team_role: TeamRole | null;
   existing_seq: number | null;
   existing_payload: StoredEventPayload | null;
@@ -31,8 +33,8 @@ interface LockAndCheckRow {
  * POST /retros/:id/mutations, in one transaction (RN-008):
  *   SELECT ... FOR UPDATE on the retro row -> check can() -> apply (which checks phase gating
  *   itself, RN-010's Design 6.1 action matrix — see registry.ts's MutationTypeDef.apply comment)
- *   -> seq = last + 1 -> insert retro_events -> commit -> broadcast (redact() stubbed until
- *   RN-011, so this sends the full event for now).
+ *   -> seq = last + 1 -> insert retro_events -> commit -> broadcast (redacted via RN-011's
+ *   redact.ts for any mutation type marked `redactable`, full otherwise).
  *
  * The FOR UPDATE lock is what makes both guarantees hold under concurrency: every mutation for
  * a given retro serializes through that one row lock, so seq assignment can never race (no two
@@ -72,7 +74,7 @@ export async function processMutation(deps: {
     try {
       const lockResult = await client.query<LockAndCheckRow>(
         `with locked as (
-           select id, team_id, facilitator_id, phase
+           select id, team_id, facilitator_id, phase, cards_revealed
            from retros
            where id = $1
            for update
@@ -97,7 +99,13 @@ export async function processMutation(deps: {
         return { seq: row.existing_seq, result: row.existing_payload!.result };
       }
 
-      const retro: LockedRetro = { id: row.id, team_id: row.team_id, facilitator_id: row.facilitator_id, phase: row.phase };
+      const retro: LockedRetro = {
+        id: row.id,
+        team_id: row.team_id,
+        facilitator_id: row.facilitator_id,
+        phase: row.phase,
+        cards_revealed: row.cards_revealed,
+      };
       if (!can(user, 'retro.mutate', { type: 'retro', teamRole: row.team_role, facilitatorId: retro.facilitator_id })) {
         throw new MutationRejected(403, 'forbidden', 'Not allowed to mutate this retro');
       }
@@ -120,7 +128,19 @@ export async function processMutation(deps: {
 
       // Outside the transaction: a failed broadcast shouldn't roll back an already-committed
       // mutation — the event is durably stored either way and reconnect/replay can catch up.
-      await realtimeBus.broadcastRetro(retroId, { type: envelope.type, payload: { seq, result: applyResult } });
+      //
+      // RN-011: a redactable result (card.create/card.edit) might currently be hidden — the
+      // shared retro:{retroId} channel (no single recipient) only ever gets the redacted shape
+      // then, while the full card goes out separately on the author's private user:{id} channel
+      // so their other open tabs still see real text (the author is always ctx.user here: only
+      // the author may create or edit their own card).
+      if (def.redactable && isCardCurrentlyHidden({ phase: retro.phase as RetroPhase, cardsRevealed: retro.cards_revealed })) {
+        const card = applyResult as VisibleBoardCard;
+        await realtimeBus.broadcastRetro(retroId, { type: envelope.type, payload: { seq, result: toHiddenCard(card) } });
+        await realtimeBus.broadcastUser(user.id, { type: envelope.type, payload: { seq, result: applyResult } });
+      } else {
+        await realtimeBus.broadcastRetro(retroId, { type: envelope.type, payload: { seq, result: applyResult } });
+      }
 
       return { seq, result: applyResult };
     } catch (err) {

@@ -8,7 +8,13 @@ const columnId = '00000000-0000-4000-8000-000000000005';
 const cardId = '00000000-0000-4000-8000-000000000006';
 
 function retroAt(phase: string): LockedRetro {
-  return { id: '00000000-0000-4000-8000-000000000001', team_id: '00000000-0000-4000-8000-000000000002', facilitator_id: '00000000-0000-4000-8000-000000000003', phase };
+  return {
+    id: '00000000-0000-4000-8000-000000000001',
+    team_id: '00000000-0000-4000-8000-000000000002',
+    facilitator_id: '00000000-0000-4000-8000-000000000003',
+    phase,
+    cards_revealed: true,
+  };
 }
 
 function fakeClient(columnExists: boolean, lastPosition: string | null, columnKind: 'standard' | 'action_items' = 'standard') {

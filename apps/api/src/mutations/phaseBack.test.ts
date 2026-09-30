@@ -9,7 +9,7 @@ const participant = { id: '00000000-0000-4000-8000-000000000004', email: 'p@exam
 const retroId = '00000000-0000-4000-8000-000000000001';
 
 function retroAt(phase: string): LockedRetro {
-  return { id: retroId, team_id: '00000000-0000-4000-8000-000000000002', facilitator_id: facilitatorId, phase };
+  return { id: retroId, team_id: '00000000-0000-4000-8000-000000000002', facilitator_id: facilitatorId, phase, cards_revealed: false };
 }
 
 function fakeClient() {

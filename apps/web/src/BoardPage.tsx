@@ -1,7 +1,16 @@
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { uuidv7 } from 'uuidv7';
-import { allowedActions, nextPhase, phaseSubtitle, previousPhase, type BoardCard, type BoardResponse, type RetroPhase } from '@retronoodle/shared';
+import {
+  allowedActions,
+  footerHint,
+  nextPhase,
+  phaseSubtitle,
+  previousPhase,
+  type BoardResponse,
+  type RetroPhase,
+  type VisibleBoardCard,
+} from '@retronoodle/shared';
 import { signInWithGoogle } from './auth';
 import { fetchBoard } from './board';
 import { reduceBoard, type BoardState } from './boardReducer';
@@ -56,13 +65,35 @@ function AddCardForm({ onAdd }: { onAdd: (body: string) => void }) {
   );
 }
 
+/** A card hidden during Write (RN-011): "blurred placeholder showing column color and author
+ * avatar" per the story — no avatar image infra exists yet, so this shows the column color and a
+ * generic marker instead. Never receives body/authorName — the server never sent them. */
+function HiddenCardPlaceholder({ columnColor }: { columnColor: string }) {
+  return (
+    <div
+      style={{
+        border: `1px dashed ${columnColor}`,
+        borderRadius: 6,
+        padding: 8,
+        marginBottom: 8,
+        background: '#f4f4f4',
+        color: '#999',
+        fontStyle: 'italic',
+        fontSize: 13,
+      }}
+    >
+      Hidden until reveal
+    </div>
+  );
+}
+
 function CardView({
   card,
   canEdit,
   onEdit,
   onDelete,
 }: {
-  card: BoardCard;
+  card: VisibleBoardCard;
   canEdit: boolean;
   onEdit: (body: string) => void;
   onDelete: () => void;
@@ -145,12 +176,17 @@ function Board({
 }) {
   const [useBoardStore] = useState(() =>
     createRetroStore<BoardState>({
-      initialBoard: { phase: initialBoard.retro.phase, columns: initialBoard.columns, cards: initialBoard.cards },
+      initialBoard: {
+        phase: initialBoard.retro.phase,
+        cardsRevealed: initialBoard.retro.cardsRevealed,
+        columns: initialBoard.columns,
+        cards: initialBoard.cards,
+      },
       initialSeq: initialBoard.seq,
       reduce: reduceBoard,
     }),
   );
-  const { board, lastError, applyServerEvent, sendMutation, clearError } = useBoardStore();
+  const { board, lastError, applyServerEvent, applyLocalPatch, resetBoard, sendMutation, clearError } = useBoardStore();
   const isFacilitator = userId === initialBoard.retro.facilitatorId;
   // The Action items column follows the matrix's separate "Create or edit action items" row
   // (Review/Discuss/Wrap up), not "Add, edit, delete own card" (Write/Group) — matching the
@@ -163,16 +199,48 @@ function Board({
   useEffect(() => {
     const client = supabase;
     if (!client) return;
-    const channel = client.channel(`retro:${retroId}`, { config: { private: true } });
-    channel.on('broadcast', { event: '*' }, (message) => {
+
+    const retroChannel = client.channel(`retro:${retroId}`, { config: { private: true } });
+    retroChannel.on('broadcast', { event: '*' }, (message) => {
       const { seq, result } = message.payload as { seq: number; result: unknown };
       applyServerEvent({ seq, type: message.event, payload: result });
     });
-    channel.subscribe();
+    retroChannel.subscribe();
+
+    // RN-011: the author's own private channel — carries the full (never redacted) card for
+    // card.create/card.edit while it's hidden on the shared retro:{retroId} channel above, so a
+    // second open tab (which has no optimistic copy of its own) still sees real text. Patched in
+    // directly rather than run through the seq-gated applyServerEvent: this message shares the
+    // same seq as the one the shared channel already applied, and the seq gate would just drop
+    // it as a stale replay (see retroStore.ts's applyLocalPatch comment).
+    const userChannel = client.channel(`user:${userId}`, { config: { private: true } });
+    userChannel.on('broadcast', { event: '*' }, (message) => {
+      const { result } = message.payload as { seq: number; result: unknown };
+      applyLocalPatch((b) => reduceBoard(b, { seq: -1, type: message.event, payload: result }));
+    });
+    userChannel.subscribe();
+
     return () => {
-      void client.removeChannel(channel);
+      void client.removeChannel(retroChannel);
+      void client.removeChannel(userChannel);
     };
-  }, [retroId, applyServerEvent]);
+  }, [retroId, userId, applyServerEvent, applyLocalPatch]);
+
+  // RN-011: "Reveal happens ... on write -> group", but the transition's own broadcast only
+  // carries the new phase, not every card's real text (see onTransition.ts's write->group
+  // comment for why) — so once Write ends, refetch once to pick up what was hidden a moment ago.
+  const previousPhaseRef = useRef(board.phase);
+  useEffect(() => {
+    if (previousPhaseRef.current === 'write' && board.phase !== 'write') {
+      void fetchBoard(accessToken, retroId).then((fresh) => {
+        resetBoard(
+          { phase: fresh.retro.phase, cardsRevealed: fresh.retro.cardsRevealed, columns: fresh.columns, cards: fresh.cards },
+          fresh.seq,
+        );
+      });
+    }
+    previousPhaseRef.current = board.phase;
+  }, [board.phase, accessToken, retroId, resetBoard]);
 
   function addCard(columnId: string, body: string) {
     const cardId = uuidv7();
@@ -182,7 +250,17 @@ function Board({
         reduceBoard(b, {
           seq: -1,
           type: 'card.create',
-          payload: { id: cardId, columnId, authorId: userId, authorName: 'You', body, position: '', createdAt: now, updatedAt: now },
+          payload: {
+            id: cardId,
+            columnId,
+            authorId: userId,
+            authorName: 'You',
+            body,
+            position: '',
+            createdAt: now,
+            updatedAt: now,
+            hidden: false,
+          },
         }),
       send: () =>
         postMutation(accessToken, retroId, { mutationId: uuidv7(), type: 'card.create', payload: { cardId, columnId, body } }),
@@ -191,7 +269,12 @@ function Board({
 
   function editCard(cardId: string, body: string) {
     void sendMutation({
-      optimisticReduce: (b) => reduceBoard(b, { seq: -1, type: 'card.edit', payload: { id: cardId, body } }),
+      // A local-only patch, not reduceBoard's card.edit branch: that branch expects the server's
+      // full authoritative card (RN-011), and all a caller-initiated edit has is the new body.
+      optimisticReduce: (b) => ({
+        ...b,
+        cards: b.cards.map((c) => (c.id === cardId && !c.hidden ? { ...c, body } : c)),
+      }),
       send: () => postMutation(accessToken, retroId, { mutationId: uuidv7(), type: 'card.edit', payload: { cardId, body } }),
     });
   }
@@ -200,6 +283,15 @@ function Board({
     void sendMutation({
       optimisticReduce: (b) => reduceBoard(b, { seq: -1, type: 'card.delete', payload: { id: cardId } }),
       send: () => postMutation(accessToken, retroId, { mutationId: uuidv7(), type: 'card.delete', payload: { cardId } }),
+    });
+  }
+
+  function revealCards() {
+    void sendMutation({
+      // No optimistic shortcut — the real cards.reveal broadcast (arriving shortly after) is
+      // what actually carries every hidden card's text; there's nothing useful to guess here.
+      optimisticReduce: (b) => b,
+      send: () => postMutation(accessToken, retroId, { mutationId: uuidv7(), type: 'cards.reveal', payload: {} }),
     });
   }
 
@@ -249,6 +341,11 @@ function Board({
             <button type="button" onClick={() => changePhase('next')}>
               Next phase
             </button>
+          )}{' '}
+          {board.phase === 'write' && !board.cardsRevealed && (
+            <button type="button" onClick={revealCards}>
+              Reveal cards
+            </button>
           )}
         </p>
       )}
@@ -278,20 +375,25 @@ function Board({
                   {column.title} <span style={{ fontWeight: 'normal', color: '#666' }}>({cards.length})</span>
                 </h2>
                 {column.prompt && <p style={{ fontSize: 12, color: '#666', margin: '0 0 8px' }}>{column.prompt}</p>}
-                {cards.map((card) => (
-                  <CardView
-                    key={card.id}
-                    card={card}
-                    canEdit={canEdit && card.authorId === userId}
-                    onEdit={(body) => editCard(card.id, body)}
-                    onDelete={() => deleteCard(card.id)}
-                  />
-                ))}
+                {cards.map((card) =>
+                  card.hidden ? (
+                    <HiddenCardPlaceholder key={card.id} columnColor={column.color} />
+                  ) : (
+                    <CardView
+                      key={card.id}
+                      card={card}
+                      canEdit={canEdit && card.authorId === userId}
+                      onEdit={(body) => editCard(card.id, body)}
+                      onDelete={() => deleteCard(card.id)}
+                    />
+                  ),
+                )}
                 {canEdit && <AddCardForm onAdd={(body) => addCard(column.id, body)} />}
               </section>
             );
           })}
       </div>
+      {footerHint(board.phase) && <p style={{ marginTop: 24, color: '#666', fontSize: 13 }}>{footerHint(board.phase)}</p>}
     </main>
   );
 }

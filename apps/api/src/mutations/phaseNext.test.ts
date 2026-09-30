@@ -8,7 +8,13 @@ const facilitator = { id: facilitatorId, email: 'f@example.com', displayName: 'F
 const participant = { id: '00000000-0000-4000-8000-000000000004', email: 'p@example.com', displayName: 'Participant', avatarUrl: null };
 
 function retroAt(phase: string): LockedRetro {
-  return { id: '00000000-0000-4000-8000-000000000001', team_id: '00000000-0000-4000-8000-000000000002', facilitator_id: facilitatorId, phase };
+  return {
+    id: '00000000-0000-4000-8000-000000000001',
+    team_id: '00000000-0000-4000-8000-000000000002',
+    facilitator_id: facilitatorId,
+    phase,
+    cards_revealed: false,
+  };
 }
 
 function fakeClient() {
@@ -30,9 +36,16 @@ describe('phase.next', () => {
       const client = fakeClient();
       const result = await phaseNextMutation.apply({ client, retro: retroAt(from), user: facilitator, payload: {} });
       expect(result).toEqual({ phase: to });
-      const updateCall = (client.query as ReturnType<typeof vi.fn>).mock.calls.find((c) => (c[0] as string).includes('update retros'));
+      const updateCall = (client.query as ReturnType<typeof vi.fn>).mock.calls.find((c) => (c[0] as string).includes('set phase'));
       expect(updateCall?.[1]).toEqual([to, retroAt(from).id]);
     }
+  });
+
+  it('write -> group also sets cards_revealed = true (RN-011: reveal on write -> group)', async () => {
+    const client = fakeClient();
+    await phaseNextMutation.apply({ client, retro: retroAt('write'), user: facilitator, payload: {} });
+    const revealCall = (client.query as ReturnType<typeof vi.fn>).mock.calls.find((c) => (c[0] as string).includes('cards_revealed'));
+    expect(revealCall).toBeDefined();
   });
 
   it('rejects advancing from closed — nothing left to advance to', async () => {

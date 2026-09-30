@@ -1,8 +1,9 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { BoardResponse, type Database } from '@retronoodle/shared';
+import { BoardResponse, type BoardCard, type Database, type RetroPhase, type VisibleBoardCard } from '@retronoodle/shared';
 import { can } from '../auth/can.js';
 import { getTeamRole } from '../auth/membership.js';
+import { redactCard } from '../realtime/redact.js';
 
 export interface BoardRoutesDeps {
   supabaseAdmin: SupabaseClient<Database>;
@@ -10,9 +11,8 @@ export interface BoardRoutesDeps {
 }
 
 /** GET /retros/:id/board (RN-009): the initial snapshot plus its seq; the client applies any
- * events broadcast after that seq on top (RN-008's retroStore), rather than re-fetching. Every
- * card is returned in full regardless of phase — redact() (hiding cards until reveal) is
- * RN-011's job, not this route's. */
+ * events broadcast after that seq on top (RN-008's retroStore), rather than re-fetching. Each
+ * card is passed through redact() (RN-011) for the requesting viewer before going out. */
 export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps): void {
   const { supabaseAdmin, requireAuth } = deps;
 
@@ -66,6 +66,8 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
       for (const author of authors ?? []) authorNameById.set(author.id, author.display_name);
     }
 
+    const redactCtx = { viewerId: user.id, phase: retro.phase as RetroPhase, cardsRevealed: retro.cards_revealed };
+
     return BoardResponse.parse({
       retro: {
         id: retro.id,
@@ -75,6 +77,7 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
         facilitatorId: retro.facilitator_id,
         templateId: retro.template_id,
         templateSource: retro.template_source,
+        cardsRevealed: retro.cards_revealed,
       },
       columns: (columnsResult.data ?? []).map((c) => ({
         id: c.id,
@@ -84,16 +87,20 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
         kind: c.kind,
         position: c.position,
       })),
-      cards: cards.map((c) => ({
-        id: c.id,
-        columnId: c.column_id,
-        authorId: c.author_id,
-        authorName: authorNameById.get(c.author_id) ?? 'Unknown',
-        body: c.body,
-        position: c.position,
-        createdAt: c.created_at,
-        updatedAt: c.updated_at,
-      })),
+      cards: cards.map((c): BoardCard => {
+        const full: VisibleBoardCard = {
+          id: c.id,
+          columnId: c.column_id,
+          authorId: c.author_id,
+          authorName: authorNameById.get(c.author_id) ?? 'Unknown',
+          body: c.body,
+          position: c.position,
+          createdAt: c.created_at,
+          updatedAt: c.updated_at,
+          hidden: false,
+        };
+        return redactCard(full, redactCtx);
+      }),
       seq: lastEventResult.data?.seq ?? 0,
     });
   });

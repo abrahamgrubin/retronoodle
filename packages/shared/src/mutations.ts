@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { RetroPhase } from './retros.js';
+import { VisibleBoardCard } from './board.js';
 
 /** POST /retros/:id/mutations body (RN-008). Every mutation type has its own payload schema
  * below; the envelope itself only knows the type name and a client-generated mutationId used
@@ -27,17 +28,11 @@ export const CardCreatePayload = z.object({
 });
 export type CardCreatePayload = z.infer<typeof CardCreatePayload>;
 
-export const CardCreateResult = z.object({
-  id: z.string().uuid(),
-  columnId: z.string().uuid(),
-  authorId: z.string().uuid(),
-  authorName: z.string(),
-  body: z.string(),
-  position: z.string(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-});
-export type CardCreateResult = z.infer<typeof CardCreateResult>;
+// Both create and edit return the full card, VisibleBoardCard-shaped (RN-011: redact() needs a
+// stable, complete input — id/columnId/authorId/position at minimum — to build the hidden
+// broadcast shape, so there's no separate, leaner "just what changed" result type here).
+export const CardCreateResult = VisibleBoardCard;
+export type CardCreateResult = VisibleBoardCard;
 
 export const CardEditPayload = z.object({
   cardId: z.string().uuid(),
@@ -45,11 +40,8 @@ export const CardEditPayload = z.object({
 });
 export type CardEditPayload = z.infer<typeof CardEditPayload>;
 
-export const CardEditResult = z.object({
-  id: z.string().uuid(),
-  body: z.string(),
-});
-export type CardEditResult = z.infer<typeof CardEditResult>;
+export const CardEditResult = VisibleBoardCard;
+export type CardEditResult = VisibleBoardCard;
 
 export const CardDeletePayload = z.object({
   cardId: z.string().uuid(),
@@ -71,3 +63,13 @@ export const PhaseTransitionResult = z.object({
   phase: RetroPhase,
 });
 export type PhaseTransitionResult = z.infer<typeof PhaseTransitionResult>;
+
+/** `cards.reveal` (RN-011): facilitator-only, Write phase only. Broadcasts every card in full —
+ * this is the one mutation type that's deliberately never passed through redact(). */
+export const CardsRevealPayload = z.object({}).strict();
+export type CardsRevealPayload = z.infer<typeof CardsRevealPayload>;
+
+export const CardsRevealResult = z.object({
+  cards: z.array(VisibleBoardCard),
+});
+export type CardsRevealResult = z.infer<typeof CardsRevealResult>;

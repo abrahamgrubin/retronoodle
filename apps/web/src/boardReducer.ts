@@ -1,44 +1,60 @@
 import type {
   BoardCard,
   BoardColumn,
-  CardCreateResult,
   CardDeleteResult,
-  CardEditResult,
+  CardsRevealResult,
+  HiddenBoardCard,
   PhaseTransitionResult,
   RetroPhase,
+  VisibleBoardCard,
 } from '@retronoodle/shared';
 import type { RetroEvent } from './retroStore';
 
 export interface BoardState {
   phase: RetroPhase;
+  cardsRevealed: boolean;
   columns: BoardColumn[];
   cards: BoardCard[];
 }
 
-/** Folds one confirmed card.* event into board state (RN-009). Used both for events replayed
- * from the initial snapshot's point forward and for a card the caller just created/edited/
- * deleted themselves optimistically — card.create upserts by id rather than always appending,
- * since the optimistic card may already be there under the same client-generated id. */
+function isHiddenPayload(payload: unknown): payload is HiddenBoardCard {
+  return typeof payload === 'object' && payload !== null && (payload as { hidden?: unknown }).hidden === true;
+}
+
+function upsertCard(board: BoardState, card: BoardCard): BoardState {
+  const existing = board.cards.find((c) => c.id === card.id);
+  // Never let a redacted echo of a card we already hold in full get clobbered back to hidden —
+  // the shared retro:{retroId} channel always sends the redacted shape during Write, even for
+  // the author's own card (RN-011); the author's local copy (optimistic, or already patched in
+  // via the private user:{id} channel) is always more authoritative for the same id.
+  if (card.hidden && existing && !existing.hidden) return board;
+  return { ...board, cards: existing ? board.cards.map((c) => (c.id === card.id ? card : c)) : [...board.cards, card] };
+}
+
+/** Folds one confirmed event (card create/edit/delete, a phase transition, or a reveal) into
+ * board state (RN-009, extended by RN-010's phase tracking and RN-011's hidden cards). Used both
+ * for events replayed from the initial snapshot's point forward and for a card the caller just
+ * created/edited/deleted themselves optimistically — card.create/card.edit upsert by id rather
+ * than always appending, since the optimistic card may already be there under the same
+ * client-generated id. */
 export function reduceBoard(board: BoardState, event: RetroEvent): BoardState {
   switch (event.type) {
     case 'card.create': {
-      const result = event.payload as CardCreateResult;
-      const card: BoardCard = {
-        id: result.id,
-        columnId: result.columnId,
-        authorId: result.authorId,
-        authorName: result.authorName,
-        body: result.body,
-        position: result.position,
-        createdAt: result.createdAt,
-        updatedAt: result.updatedAt,
-      };
-      const exists = board.cards.some((c) => c.id === card.id);
-      return { ...board, cards: exists ? board.cards.map((c) => (c.id === card.id ? card : c)) : [...board.cards, card] };
+      const result = event.payload as VisibleBoardCard | HiddenBoardCard;
+      const card: BoardCard = isHiddenPayload(result)
+        ? { id: result.id, columnId: result.columnId, authorId: result.authorId, position: result.position, hidden: true }
+        : { ...result, hidden: false };
+      return upsertCard(board, card);
     }
     case 'card.edit': {
-      const result = event.payload as CardEditResult;
-      return { ...board, cards: board.cards.map((c) => (c.id === result.id ? { ...c, body: result.body } : c)) };
+      const result = event.payload as VisibleBoardCard | HiddenBoardCard;
+      // A hidden echo of an edit carries nothing a non-author didn't already know (the
+      // placeholder never showed a body) — upsertCard's clobber guard handles it the same way
+      // create's does, so this reuses the exact same path.
+      const card: BoardCard = isHiddenPayload(result)
+        ? { id: result.id, columnId: result.columnId, authorId: result.authorId, position: result.position, hidden: true }
+        : { ...result, hidden: false };
+      return upsertCard(board, card);
     }
     case 'card.delete': {
       const result = event.payload as CardDeleteResult;
@@ -51,6 +67,16 @@ export function reduceBoard(board: BoardState, event: RetroEvent): BoardState {
     case 'phase.back': {
       const result = event.payload as PhaseTransitionResult;
       return { ...board, phase: result.phase };
+    }
+    // cards.reveal (RN-011): the facilitator's manual Reveal — every card comes back in full.
+    case 'cards.reveal': {
+      const result = event.payload as CardsRevealResult;
+      const byId = new Map(result.cards.map((c) => [c.id, c]));
+      return {
+        ...board,
+        cardsRevealed: true,
+        cards: board.cards.map((c) => (byId.has(c.id) ? { ...byId.get(c.id)!, hidden: false } : c)),
+      };
     }
     default:
       return board;

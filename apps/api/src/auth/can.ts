@@ -37,6 +37,7 @@ export type Action =
   | 'retro.manageJoinLink'
   | 'retro.mutate'
   | 'retro.transitionPhase'
+  | 'retro.revealCards'
   | 'template.read'
   | 'card.edit'
   | 'card.delete';
@@ -76,9 +77,10 @@ export function can(user: CanUser, action: Action, resource: Resource): boolean 
       return resource?.type === 'retro' && resource.teamRole !== null;
     case 'retro.manageJoinLink':
     case 'retro.transitionPhase':
-      // Facilitator-only (RN-006 join link; RN-010 phase.next/back/skip — "only the facilitator
-      // may send"). Facilitator isn't a stored role (see RetroResource) — it's just
-      // facilitatorId === user.id.
+    case 'retro.revealCards':
+      // Facilitator-only (RN-006 join link; RN-010 phase.next/back/skip; RN-011 cards.reveal —
+      // "the facilitator clicks Reveal"). Facilitator isn't a stored role (see RetroResource) —
+      // it's just facilitatorId === user.id.
       return resource?.type === 'retro' && resource.facilitatorId === user.id;
     case 'card.edit':
     case 'card.delete':

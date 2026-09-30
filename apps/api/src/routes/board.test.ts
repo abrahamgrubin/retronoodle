@@ -15,12 +15,15 @@ afterEach(async () => {
 });
 
 const claims: AuthClaims = { sub: '00000000-0000-4000-8000-000000000001', email: 'ada@example.com' };
+const otherClaims: AuthClaims = { sub: '00000000-0000-4000-8000-000000000002', email: 'bob@example.com' };
 const AUTH_HEADER = { authorization: 'Bearer good-token' };
+const OTHER_AUTH_HEADER = { authorization: 'Bearer other-token' };
 const retroId = '00000000-0000-4000-8000-0000000000aa';
 
 function verifyAccessToken(token: string): Promise<AuthClaims> {
-  if (token !== 'good-token') throw new Error('invalid token');
-  return Promise.resolve(claims);
+  if (token === 'good-token') return Promise.resolve(claims);
+  if (token === 'other-token') return Promise.resolve(otherClaims);
+  throw new Error('invalid token');
 }
 
 const retroRow = {
@@ -31,6 +34,7 @@ const retroRow = {
   template_source: 'builtin',
   name: 'Sprint 1 retro',
   phase: 'write',
+  cards_revealed: false,
   created_at: new Date().toISOString(),
 };
 
@@ -78,7 +82,7 @@ describe('GET /retros/:id/board', () => {
     const res = await app.inject({ method: 'GET', url: `/retros/${retroId}/board`, headers: AUTH_HEADER });
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body.retro).toMatchObject({ id: retroId, name: 'Sprint 1 retro', phase: 'write' });
+    expect(body.retro).toMatchObject({ id: retroId, name: 'Sprint 1 retro', phase: 'write', cardsRevealed: false });
     expect(body.columns).toEqual([
       { id: columnRow.id, title: 'Start', prompt: 'p', color: 'green', kind: 'standard', position: 0 },
     ]);
@@ -96,5 +100,14 @@ describe('GET /retros/:id/board', () => {
     app = await build(null);
     const res = await app.inject({ method: 'GET', url: `/retros/${retroId}/board`, headers: AUTH_HEADER });
     expect(res.statusCode).toBe(403);
+  });
+
+  it('redacts a non-author card during Write before reveal (RN-011)', async () => {
+    app = await build('member');
+    const res = await app.inject({ method: 'GET', url: `/retros/${retroId}/board`, headers: OTHER_AUTH_HEADER });
+    expect(res.statusCode).toBe(200);
+    const card = res.json().cards[0];
+    expect(card).toEqual({ id: cardRow.id, columnId: columnRow.id, authorId: claims.sub, position: 'a0', hidden: true });
+    expect('body' in card).toBe(false);
   });
 });
