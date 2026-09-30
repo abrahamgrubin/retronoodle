@@ -13,7 +13,9 @@ echo "== anon reads zero rows from every public table =="
 tables=$(psql "$DB_URL" -tAc "select tablename from pg_tables where schemaname = 'public' order by 1;")
 fail=0
 for t in $tables; do
-  n=$(psql "$DB_URL" -tAc "set role anon; select count(*) from public.\"$t\";")
+  # Some psql versions print a "SET" command-tag line before the count even with -tA;
+  # take the last line so this is robust across versions.
+  n=$(psql "$DB_URL" -tAc "set role anon; select count(*) from public.\"$t\";" | tail -n1)
   if [ "$n" != "0" ]; then
     echo "FAIL: $t returned $n rows to anon (expected 0)"
     fail=1
