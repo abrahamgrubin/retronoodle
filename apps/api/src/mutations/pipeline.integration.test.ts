@@ -230,7 +230,9 @@ describe.skipIf(!hasLiveEnv)('mutation pipeline against a live Supabase project 
     await listenerClient.auth.setSession({ access_token: token!, refresh_token: 'unused' }).catch(() => {});
 
     const channel = listenerClient.channel(`retro:${retroId}`, { config: { private: true } });
-    const received = new Promise<{ type: string; payload: { seq: number } }>((resolve) => {
+    // RealtimeBus.broadcastRetro sends `{ seq, result }` as the broadcast payload directly
+    // (see pipeline.ts) — `msg.payload` here *is* that object, not another nested `payload`.
+    const received = new Promise<{ seq: number; result: unknown }>((resolve) => {
       channel.on('broadcast', { event: 'card.create' }, (msg) => resolve(msg.payload as never));
     });
     await new Promise<void>((resolve) => {
@@ -261,7 +263,7 @@ describe.skipIf(!hasLiveEnv)('mutation pipeline against a live Supabase project 
     // match the story's own "two local browsers" framing, unlike this sandbox. Kept as a hard
     // assertion rather than softened, since it's correct in the environments that matter.
     expect(elapsedMs).toBeLessThan(500);
-    expect(event.payload.seq).toBe(res.json().seq);
+    expect(event.seq).toBe(res.json().seq);
 
     await listenerClient.removeChannel(channel);
   }, 15000);
