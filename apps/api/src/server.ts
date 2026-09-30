@@ -2,11 +2,14 @@ import cors from '@fastify/cors';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { HealthResponse, MeResponse, type Database } from '@retronoodle/shared';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Pool } from 'pg';
 import { createRequireAuth, timezoneFromHeader, upsertProfile, type VerifyAccessToken } from './auth/index.js';
 import { registerTeamRoutes } from './routes/teams.js';
 import { registerRetroRoutes } from './routes/retros.js';
 import { registerTemplateRoutes } from './routes/templates.js';
+import { registerMutationRoutes } from './routes/mutations.js';
 import type { RealtimeBus } from './realtime/RealtimeBus.js';
+import type { MutationRegistry } from './mutations/index.js';
 
 export interface ServerOptions {
   webOrigin: string;
@@ -15,6 +18,8 @@ export interface ServerOptions {
     verifyAccessToken: VerifyAccessToken;
     supabaseAdmin: SupabaseClient<Database>;
     realtimeBus: RealtimeBus;
+    pool: Pool;
+    mutationRegistry: MutationRegistry;
   };
 }
 
@@ -31,7 +36,7 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
   });
 
   if (options.auth) {
-    const { verifyAccessToken, supabaseAdmin, realtimeBus } = options.auth;
+    const { verifyAccessToken, supabaseAdmin, realtimeBus, pool, mutationRegistry } = options.auth;
     const requireAuth = createRequireAuth(verifyAccessToken);
 
     // First authenticated request upserts the caller's profile (RN-003). Later stories add
@@ -59,6 +64,7 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
     registerTeamRoutes(app, { supabaseAdmin, requireAuth, realtimeBus });
     registerRetroRoutes(app, { supabaseAdmin, requireAuth });
     registerTemplateRoutes(app, { supabaseAdmin, requireAuth });
+    await registerMutationRoutes(app, { pool, registry: mutationRegistry, realtimeBus, requireAuth });
   }
 
   return app;

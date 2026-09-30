@@ -4,8 +4,8 @@ import type { FastifyInstance } from 'fastify';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { buildServer } from '../server.js';
 import type { AuthClaims } from '../auth/index.js';
-import type { RealtimeBus } from '../realtime/RealtimeBus.js';
 import { chain } from '../testUtils/supabaseChain.js';
+import { testAuthOptions } from '../testUtils/testAuth.js';
 import { hashJoinCode } from '../joinCode.js';
 
 let app: FastifyInstance | undefined;
@@ -17,7 +17,6 @@ afterEach(async () => {
 
 const claims: AuthClaims = { sub: '00000000-0000-4000-8000-000000000001', email: 'ada@example.com' };
 const AUTH_HEADER = { authorization: 'Bearer good-token' };
-const noopRealtimeBus = {} as RealtimeBus;
 
 function verifyAccessToken(token: string): Promise<AuthClaims> {
   if (token !== 'good-token') throw new Error('invalid token');
@@ -27,7 +26,7 @@ function verifyAccessToken(token: string): Promise<AuthClaims> {
 function buildWith(supabaseAdmin: SupabaseClient<Database>) {
   return buildServer({
     webOrigin: 'http://localhost:5173',
-    auth: { verifyAccessToken, supabaseAdmin, realtimeBus: noopRealtimeBus },
+    auth: testAuthOptions({ verifyAccessToken, supabaseAdmin }),
   });
 }
 

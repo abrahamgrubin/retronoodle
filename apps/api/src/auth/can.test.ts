@@ -33,6 +33,11 @@ describe('can — role x action matrix (Design 3.4, reconstructed for RN-005)', 
     ['retro.read', retroAsMember, true],
     ['retro.read', retroNonMember, false],
 
+    // retro.mutate: stubbed until RN-010's real phase-action matrix — any team member for now.
+    ['retro.mutate', retroAsAdmin, true],
+    ['retro.mutate', retroAsMember, true],
+    ['retro.mutate', retroNonMember, false],
+
     // retro.create: any team member (admin or plain member) may create a retro.
     ['retro.create', teamAdmin, true],
     ['retro.create', teamMember, true],

@@ -29,6 +29,7 @@ export type Action =
   | 'retro.create'
   | 'retro.read'
   | 'retro.manageJoinLink'
+  | 'retro.mutate'
   | 'template.read';
 
 /**
@@ -38,9 +39,10 @@ export type Action =
  *
  * This is a reconstruction of Design 3.4's action matrix from docs/stories.md, built up story
  * by story as routes need it (RN-005: team.*, retro.read; RN-006: retro.create,
- * retro.manageJoinLink) since the design doc itself isn't available here. Later stories add
- * more `Action` cases as they add the routes that need them (e.g. phase transitions,
- * retro.close) — this file, not inline checks in route handlers, is where those rules go.
+ * retro.manageJoinLink; RN-007: template.read; RN-008: retro.mutate) since the design doc
+ * itself isn't available here. Later stories add more `Action` cases as they add the routes
+ * that need them (e.g. phase transitions, retro.close) — this file, not inline checks in route
+ * handlers, is where those rules go.
  */
 export function can(user: CanUser, action: Action, resource: Resource): boolean {
   switch (action) {
@@ -56,6 +58,11 @@ export function can(user: CanUser, action: Action, resource: Resource): boolean 
       // Any team member may see the templates they can create a retro from (RN-007).
       return resource?.type === 'team' && resource.role !== null;
     case 'retro.read':
+      return resource?.type === 'retro' && resource.teamRole !== null;
+    case 'retro.mutate':
+      // Stubbed until RN-010 builds the real per-phase action matrix (Design 6.1) — for now
+      // every mutation type (RN-008: retro.mutate) is allowed for any team member, regardless
+      // of the retro's current phase.
       return resource?.type === 'retro' && resource.teamRole !== null;
     case 'retro.manageJoinLink':
       // Facilitator-only (RN-006): regenerating invalidates the link for everyone. Facilitator

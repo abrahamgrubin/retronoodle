@@ -4,8 +4,8 @@ import type { FastifyInstance } from 'fastify';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { buildServer } from '../server.js';
 import type { AuthClaims } from '../auth/index.js';
-import type { RealtimeBus } from '../realtime/RealtimeBus.js';
 import { chain } from '../testUtils/supabaseChain.js';
+import { testAuthOptions } from '../testUtils/testAuth.js';
 
 let app: FastifyInstance | undefined;
 
@@ -26,7 +26,7 @@ function verifyAccessToken(token: string): Promise<AuthClaims> {
 function buildWith(supabaseAdmin: SupabaseClient<Database>) {
   return buildServer({
     webOrigin: 'http://localhost:5173',
-    auth: { verifyAccessToken, supabaseAdmin, realtimeBus: {} as RealtimeBus },
+    auth: testAuthOptions({ verifyAccessToken, supabaseAdmin }),
   });
 }
 
