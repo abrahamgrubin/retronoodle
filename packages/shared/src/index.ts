@@ -4,3 +4,4 @@ export * from './db/index.js';
 export * from './auth.js';
 export * from './teams.js';
 export * from './retros.js';
+export * from './templates.js';

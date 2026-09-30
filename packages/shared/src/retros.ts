@@ -10,6 +10,9 @@ export const CreateRetroRequest = z.object({
 });
 export type CreateRetroRequest = z.infer<typeof CreateRetroRequest>;
 
+export const TemplateSource = z.enum(['builtin', 'custom']);
+export type TemplateSource = z.infer<typeof TemplateSource>;
+
 export const RetroResponse = z.object({
   id: z.string().uuid(),
   teamId: z.string().uuid(),
@@ -17,6 +20,7 @@ export const RetroResponse = z.object({
   phase: RetroPhase,
   facilitatorId: z.string().uuid(),
   templateId: z.string().uuid(),
+  templateSource: TemplateSource,
   createdAt: z.string(),
 });
 export type RetroResponse = z.infer<typeof RetroResponse>;

@@ -1,6 +1,13 @@
+import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { CreateRetroRequest, JoinResponse, RetroCreatedResponse, type Database } from '@retronoodle/shared';
+import {
+  CreateRetroRequest,
+  JoinResponse,
+  RetroCreatedResponse,
+  TemplateColumn,
+  type Database,
+} from '@retronoodle/shared';
 import { can } from '../auth/can.js';
 import { getTeamRole } from '../auth/membership.js';
 import { timezoneFromHeader, upsertProfile } from '../auth/profile.js';
@@ -18,6 +25,7 @@ type RetroRow = {
   phase: string;
   facilitator_id: string;
   template_id: string;
+  template_source: string;
   created_at: string;
 };
 
@@ -29,6 +37,7 @@ function toRetroCreatedResponse(retro: RetroRow, joinCode: string) {
     phase: retro.phase,
     facilitatorId: retro.facilitator_id,
     templateId: retro.template_id,
+    templateSource: retro.template_source,
     createdAt: retro.created_at,
     joinCode,
   });
@@ -58,12 +67,13 @@ export function registerRetroRoutes(app: FastifyInstance, deps: RetroRoutesDeps)
       // The template must be a built-in or belong to this team — not some other team's.
       const { data: template } = await supabaseAdmin
         .from('templates')
-        .select('id, team_id')
+        .select('id, team_id, source, columns')
         .eq('id', body.templateId)
         .maybeSingle();
       if (!template || (template.team_id !== null && template.team_id !== teamId)) {
         return reply.code(400).send({ error: 'invalid_template' });
       }
+      const templateColumns = TemplateColumn.array().parse(template.columns);
 
       const joinCode = generateJoinCode();
       const { data: retro, error } = await supabaseAdmin
@@ -73,6 +83,7 @@ export function registerRetroRoutes(app: FastifyInstance, deps: RetroRoutesDeps)
           team_id: teamId,
           facilitator_id: user.id,
           template_id: body.templateId,
+          template_source: template.source,
           name: body.name,
           join_code_hash: hashJoinCode(joinCode),
         })
@@ -80,6 +91,37 @@ export function registerRetroRoutes(app: FastifyInstance, deps: RetroRoutesDeps)
         .single();
       if (error || !retro) {
         request.log.error({ err: error }, 'failed to create retro');
+        return reply.code(500).send({ error: 'retro_create_failed' });
+      }
+
+      // Copy the template's columns onto the retro now, at creation (RN-007) — there's no
+      // phase-transition mechanism yet (that's RN-010), and a retro needs its columns from the
+      // moment it exists. Later template edits never touch this: it's a one-time copy, not a
+      // live reference. The code always appends one Action items column last; templates never
+      // store it themselves.
+      const columnsToInsert = [
+        ...templateColumns.map((column, index) => ({
+          id: randomUUID(),
+          retro_id: retro.id,
+          title: column.title,
+          prompt: column.prompt ?? null,
+          color: column.color,
+          kind: 'standard',
+          position: index,
+        })),
+        {
+          id: randomUUID(),
+          retro_id: retro.id,
+          title: 'Action items',
+          prompt: null,
+          color: 'blue',
+          kind: 'action_items',
+          position: templateColumns.length,
+        },
+      ];
+      const { error: columnsError } = await supabaseAdmin.from('retro_columns').insert(columnsToInsert);
+      if (columnsError) {
+        request.log.error({ err: columnsError }, 'failed to copy template columns onto retro');
         return reply.code(500).send({ error: 'retro_create_failed' });
       }
 

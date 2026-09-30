@@ -5,6 +5,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { createRequireAuth, timezoneFromHeader, upsertProfile, type VerifyAccessToken } from './auth/index.js';
 import { registerTeamRoutes } from './routes/teams.js';
 import { registerRetroRoutes } from './routes/retros.js';
+import { registerTemplateRoutes } from './routes/templates.js';
 import type { RealtimeBus } from './realtime/RealtimeBus.js';
 
 export interface ServerOptions {
@@ -57,6 +58,7 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
 
     registerTeamRoutes(app, { supabaseAdmin, requireAuth, realtimeBus });
     registerRetroRoutes(app, { supabaseAdmin, requireAuth });
+    registerTemplateRoutes(app, { supabaseAdmin, requireAuth });
   }
 
   return app;

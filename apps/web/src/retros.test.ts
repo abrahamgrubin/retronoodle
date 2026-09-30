@@ -8,6 +8,7 @@ const retro = {
   phase: 'setup' as const,
   facilitatorId: '00000000-0000-4000-8000-000000000003',
   templateId: '00000000-0000-4000-8000-000000000004',
+  templateSource: 'builtin' as const,
   createdAt: new Date().toISOString(),
   joinCode: 'abc123',
 };

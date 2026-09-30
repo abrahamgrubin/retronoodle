@@ -28,7 +28,8 @@ export type Action =
   | 'team.member.remove'
   | 'retro.create'
   | 'retro.read'
-  | 'retro.manageJoinLink';
+  | 'retro.manageJoinLink'
+  | 'template.read';
 
 /**
  * The one access-check function (CLAUDE.md: "Every access check goes through
@@ -50,6 +51,9 @@ export function can(user: CanUser, action: Action, resource: Resource): boolean 
     case 'team.member.remove':
       return resource?.type === 'team' && resource.role === 'admin';
     case 'retro.create':
+      return resource?.type === 'team' && resource.role !== null;
+    case 'template.read':
+      // Any team member may see the templates they can create a retro from (RN-007).
       return resource?.type === 'team' && resource.role !== null;
     case 'retro.read':
       return resource?.type === 'retro' && resource.teamRole !== null;

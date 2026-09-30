@@ -126,6 +126,7 @@ export interface Database {
           next_retro_at: string | null;
           is_demo: boolean;
           closed_with_override: boolean;
+          template_source: string;
           created_at: string;
           closed_at: string | null;
         };
@@ -144,6 +145,7 @@ export interface Database {
           next_retro_at?: string | null;
           is_demo?: boolean;
           closed_with_override?: boolean;
+          template_source: string;
           created_at?: string;
           closed_at?: string | null;
         };
@@ -162,6 +164,7 @@ export interface Database {
           next_retro_at?: string | null;
           is_demo?: boolean;
           closed_with_override?: boolean;
+          template_source?: string;
           created_at?: string;
           closed_at?: string | null;
         };

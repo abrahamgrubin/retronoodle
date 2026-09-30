@@ -6,15 +6,34 @@ import { fetchMe, signInWithGoogle, signOut } from './auth';
 import { supabase } from './supabaseClient';
 import { createTeam, fetchMyTeams } from './teams';
 import { createRetro } from './retros';
+import { fetchTeamTemplates } from './templates';
 
-// Start/Stop/Continue from supabase/seed.sql. Placeholder until RN-007 builds the real template
-// picker — RN-006 only needs *a* valid templateId to prove retro creation and the join link.
-const DEFAULT_TEMPLATE_ID = '00000000-0000-4000-8000-0000000000e1';
+const ACTION_ITEMS_COLOR = 'blue'; // always appended last by the API; never stored on a template.
+
+function ColumnPreviewDots({ columns }: { columns: { title: string; color: string }[] }) {
+  const dots = [...columns, { title: 'Action items', color: ACTION_ITEMS_COLOR }];
+  return (
+    <span style={{ display: 'inline-flex', gap: 4 }}>
+      {dots.map((col, index) => (
+        <span
+          key={`${col.title}-${index}`}
+          title={col.title}
+          style={{ width: 10, height: 10, borderRadius: '50%', background: col.color, display: 'inline-block' }}
+        />
+      ))}
+    </span>
+  );
+}
 
 function RetroCreator({ accessToken, teamId }: { accessToken: string; teamId: string }) {
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [retroName, setRetroName] = useState('');
+  const templates = useQuery({
+    queryKey: ['templates', teamId, accessToken],
+    queryFn: () => fetchTeamTemplates(accessToken, teamId),
+  });
   const create = useMutation({
-    mutationFn: (name: string) => createRetro(accessToken, teamId, name, DEFAULT_TEMPLATE_ID),
+    mutationFn: (name: string) => createRetro(accessToken, teamId, name, selectedTemplateId as string),
   });
 
   if (create.isSuccess) {
@@ -28,20 +47,48 @@ function RetroCreator({ accessToken, teamId }: { accessToken: string; teamId: st
     );
   }
 
+  if (templates.isPending) return <p>Loading templates…</p>;
+  if (templates.isError) return <p>Failed to load templates.</p>;
+
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        if (retroName.trim()) create.mutate(retroName.trim());
+        if (selectedTemplateId && retroName.trim()) create.mutate(retroName.trim());
       }}
     >
+      <p>Pick a template:</p>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+        {templates.data.map((template) => (
+          <label
+            key={template.id}
+            style={{
+              border: selectedTemplateId === template.id ? '2px solid #3366ff' : '1px solid #ccc',
+              borderRadius: 6,
+              padding: 8,
+              cursor: 'pointer',
+            }}
+          >
+            <input
+              type="radio"
+              name="template"
+              checked={selectedTemplateId === template.id}
+              onChange={() => setSelectedTemplateId(template.id)}
+            />{' '}
+            <strong>{template.name}</strong>
+            <div style={{ marginTop: 4 }}>
+              <ColumnPreviewDots columns={template.columns} />
+            </div>
+          </label>
+        ))}
+      </div>
       <input
         value={retroName}
         onChange={(e) => setRetroName(e.target.value)}
         placeholder="Retro name"
         disabled={create.isPending}
       />
-      <button type="submit" disabled={create.isPending || !retroName.trim()}>
+      <button type="submit" disabled={create.isPending || !selectedTemplateId || !retroName.trim()}>
         Create a retro
       </button>
     </form>

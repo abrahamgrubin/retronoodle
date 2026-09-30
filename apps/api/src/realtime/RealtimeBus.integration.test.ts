@@ -80,6 +80,7 @@ describe.skipIf(!hasLiveSupabase)('RealtimeBus against a live Supabase project (
         team_id: teamId,
         facilitator_id: memberId,
         template_id: template.id,
+        template_source: 'builtin',
         name: 'RN-004 spike retro',
         join_code_hash: randomUUID(),
       });
