@@ -64,6 +64,21 @@ export function registerRetroRoutes(app: FastifyInstance, deps: RetroRoutesDeps)
 
       const body = CreateRetroRequest.parse(request.body);
 
+      // A retro never sits in `setup` (RN-010): it starts in Review if the team has carried-over
+      // action items still open, and Write otherwise — "Review is skipped automatically when the
+      // team has no open or in-progress items."
+      const { data: carriedItems, error: carriedItemsError } = await supabaseAdmin
+        .from('action_items')
+        .select('id')
+        .eq('team_id', teamId)
+        .in('status', ['open', 'in_progress'])
+        .limit(1);
+      if (carriedItemsError) {
+        request.log.error({ err: carriedItemsError }, 'failed to check for carried-over action items');
+        return reply.code(500).send({ error: 'retro_create_failed' });
+      }
+      const initialPhase = (carriedItems?.length ?? 0) > 0 ? 'review' : 'write';
+
       // The template must be a built-in or belong to this team — not some other team's.
       const { data: template } = await supabaseAdmin
         .from('templates')
@@ -85,6 +100,7 @@ export function registerRetroRoutes(app: FastifyInstance, deps: RetroRoutesDeps)
           template_id: body.templateId,
           template_source: template.source,
           name: body.name,
+          phase: initialPhase,
           join_code_hash: hashJoinCode(joinCode),
         })
         .select()

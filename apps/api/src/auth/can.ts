@@ -36,6 +36,7 @@ export type Action =
   | 'retro.read'
   | 'retro.manageJoinLink'
   | 'retro.mutate'
+  | 'retro.transitionPhase'
   | 'template.read'
   | 'card.edit'
   | 'card.delete';
@@ -68,13 +69,16 @@ export function can(user: CanUser, action: Action, resource: Resource): boolean 
     case 'retro.read':
       return resource?.type === 'retro' && resource.teamRole !== null;
     case 'retro.mutate':
-      // Stubbed until RN-010 builds the real per-phase action matrix (Design 6.1) — for now
-      // every mutation type (RN-008: retro.mutate) is allowed for any team member, regardless
-      // of the retro's current phase.
+      // Whether the caller may attempt a mutation at all (team membership). Which mutation
+      // *types* the retro's current phase allows is a separate check (RN-010's allowedActions,
+      // enforced in the pipeline via each MutationTypeDef's phaseCheck) — not a role question,
+      // so it doesn't belong in can().
       return resource?.type === 'retro' && resource.teamRole !== null;
     case 'retro.manageJoinLink':
-      // Facilitator-only (RN-006): regenerating invalidates the link for everyone. Facilitator
-      // isn't a stored role (see RetroResource) — it's just facilitatorId === user.id.
+    case 'retro.transitionPhase':
+      // Facilitator-only (RN-006 join link; RN-010 phase.next/back/skip — "only the facilitator
+      // may send"). Facilitator isn't a stored role (see RetroResource) — it's just
+      // facilitatorId === user.id.
       return resource?.type === 'retro' && resource.facilitatorId === user.id;
     case 'card.edit':
     case 'card.delete':

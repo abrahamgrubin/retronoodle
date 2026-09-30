@@ -6,7 +6,7 @@ const columnId = '00000000-0000-4000-8000-000000000001';
 const cardId = '00000000-0000-4000-8000-000000000002';
 const authorId = '00000000-0000-4000-8000-000000000003';
 
-const emptyBoard: BoardState = { columns: [], cards: [] };
+const emptyBoard: BoardState = { phase: 'write', columns: [], cards: [] };
 
 function createEvent(overrides: Partial<Record<string, unknown>> = {}): RetroEvent {
   return {
@@ -61,5 +61,13 @@ describe('reduceBoard', () => {
     const board = reduceBoard(emptyBoard, createEvent());
     const unchanged = reduceBoard(board, { seq: 2, type: 'unknown.thing', payload: {} });
     expect(unchanged).toBe(board);
+  });
+
+  it('phase.next, phase.skip and phase.back all just adopt the broadcast target phase', () => {
+    for (const type of ['phase.next', 'phase.skip', 'phase.back']) {
+      const board = reduceBoard(emptyBoard, { seq: 1, type, payload: { phase: 'group' } });
+      expect(board.phase).toBe('group');
+      expect(board.columns).toBe(emptyBoard.columns); // untouched
+    }
   });
 });
