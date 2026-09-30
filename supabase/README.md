@@ -4,16 +4,33 @@ Supabase CLI migrations, seed data and RLS policies.
 
 - `migrations/` — the v0.1 schema (RN-002): profiles, teams, retros, cards, topics, votes,
   action items and the ordered event log behind the mutation pipeline. Every table has row
-  level security enabled with no policies. The API and worker connect with the service role
-  key, which bypasses RLS; browsers never write to Postgres directly.
+  level security enabled with no policies, except the Realtime listen policy on
+  `realtime.messages` (RN-004, Design 4.9) that lets a retro's team members and a user's own
+  private channel subscribe. The API and worker connect with the service role key, which
+  bypasses RLS; browsers never write to Postgres directly.
 - `seed.sql` — a local-dev-only Demo Team and the 4 built-in templates.
 - `tests/schema-checks.sh` — run after `supabase db reset` to check the anon role reads zero
   rows from every table and that `retro_events` rejects a duplicate `(retro_id, seq)`.
-- `realtime/listen_policy.sql` — the Realtime listen policy from Design 4.9 (lets a retro's
-  team members and a user's own private channel subscribe). **Not a migration**: applying it
-  fails with `must be owner of table messages` on both a fresh local stack and a hosted
-  project, since `realtime.messages` is owned by `supabase_realtime_admin` and `postgres` isn't
-  a member of that role. RN-004 is the spike that finds a mechanism that actually works.
+
+**A note on the Realtime listen policy migration**: an earlier version of it included
+`alter table realtime.messages enable row level security`, which fails with
+`must be owner of table messages` — `realtime.messages` is owned by `supabase_realtime_admin`,
+and Postgres checks ownership before checking whether a setting would even change, so the ALTER
+fails even though RLS is already on by default. The `create policy` statements work fine on
+their own: Supabase's `supautils` extension grants `postgres` elevated policy-operation rights
+on that specific table without owning it. See
+[Supabase's troubleshooting doc](https://supabase.com/docs/guides/troubleshooting/realtime-must-be-owner-of-table-messages)
+if this resurfaces.
+
+**A second gotcha, found live (RN-004)**: a policy's `USING` clause runs as the connecting
+client's own role (`authenticated`), not as `postgres` — so a plain subquery against
+`public.retros`/`public.team_members` inside the retro-channel policy saw nothing and silently
+rejected every subscriber, including legitimate team members, since those tables have their own
+deny-all RLS for every role but `service_role`. The fix is `public.is_retro_team_member()`, a
+`SECURITY DEFINER` function (owned by `postgres`, which bypasses RLS) that the policy calls
+instead of querying those tables directly. Verified against a real hosted project with real
+signed-in users: a team member subscribes successfully, an outsider cannot — see
+`apps/api/src/realtime/RealtimeBus.integration.test.ts`.
 
 ## Local development
 

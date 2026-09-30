@@ -24,9 +24,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - uses: supabase/setup-cli@v1
         with:
           version: latest
       - run: supabase start
       - run: supabase db reset
       - run: ./supabase/tests/schema-checks.sh postgresql://postgres:postgres@127.0.0.1:54322/postgres
+      - name: Export local Supabase credentials (RN-004 Realtime integration test)
+        run: |
+          supabase status -o env
+          supabase status -o env | grep -E '^(API_URL|ANON_KEY|SERVICE_ROLE_KEY)=' | sed \
+            -e 's/^API_URL=/SUPABASE_URL=/' \
+            -e 's/^ANON_KEY=/SUPABASE_ANON_KEY=/' \
+            -e 's/^SERVICE_ROLE_KEY=/SUPABASE_SERVICE_ROLE_KEY=/' >> "$GITHUB_ENV"
+      - run: pnpm --filter @retronoodle/api exec vitest run src/realtime/RealtimeBus.integration.test.ts
