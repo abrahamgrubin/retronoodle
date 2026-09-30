@@ -10,6 +10,7 @@ describe('generated db types resolve through @retronoodle/shared', () => {
       template_id: '00000000-0000-0000-0000-000000000004',
       name: 'Sprint 12 retro',
       phase: 'write',
+      template_source: 'builtin',
       join_code_hash: 'hash',
       cards_revealed: false,
       vote_budget: 3,

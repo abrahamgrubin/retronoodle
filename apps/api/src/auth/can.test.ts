@@ -38,6 +38,11 @@ describe('can — role x action matrix (Design 3.4, reconstructed for RN-005)', 
     ['retro.create', teamMember, true],
     ['retro.create', teamNonMember, false],
 
+    // template.read: any team member may see the templates they can create a retro from.
+    ['template.read', teamAdmin, true],
+    ['template.read', teamMember, true],
+    ['template.read', teamNonMember, false],
+
     // retro.manageJoinLink: facilitator only — team admin doesn't get a pass, only whoever
     // facilitates this specific retro.
     ['retro.manageJoinLink', retroAsFacilitator, true],

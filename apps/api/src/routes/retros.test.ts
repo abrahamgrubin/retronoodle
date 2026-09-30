@@ -44,14 +44,23 @@ describe('POST /teams/:teamId/retros', () => {
       phase: 'setup',
       facilitator_id: claims.sub,
       template_id: templateId,
+      template_source: 'builtin',
       created_at: new Date().toISOString(),
     };
     const retroCalls: unknown[][] = [];
+    const columnsCalls: unknown[][] = [];
+    const templateColumns = [
+      { title: 'Start', prompt: 'What should we start?', color: 'green' },
+      { title: 'Stop', prompt: 'What should we stop?', color: 'pink' },
+    ];
     const supabaseAdmin = {
       from(table: string) {
         if (table === 'team_members') return chain({ data: { role: 'member' }, error: null });
-        if (table === 'templates') return chain({ data: { id: templateId, team_id: null }, error: null });
+        if (table === 'templates') {
+          return chain({ data: { id: templateId, team_id: null, source: 'builtin', columns: templateColumns }, error: null });
+        }
         if (table === 'retros') return chain({ data: retroRow, error: null }, retroCalls);
+        if (table === 'retro_columns') return chain({ data: null, error: null }, columnsCalls);
         throw new Error(`unexpected table ${table}`);
       },
     } as unknown as SupabaseClient<Database>;
@@ -72,8 +81,29 @@ describe('POST /teams/:teamId/retros', () => {
     expect(body.joinCode.length).toBeGreaterThan(0);
     expect(retroCalls[0]).toMatchObject([
       'insert',
-      { id: retroId, team_id: teamId, facilitator_id: claims.sub, template_id: templateId, name: 'Sprint 1 retro' },
+      {
+        id: retroId,
+        team_id: teamId,
+        facilitator_id: claims.sub,
+        template_id: templateId,
+        template_source: 'builtin',
+        name: 'Sprint 1 retro',
+      },
     ]);
+
+    // The template's columns are copied in order, plus one Action items column appended last —
+    // never stored on the template itself (RN-007).
+    const insertedColumns = columnsCalls[0]?.[1] as Array<Record<string, unknown>>;
+    expect(insertedColumns).toHaveLength(3);
+    expect(insertedColumns[0]).toMatchObject({ retro_id: retroId, title: 'Start', color: 'green', kind: 'standard', position: 0 });
+    expect(insertedColumns[1]).toMatchObject({ retro_id: retroId, title: 'Stop', color: 'pink', kind: 'standard', position: 1 });
+    expect(insertedColumns[2]).toMatchObject({
+      retro_id: retroId,
+      title: 'Action items',
+      color: 'blue',
+      kind: 'action_items',
+      position: 2,
+    });
   });
 
   it('a non-member gets 403', async () => {
@@ -127,6 +157,7 @@ describe('POST /retros/:id/join-link/regenerate', () => {
       phase: 'setup',
       facilitator_id: facilitatorId,
       template_id: '00000000-0000-4000-8000-0000000000e1',
+      template_source: 'builtin',
       created_at: new Date().toISOString(),
     };
   }
