@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
-import { createTokenVerifier } from './auth.js';
+import { createTokenVerifier } from './token.js';
 
 const SUPABASE_URL = 'https://test.supabase.co';
 const KID = 'test-key';
@@ -63,8 +63,16 @@ describe('createTokenVerifier', () => {
   it('rejects a tampered token', async () => {
     const verify = createTokenVerifier(SUPABASE_URL);
     const token = await signToken();
-    const lastChar = token.at(-1);
-    const tampered = token.slice(0, -1) + (lastChar === 'a' ? 'b' : 'a');
+
+    // Flip the *first* character of the signature segment, not the last: a base64url group's
+    // trailing character can have decoder-ignored padding bits (ES256 signatures are 64 bytes,
+    // and 64 mod 3 == 1, so the last character's low bits are exactly that padding) — flipping
+    // it is sometimes a no-op after decode, depending on the random key generated each run
+    // (flaky in CI). The first character of a group is always fully significant.
+    const [header, payload, signature] = token.split('.');
+    const tamperedFirstChar = signature?.at(0) === 'a' ? 'b' : 'a';
+    const tampered = `${header}.${payload}.${tamperedFirstChar}${signature?.slice(1)}`;
+
     await expect(verify(tampered)).rejects.toThrow();
   });
 });

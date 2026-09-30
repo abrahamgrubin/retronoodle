@@ -3,7 +3,10 @@ import { HealthResponse, MeResponse, type Database } from '@retronoodle/shared';
 import type { FastifyInstance } from 'fastify';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { buildServer, type ServerOptions } from './server.js';
-import type { AuthClaims } from './auth.js';
+import type { AuthClaims } from './auth/index.js';
+import type { RealtimeBus } from './realtime/RealtimeBus.js';
+
+const noopRealtimeBus = { broadcastRetro: async () => {}, broadcastUser: async () => {} } as unknown as RealtimeBus;
 
 let app: FastifyInstance | undefined;
 
@@ -84,6 +87,7 @@ describe('GET /me', () => {
         return claims;
       },
       supabaseAdmin,
+      realtimeBus: noopRealtimeBus,
     };
 
     return { upsertCalls, build: () => buildServer({ webOrigin: 'http://localhost:5173', auth }) };

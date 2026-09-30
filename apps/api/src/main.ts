@@ -2,8 +2,9 @@ import { startWorker } from '@retronoodle/worker';
 import { loadDotEnv, readConfig } from './config.js';
 import { startProcess } from './process.js';
 import { buildServer, type ServerOptions } from './server.js';
-import { createTokenVerifier } from './auth.js';
+import { createTokenVerifier } from './auth/index.js';
 import { createSupabaseAdmin } from './supabaseAdmin.js';
+import { RealtimeBus } from './realtime/RealtimeBus.js';
 
 loadDotEnv();
 const config = readConfig();
@@ -17,9 +18,11 @@ const running = await startProcess(config.role, {
   async startApi() {
     let auth: ServerOptions['auth'];
     if (config.supabaseUrl && config.supabaseServiceRoleKey) {
+      const supabaseAdmin = createSupabaseAdmin(config.supabaseUrl, config.supabaseServiceRoleKey);
       auth = {
         verifyAccessToken: createTokenVerifier(config.supabaseUrl),
-        supabaseAdmin: createSupabaseAdmin(config.supabaseUrl, config.supabaseServiceRoleKey),
+        supabaseAdmin,
+        realtimeBus: new RealtimeBus(supabaseAdmin),
       };
     } else if (config.isProduction) {
       throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required to start the API.');
