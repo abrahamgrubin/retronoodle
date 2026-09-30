@@ -1,12 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
-import type { Session } from '@supabase/supabase-js';
+import { useState } from 'react';
 import { fetchHealth } from './api';
 import { fetchMe, signInWithGoogle, signOut } from './auth';
 import { supabase } from './supabaseClient';
 import { createTeam, fetchMyTeams } from './teams';
 import { createRetro } from './retros';
 import { fetchTeamTemplates } from './templates';
+import { useSession } from './useSession';
 
 const ACTION_ITEMS_COLOR = 'blue'; // always appended last by the API; never stored on a template.
 
@@ -40,8 +40,9 @@ function RetroCreator({ accessToken, teamId }: { accessToken: string; teamId: st
     const joinUrl = `${window.location.origin}/join/${create.data.joinCode}`;
     return (
       <p>
-        Created <strong>{create.data.name}</strong>. Join link:{' '}
-        <input readOnly value={joinUrl} onFocus={(e) => e.target.select()} style={{ width: 320 }} />{' '}
+        Created <strong>{create.data.name}</strong>. <a href={`/retros/${create.data.id}`}>Go to the board</a>
+        <br />
+        Join link: <input readOnly value={joinUrl} onFocus={(e) => e.target.select()} style={{ width: 320 }} />{' '}
         <button onClick={() => void navigator.clipboard.writeText(joinUrl)}>Copy</button>
       </p>
     );
@@ -148,16 +149,7 @@ function TeamsPanel({ accessToken }: { accessToken: string }) {
 
 export function App() {
   const health = useQuery({ queryKey: ['health'], queryFn: () => fetchHealth() });
-  const [session, setSession] = useState<Session | null>(null);
-
-  useEffect(() => {
-    if (!supabase) return;
-    supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, newSession) => setSession(newSession));
-    return () => subscription.unsubscribe();
-  }, []);
+  const session = useSession();
 
   const accessToken = session?.access_token;
   const me = useQuery({

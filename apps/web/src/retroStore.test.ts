@@ -53,6 +53,21 @@ describe('retroStore — applyServerEvent', () => {
     expect(store.getState().board).toEqual(['test.append:a']);
     expect(store.getState().lastAppliedSeq).toBe(1);
   });
+
+  it('starts from a given initialSeq (RN-009: a board snapshot already reflects everything up to its own seq)', () => {
+    const store = createRetroStore<string[]>({
+      initialBoard: ['snapshot:preloaded'],
+      initialSeq: 5,
+      reduce: (board, e) => [...board, `${e.type}:${e.payload}`],
+    });
+
+    store.getState().applyServerEvent(event(5, 'already-in-snapshot'));
+    expect(store.getState().board).toEqual(['snapshot:preloaded']); // ignored, not re-applied
+
+    store.getState().applyServerEvent(event(6, 'new'));
+    expect(store.getState().board).toEqual(['snapshot:preloaded', 'test.append:new']);
+    expect(store.getState().lastAppliedSeq).toBe(6);
+  });
 });
 
 describe('retroStore — sendMutation', () => {

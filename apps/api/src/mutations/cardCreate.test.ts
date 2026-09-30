@@ -19,7 +19,8 @@ function fakeClient(columnExists: boolean, lastPosition: string | null) {
     rows: [{ column_id: columnExists ? columnId : null, last_position: lastPosition }],
   }); // combined column-ownership + last-position lookup
   if (columnExists) {
-    query.mockResolvedValueOnce({ rows: [] }); // insert
+    // pg's driver returns Date objects for timestamptz columns, not strings.
+    query.mockResolvedValueOnce({ rows: [{ created_at: new Date('2026-01-01T00:00:00.000Z'), updated_at: new Date('2026-01-01T00:00:00.000Z') }] }); // insert
   }
   return { query } as unknown as PoolClient;
 }

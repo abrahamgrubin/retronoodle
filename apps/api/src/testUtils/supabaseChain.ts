@@ -15,6 +15,8 @@ export function chain(terminal: { data?: unknown; error?: unknown }, calls: unkn
     eq: record('eq'),
     in: record('in'),
     or: record('or'),
+    order: record('order'),
+    limit: record('limit'),
     insert: record('insert'),
     update: record('update'),
     upsert: record('upsert'),

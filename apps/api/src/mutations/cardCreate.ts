@@ -4,9 +4,9 @@ import type { MutationTypeDef } from './registry.js';
 import { MutationRejected } from './errors.js';
 
 /**
- * card.create (RN-008). Position is a fractional text sort key (RN-014 will reuse the same
- * scheme for drag-and-drop): there's no GET /retros/:id/board yet for the client to know the
- * column's existing cards, so the server appends after whatever currently sorts last.
+ * card.create (RN-008, extended by RN-009). Position is a fractional text sort key (RN-014 will
+ * reuse the same scheme for drag-and-drop) — appends after whatever currently sorts last in the
+ * column, since there's no per-client ordering state to insert relative to on create.
  *
  * The column-ownership check and the last-position lookup are independent reads, combined into
  * one round trip (every query here is extra latency against the 500ms end-to-end budget the
@@ -28,17 +28,26 @@ export const cardCreateMutation: MutationTypeDef<CardCreatePayload> = {
 
     const position = generateKeyBetween(row.last_position, null);
 
-    await client.query(
-      'insert into cards (id, retro_id, column_id, author_id, body, position) values ($1, $2, $3, $4, $5, $6)',
+    // node-postgres parses timestamptz columns into Date objects (unlike PostgREST, which hands
+    // back ISO strings elsewhere in this app) — .toISOString() keeps this result's shape
+    // consistent with BoardCard's.
+    const inserted = await client.query<{ created_at: Date; updated_at: Date }>(
+      `insert into cards (id, retro_id, column_id, author_id, body, position)
+       values ($1, $2, $3, $4, $5, $6)
+       returning created_at, updated_at`,
       [payload.cardId, retro.id, payload.columnId, user.id, payload.body, position],
     );
+    const { created_at, updated_at } = inserted.rows[0]!;
 
     return CardCreateResult.parse({
       id: payload.cardId,
       columnId: payload.columnId,
       authorId: user.id,
+      authorName: user.displayName,
       body: payload.body,
       position,
+      createdAt: created_at.toISOString(),
+      updatedAt: updated_at.toISOString(),
     });
   },
 };

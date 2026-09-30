@@ -30,6 +30,10 @@ export interface RetroStoreState<TBoard> {
 
 export interface CreateRetroStoreOptions<TBoard> {
   initialBoard: TBoard;
+  /** The seq the initial board snapshot is current as of (RN-009's GET /retros/:id/board
+   * returns this) — events at or below it are already reflected in `initialBoard` and must be
+   * ignored, not buffered or re-applied. Defaults to 0 (an empty board with nothing applied yet). */
+  initialSeq?: number;
   /** Folds one confirmed server event into the board. Supplied by the consumer (RN-009+ for the
    * real card/column shape) — this file has no opinion on what a "board" contains. */
   reduce: (board: TBoard, event: RetroEvent) => TBoard;
@@ -38,12 +42,12 @@ export interface CreateRetroStoreOptions<TBoard> {
 export function createRetroStore<TBoard>(
   options: CreateRetroStoreOptions<TBoard>,
 ): UseBoundStore<StoreApi<RetroStoreState<TBoard>>> {
-  const { initialBoard, reduce } = options;
+  const { initialBoard, initialSeq = 0, reduce } = options;
   const buffered = new Map<number, RetroEvent>();
 
   return create<RetroStoreState<TBoard>>((set, get) => ({
     board: initialBoard,
-    lastAppliedSeq: 0,
+    lastAppliedSeq: initialSeq,
     lastError: null,
 
     applyServerEvent: (event) => {

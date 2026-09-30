@@ -1,24 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
-import type { Session } from '@supabase/supabase-js';
 import { signInWithGoogle } from './auth';
 import { supabase } from './supabaseClient';
 import { JoinError, joinRetro } from './retros';
+import { useSession } from './useSession';
 
 /** GET a join link (RN-006): if not signed in, sign in with Google first (redirectTo brings the
  * user right back here); then call the API, which adds them to the team and retro. */
 export function JoinPage({ code }: { code: string }) {
-  const [session, setSession] = useState<Session | null>(null);
-
-  useEffect(() => {
-    if (!supabase) return;
-    supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, newSession) => setSession(newSession));
-    return () => subscription.unsubscribe();
-  }, []);
-
+  const session = useSession();
   const accessToken = session?.access_token;
   const join = useQuery({
     queryKey: ['join', code, accessToken],
@@ -45,10 +34,9 @@ export function JoinPage({ code }: { code: string }) {
     return <p>{message}</p>;
   }
 
-  // Lands the caller as a team member; the board itself is RN-009+.
   return (
     <p>
-      Joined <strong>{join.data.name}</strong>.
+      Joined <strong>{join.data.name}</strong>. <a href={`/retros/${join.data.retroId}`}>Go to the board</a>
     </p>
   );
 }
