@@ -91,6 +91,10 @@ describe('POST /teams/:teamId/retros', () => {
         phase: 'write',
       },
     ]);
+    // RN-012: starts its countdown immediately, using Write's own default (5 minutes) — not
+    // asserting the exact value (that's phaseDeadline.test.ts's job), just that it's set at all.
+    const insertedRetro = retroCalls[0]?.[1] as Record<string, unknown>;
+    expect(typeof insertedRetro.phase_deadline).toBe('string');
 
     // The template's columns are copied in order, plus one Action items column appended last —
     // never stored on the template itself (RN-007).

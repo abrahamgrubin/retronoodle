@@ -35,6 +35,7 @@ const retroRow = {
   name: 'Sprint 1 retro',
   phase: 'write',
   cards_revealed: false,
+  phase_deadline: '2026-01-01T00:05:00.000Z',
   created_at: new Date().toISOString(),
 };
 
@@ -82,7 +83,14 @@ describe('GET /retros/:id/board', () => {
     const res = await app.inject({ method: 'GET', url: `/retros/${retroId}/board`, headers: AUTH_HEADER });
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body.retro).toMatchObject({ id: retroId, name: 'Sprint 1 retro', phase: 'write', cardsRevealed: false });
+    expect(body.retro).toMatchObject({
+      id: retroId,
+      name: 'Sprint 1 retro',
+      phase: 'write',
+      cardsRevealed: false,
+      phaseDeadline: '2026-01-01T00:05:00.000Z',
+    });
+    expect(typeof body.serverTime).toBe('string');
     expect(body.columns).toEqual([
       { id: columnRow.id, title: 'Start', prompt: 'p', color: 'green', kind: 'standard', position: 0 },
     ]);

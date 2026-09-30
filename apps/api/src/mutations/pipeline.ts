@@ -24,6 +24,7 @@ interface LockAndCheckRow {
   facilitator_id: string;
   phase: string;
   cards_revealed: boolean;
+  phase_deadline: Date | null;
   team_role: TeamRole | null;
   existing_seq: number | null;
   existing_payload: StoredEventPayload | null;
@@ -74,7 +75,7 @@ export async function processMutation(deps: {
     try {
       const lockResult = await client.query<LockAndCheckRow>(
         `with locked as (
-           select id, team_id, facilitator_id, phase, cards_revealed
+           select id, team_id, facilitator_id, phase, cards_revealed, phase_deadline
            from retros
            where id = $1
            for update
@@ -105,6 +106,8 @@ export async function processMutation(deps: {
         facilitator_id: row.facilitator_id,
         phase: row.phase,
         cards_revealed: row.cards_revealed,
+        // node-postgres parses timestamptz into a Date, not a string (same note as cardCreate.ts).
+        phase_deadline: row.phase_deadline ? row.phase_deadline.toISOString() : null,
       };
       if (!can(user, 'retro.mutate', { type: 'retro', teamRole: row.team_role, facilitatorId: retro.facilitator_id })) {
         throw new MutationRejected(403, 'forbidden', 'Not allowed to mutate this retro');

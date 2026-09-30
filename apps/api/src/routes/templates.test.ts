@@ -57,6 +57,9 @@ describe('GET /teams/:teamId/templates', () => {
     expect(body).toHaveLength(1);
     expect(body[0]).toMatchObject({ name: 'Start / Stop / Continue', source: 'builtin' });
     expect(body[0].columns).toEqual([{ title: 'Start', prompt: 'p', color: 'green' }]);
+    // RN-012: the global serverTime hook (server.ts) skips array-shaped responses rather than
+    // corrupting them — this route returns a bare array.
+    expect(Array.isArray(body)).toBe(true);
   });
 
   it('a non-member gets 403', async () => {

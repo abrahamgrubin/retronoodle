@@ -52,9 +52,16 @@ export const BoardResponse = z.object({
     // RN-011: whether the facilitator has revealed Write-phase cards. Only matters while still
     // in Write — every later phase shows full cards regardless.
     cardsRevealed: z.boolean(),
+    // RN-012: when the current phase's countdown ends; null for a phase with no timer (setup,
+    // closed). Broadcast fresh on every phase transition and on phase.extend.
+    phaseDeadline: z.string().nullable(),
   }),
   columns: z.array(BoardColumn),
   cards: z.array(BoardCard),
   seq: z.number().int().nonnegative(),
+  // RN-012: "every API response includes serverTime" — the client compares this to its own
+  // clock once, at load, to get a stable offset, then counts the phase timer down locally
+  // against that offset rather than trusting its own clock or polling the server every second.
+  serverTime: z.string(),
 });
 export type BoardResponse = z.infer<typeof BoardResponse>;

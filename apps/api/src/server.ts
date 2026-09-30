@@ -32,6 +32,19 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
 
   await app.register(cors, { origin: options.webOrigin });
 
+  // RN-012: "every API response includes serverTime" — added once here rather than in each
+  // route, so nothing can forget it. Object-shaped payloads only: a handful of routes (e.g. GET
+  // /teams/:teamId/templates) return a bare array, and spreading a field onto an array would
+  // corrupt it rather than annotate it. GET /retros/:id/board sets its own serverTime explicitly
+  // (see board.ts) since the client's clock-offset calculation depends on that one specifically;
+  // this hook's copy there is redundant but harmless.
+  app.addHook('preSerialization', async (_request, _reply, payload: unknown) => {
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+      return { ...payload, serverTime: new Date().toISOString() };
+    }
+    return payload;
+  });
+
   app.get('/health', async (): Promise<HealthResponse> => {
     return HealthResponse.parse({ ok: true, time: new Date().toISOString() });
   });

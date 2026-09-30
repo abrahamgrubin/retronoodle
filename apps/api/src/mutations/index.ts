@@ -9,6 +9,7 @@ import { cardDeleteMutation } from './cardDelete.js';
 import { phaseNextMutation } from './phaseNext.js';
 import { phaseBackMutation } from './phaseBack.js';
 import { cardsRevealMutation } from './cardsReveal.js';
+import { phaseExtendMutation } from './phaseExtend.js';
 
 export function createDefaultMutationRegistry(): MutationRegistry {
   const registry = new MutationRegistry();
@@ -21,5 +22,6 @@ export function createDefaultMutationRegistry(): MutationRegistry {
   registry.register('phase.skip', phaseNextMutation);
   registry.register('phase.back', phaseBackMutation);
   registry.register('cards.reveal', cardsRevealMutation);
+  registry.register('phase.extend', phaseExtendMutation);
   return registry;
 }

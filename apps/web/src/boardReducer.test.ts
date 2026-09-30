@@ -6,7 +6,7 @@ const columnId = '00000000-0000-4000-8000-000000000001';
 const cardId = '00000000-0000-4000-8000-000000000002';
 const authorId = '00000000-0000-4000-8000-000000000003';
 
-const emptyBoard: BoardState = { phase: 'write', cardsRevealed: false, columns: [], cards: [] };
+const emptyBoard: BoardState = { phase: 'write', cardsRevealed: false, phaseDeadline: null, columns: [], cards: [] };
 
 function createEvent(overrides: Partial<Record<string, unknown>> = {}): RetroEvent {
   return {
@@ -63,12 +63,19 @@ describe('reduceBoard', () => {
     expect(unchanged).toBe(board);
   });
 
-  it('phase.next, phase.skip and phase.back all just adopt the broadcast target phase', () => {
+  it('phase.next, phase.skip and phase.back all just adopt the broadcast target phase and deadline', () => {
     for (const type of ['phase.next', 'phase.skip', 'phase.back']) {
-      const board = reduceBoard(emptyBoard, { seq: 1, type, payload: { phase: 'group' } });
+      const board = reduceBoard(emptyBoard, { seq: 1, type, payload: { phase: 'group', phaseDeadline: '2026-01-01T00:05:00.000Z' } });
       expect(board.phase).toBe('group');
+      expect(board.phaseDeadline).toBe('2026-01-01T00:05:00.000Z');
       expect(board.columns).toBe(emptyBoard.columns); // untouched
     }
+  });
+
+  it('phase.extend updates only the deadline, leaving the phase itself untouched', () => {
+    const board = reduceBoard(emptyBoard, { seq: 1, type: 'phase.extend', payload: { phaseDeadline: '2026-01-01T00:07:00.000Z' } });
+    expect(board.phase).toBe('write');
+    expect(board.phaseDeadline).toBe('2026-01-01T00:07:00.000Z');
   });
 
   describe('RN-011: hidden cards', () => {

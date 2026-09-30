@@ -5,6 +5,7 @@ import {
   allowedActions,
   footerHint,
   nextPhase,
+  phaseDurationMinutes,
   phaseSubtitle,
   previousPhase,
   type BoardResponse,
@@ -14,6 +15,7 @@ import {
 import { signInWithGoogle } from './auth';
 import { fetchBoard } from './board';
 import { reduceBoard, type BoardState } from './boardReducer';
+import { computeClockOffsetMs, formatCountdown, remainingMs } from './clock';
 import { postMutation } from './mutations';
 import { createRetroStore } from './retroStore';
 import { supabase } from './supabaseClient';
@@ -161,6 +163,67 @@ function CardView({
   );
 }
 
+/** A single short beep (RN-012: "At zero the pill flashes and chimes once"). Best-effort — a
+ * blocked AudioContext (autoplay policy, a headless test run) shouldn't break anything else, so
+ * failures are swallowed; the visual flash still carries the alert either way. */
+function playChime() {
+  try {
+    const AudioCtx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
+    oscillator.type = 'sine';
+    oscillator.frequency.value = 880;
+    gain.gain.setValueAtTime(0.2, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.5);
+    oscillator.connect(gain);
+    gain.connect(ctx.destination);
+    oscillator.start();
+    oscillator.stop(ctx.currentTime + 0.5);
+  } catch {
+    // Best-effort, as above.
+  }
+}
+
+/** The phase countdown pill (RN-012). Ticks once a second purely for display — the deadline
+ * itself only ever changes on a transition or extend broadcast, never from a local timer. */
+function PhaseTimer({ phaseDeadline, clockOffsetMs }: { phaseDeadline: string | null; clockOffsetMs: number }) {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const remaining = remainingMs(phaseDeadline, clockOffsetMs, nowMs);
+  const isExpired = remaining !== null && remaining <= 0;
+
+  const alertedForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (isExpired && phaseDeadline && alertedForRef.current !== phaseDeadline) {
+      alertedForRef.current = phaseDeadline;
+      playChime();
+    }
+  }, [isExpired, phaseDeadline]);
+
+  if (remaining === null) return null;
+
+  return (
+    <span
+      style={{
+        display: 'inline-block',
+        padding: '2px 10px',
+        borderRadius: 4,
+        fontVariantNumeric: 'tabular-nums',
+        background: isExpired ? undefined : '#eee',
+        animation: isExpired ? 'rn-timer-flash 1s linear infinite' : undefined,
+      }}
+    >
+      {formatCountdown(remaining)}
+    </span>
+  );
+}
+
 /** Mounts once the initial snapshot is in hand, so the store's `initialBoard`/`initialSeq` are
  * captured exactly once (RN-009: "events after it are applied on top", not re-fetched). */
 function Board({
@@ -179,6 +242,7 @@ function Board({
       initialBoard: {
         phase: initialBoard.retro.phase,
         cardsRevealed: initialBoard.retro.cardsRevealed,
+        phaseDeadline: initialBoard.retro.phaseDeadline,
         columns: initialBoard.columns,
         cards: initialBoard.cards,
       },
@@ -188,6 +252,9 @@ function Board({
   );
   const { board, lastError, applyServerEvent, applyLocalPatch, resetBoard, sendMutation, clearError } = useBoardStore();
   const isFacilitator = userId === initialBoard.retro.facilitatorId;
+  // RN-012: computed once, from the snapshot that's already in hand — every later countdown
+  // (this phase or the next) is estimated against this same offset, not recomputed each time.
+  const [clockOffsetMs] = useState(() => computeClockOffsetMs(initialBoard.serverTime));
   // The Action items column follows the matrix's separate "Create or edit action items" row
   // (Review/Discuss/Wrap up), not "Add, edit, delete own card" (Write/Group) — matching the
   // server-side check in cardCreate/cardEdit/cardDelete's apply().
@@ -234,7 +301,13 @@ function Board({
     if (previousPhaseRef.current === 'write' && board.phase !== 'write') {
       void fetchBoard(accessToken, retroId).then((fresh) => {
         resetBoard(
-          { phase: fresh.retro.phase, cardsRevealed: fresh.retro.cardsRevealed, columns: fresh.columns, cards: fresh.cards },
+          {
+            phase: fresh.retro.phase,
+            cardsRevealed: fresh.retro.cardsRevealed,
+            phaseDeadline: fresh.retro.phaseDeadline,
+            columns: fresh.columns,
+            cards: fresh.cards,
+          },
           fresh.seq,
         );
       });
@@ -295,13 +368,31 @@ function Board({
     });
   }
 
-  function changePhase(direction: 'next' | 'back') {
-    const type = direction === 'next' ? 'phase.next' : 'phase.back';
-    const target = direction === 'next' ? nextPhase(board.phase) : previousPhase(board.phase);
+  function changePhase(direction: 'skip' | 'back') {
+    const type = direction === 'skip' ? 'phase.skip' : 'phase.back';
+    const target = direction === 'skip' ? nextPhase(board.phase) : previousPhase(board.phase);
     if (!target) return;
     void sendMutation({
-      optimisticReduce: (b) => reduceBoard(b, { seq: -1, type, payload: { phase: target } }),
+      // The deadline here is an estimate — the real, server-computed one (from setPhase) arrives
+      // moments later via the broadcast and replaces it; a countdown briefly off by network
+      // latency beats one that visibly jumps from "no timer" to a number a beat later.
+      optimisticReduce: (b) => {
+        const targetMinutes = phaseDurationMinutes(target);
+        const estimatedDeadline = targetMinutes === null ? null : new Date(Date.now() + targetMinutes * 60_000).toISOString();
+        return reduceBoard(b, { seq: -1, type, payload: { phase: target, phaseDeadline: estimatedDeadline } });
+      },
       send: () => postMutation(accessToken, retroId, { mutationId: uuidv7(), type, payload: {} }),
+    });
+  }
+
+  function extendPhase(minutes: 1 | 2 | 5) {
+    void sendMutation({
+      optimisticReduce: (b) => {
+        if (!b.phaseDeadline) return b;
+        const base = Math.max(Date.now(), Date.parse(b.phaseDeadline));
+        return reduceBoard(b, { seq: -1, type: 'phase.extend', payload: { phaseDeadline: new Date(base + minutes * 60_000).toISOString() } });
+      },
+      send: () => postMutation(accessToken, retroId, { mutationId: uuidv7(), type: 'phase.extend', payload: { minutes } }),
     });
   }
 
@@ -312,8 +403,9 @@ function Board({
 
   return (
     <main style={{ fontFamily: 'system-ui, sans-serif', padding: 32 }}>
+      <style>{'@keyframes rn-timer-flash { 0%, 100% { background: #c00; color: #fff; } 50% { background: #fff; color: #c00; } }'}</style>
       <h1 style={{ marginBottom: 4 }}>{initialBoard.retro.name}</h1>
-      <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
         {PHASE_PILLS.map((phase, index) => (
           <span
             key={phase}
@@ -328,6 +420,7 @@ function Board({
             {phase.replace('_', ' ')}
           </span>
         ))}
+        <PhaseTimer phaseDeadline={board.phaseDeadline} clockOffsetMs={clockOffsetMs} />
       </div>
       <p style={{ margin: '0 0 8px', color: '#666' }}>{phaseSubtitle(board.phase)}</p>
       {isFacilitator && (
@@ -338,10 +431,16 @@ function Board({
             </button>
           )}{' '}
           {nextPhase(board.phase) && (
-            <button type="button" onClick={() => changePhase('next')}>
-              Next phase
+            <button type="button" onClick={() => changePhase('skip')}>
+              Skip
             </button>
           )}{' '}
+          {board.phaseDeadline &&
+            [1, 2, 5].map((minutes) => (
+              <button key={minutes} type="button" onClick={() => extendPhase(minutes as 1 | 2 | 5)}>
+                +{minutes}
+              </button>
+            ))}{' '}
           {board.phase === 'write' && !board.cardsRevealed && (
             <button type="button" onClick={revealCards}>
               Reveal cards

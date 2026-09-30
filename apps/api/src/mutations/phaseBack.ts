@@ -3,6 +3,7 @@ import { can } from '../auth/can.js';
 import type { MutationTypeDef } from './registry.js';
 import { MutationRejected } from './errors.js';
 import { runTransitionEffect } from './onTransition.js';
+import { setPhase } from './phaseDeadline.js';
 
 /** `phase.back` (RN-010): only the facilitator, and only the two documented one-step-back moves
  * (Group→Write, Vote→Group — see stateMachine's `previousPhase`). Going back from Vote runs the
@@ -19,8 +20,8 @@ export const phaseBackMutation: MutationTypeDef<PhaseTransitionPayload> = {
     if (!to) throw new MutationRejected(409, 'phase_not_allowed', `Cannot go back from ${from}`);
 
     await runTransitionEffect(client, retro, from, to);
-    await client.query('update retros set phase = $1 where id = $2', [to, retro.id]);
+    const phaseDeadline = await setPhase(client, retro.id, to);
 
-    return PhaseTransitionResult.parse({ phase: to });
+    return PhaseTransitionResult.parse({ phase: to, phaseDeadline });
   },
 };

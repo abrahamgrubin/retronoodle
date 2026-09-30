@@ -4,6 +4,7 @@ import type {
   CardDeleteResult,
   CardsRevealResult,
   HiddenBoardCard,
+  PhaseExtendResult,
   PhaseTransitionResult,
   RetroPhase,
   VisibleBoardCard,
@@ -13,6 +14,9 @@ import type { RetroEvent } from './retroStore';
 export interface BoardState {
   phase: RetroPhase;
   cardsRevealed: boolean;
+  // RN-012: null for a phase with no timer (setup, closed). An ISO timestamp otherwise, counted
+  // down client-side against the clock offset — see clock.ts.
+  phaseDeadline: string | null;
   columns: BoardColumn[];
   cards: BoardCard[];
 }
@@ -66,7 +70,12 @@ export function reduceBoard(board: BoardState, event: RetroEvent): BoardState {
     case 'phase.skip':
     case 'phase.back': {
       const result = event.payload as PhaseTransitionResult;
-      return { ...board, phase: result.phase };
+      return { ...board, phase: result.phase, phaseDeadline: result.phaseDeadline };
+    }
+    // phase.extend (RN-012): only the deadline changes, not the phase itself.
+    case 'phase.extend': {
+      const result = event.payload as PhaseExtendResult;
+      return { ...board, phaseDeadline: result.phaseDeadline };
     }
     // cards.reveal (RN-011): the facilitator's manual Reveal — every card comes back in full.
     case 'cards.reveal': {

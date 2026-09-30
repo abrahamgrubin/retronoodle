@@ -99,3 +99,22 @@ export function footerHint(phase: RetroPhase): string | null {
   if (phase === 'write') return 'Add cards to each column · your notes are private until the next phase';
   return null;
 }
+
+/** Default countdown length per phase (RN-012, decision Sep 29 — the mock's 03:00/02:00/01:30
+ * are illustrative only). `null` means the phase has no timer (setup, closed): entering it never
+ * sets `retros.phase_deadline`, and phase.extend rejects there. Discuss's 30 is a total for the
+ * whole phase, not per topic — there's no per-topic time allocation in v0.1. */
+const PHASE_DURATION_MINUTES: Record<RetroPhase, number | null> = {
+  setup: null,
+  review: 5,
+  write: 5,
+  group: 5,
+  vote: 3,
+  discuss: 30,
+  wrap_up: 5,
+  closed: null,
+};
+
+export function phaseDurationMinutes(phase: RetroPhase): number | null {
+  return PHASE_DURATION_MINUTES[phase];
+}

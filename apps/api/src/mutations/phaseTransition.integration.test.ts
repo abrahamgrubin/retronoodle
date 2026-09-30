@@ -151,11 +151,11 @@ describe.skipIf(!hasLiveEnv)('phase transitions and initial phase against a live
 
     const toGroup = await sendMutation(facilitatorToken!, retroId, 'phase.next');
     expect(toGroup.statusCode).toBe(200);
-    expect(toGroup.json().result).toEqual({ phase: 'group' });
+    expect(toGroup.json().result).toMatchObject({ phase: 'group' });
 
     const toVote = await sendMutation(facilitatorToken!, retroId, 'phase.next');
     expect(toVote.statusCode).toBe(200);
-    expect(toVote.json().result).toEqual({ phase: 'vote' });
+    expect(toVote.json().result).toMatchObject({ phase: 'vote' });
 
     // card.create is only allowed during Write/Group (RN-010's action matrix) — now in Vote it's
     // rejected with the new phase_not_allowed code.
@@ -180,7 +180,7 @@ describe.skipIf(!hasLiveEnv)('phase transitions and initial phase against a live
 
     const back = await sendMutation(facilitatorToken!, retroId, 'phase.back');
     expect(back.statusCode).toBe(200);
-    expect(back.json().result).toEqual({ phase: 'group' });
+    expect(back.json().result).toMatchObject({ phase: 'group' });
 
     const { data: afterRefund } = await admin.from('votes').select('id').eq('retro_id', retroId);
     expect(afterRefund).toEqual([]);
@@ -188,7 +188,7 @@ describe.skipIf(!hasLiveEnv)('phase transitions and initial phase against a live
     // One more step back: Group -> Write is allowed...
     const backAgain = await sendMutation(facilitatorToken!, retroId, 'phase.back');
     expect(backAgain.statusCode).toBe(200);
-    expect(backAgain.json().result).toEqual({ phase: 'write' });
+    expect(backAgain.json().result).toMatchObject({ phase: 'write' });
 
     // ...but Write has no back target.
     const backOnceMore = await sendMutation(facilitatorToken!, retroId, 'phase.back');
@@ -224,7 +224,7 @@ describe.skipIf(!hasLiveEnv)('phase transitions and initial phase against a live
     await sendMutation(facilitatorToken!, retroId, 'phase.next'); // write -> group
     await sendMutation(facilitatorToken!, retroId, 'phase.next'); // group -> vote
     const toDiscuss = await sendMutation(facilitatorToken!, retroId, 'phase.next'); // vote -> discuss
-    expect(toDiscuss.json().result).toEqual({ phase: 'discuss' });
+    expect(toDiscuss.json().result).toMatchObject({ phase: 'discuss' });
 
     const duringDiscuss = await sendMutation(facilitatorToken!, retroId, 'card.create', {
       cardId: randomUUID(),

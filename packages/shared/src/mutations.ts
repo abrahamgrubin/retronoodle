@@ -61,6 +61,10 @@ export type PhaseTransitionPayload = z.infer<typeof PhaseTransitionPayload>;
 
 export const PhaseTransitionResult = z.object({
   phase: RetroPhase,
+  // RN-012: every transition sets a fresh deadline for the phase it lands on (its own default
+  // duration) — null only for setup/closed, neither of which nextPhase/previousPhase ever
+  // actually returns as a target, but the type stays honest about stateMachine's own shape.
+  phaseDeadline: z.string().nullable(),
 });
 export type PhaseTransitionResult = z.infer<typeof PhaseTransitionResult>;
 
@@ -73,3 +77,15 @@ export const CardsRevealResult = z.object({
   cards: z.array(VisibleBoardCard),
 });
 export type CardsRevealResult = z.infer<typeof CardsRevealResult>;
+
+/** `phase.extend` (RN-012): facilitator-only. Adds `minutes` to the current phase's countdown —
+ * from now, not from the stale deadline, if the timer had already hit zero. */
+export const PhaseExtendPayload = z.object({
+  minutes: z.union([z.literal(1), z.literal(2), z.literal(5)]),
+});
+export type PhaseExtendPayload = z.infer<typeof PhaseExtendPayload>;
+
+export const PhaseExtendResult = z.object({
+  phaseDeadline: z.string(),
+});
+export type PhaseExtendResult = z.infer<typeof PhaseExtendResult>;

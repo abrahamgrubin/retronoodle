@@ -9,25 +9,27 @@ const participant = { id: '00000000-0000-4000-8000-000000000004', email: 'p@exam
 const retroId = '00000000-0000-4000-8000-000000000001';
 
 function retroAt(phase: string): LockedRetro {
-  return { id: retroId, team_id: '00000000-0000-4000-8000-000000000002', facilitator_id: facilitatorId, phase, cards_revealed: false };
+  return { id: retroId, team_id: '00000000-0000-4000-8000-000000000002', facilitator_id: facilitatorId, phase, cards_revealed: false, phase_deadline: '2026-01-01T00:05:00.000Z' };
 }
 
+const newDeadline = new Date('2026-01-01T00:10:00.000Z');
+
 function fakeClient() {
-  const query = vi.fn().mockResolvedValue({ rows: [] });
+  const query = vi.fn().mockResolvedValue({ rows: [{ phase_deadline: newDeadline }] });
   return { query } as unknown as PoolClient;
 }
 
 describe('phase.back', () => {
-  it('group goes back to write', async () => {
+  it('group goes back to write, setting a fresh deadline', async () => {
     const client = fakeClient();
     const result = await phaseBackMutation.apply({ client, retro: retroAt('group'), user: facilitator, payload: {} });
-    expect(result).toEqual({ phase: 'write' });
+    expect(result).toEqual({ phase: 'write', phaseDeadline: newDeadline.toISOString() });
   });
 
   it('vote goes back to group and refunds all votes (deletes every vote row for the retro)', async () => {
     const client = fakeClient();
     const result = await phaseBackMutation.apply({ client, retro: retroAt('vote'), user: facilitator, payload: {} });
-    expect(result).toEqual({ phase: 'group' });
+    expect(result).toEqual({ phase: 'group', phaseDeadline: newDeadline.toISOString() });
 
     const calls = (client.query as ReturnType<typeof vi.fn>).mock.calls;
     const deleteVotesCall = calls.find((c) => (c[0] as string).includes('delete from votes'));

@@ -78,6 +78,7 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
         templateId: retro.template_id,
         templateSource: retro.template_source,
         cardsRevealed: retro.cards_revealed,
+        phaseDeadline: retro.phase_deadline,
       },
       columns: (columnsResult.data ?? []).map((c) => ({
         id: c.id,
@@ -102,6 +103,10 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
         return redactCard(full, redactCtx);
       }),
       seq: lastEventResult.data?.seq ?? 0,
+      // RN-012: this specific response is what a late joiner's clock-offset calculation anchors
+      // to, so it's set explicitly here rather than relying solely on the global serverTime hook
+      // (server.ts) — that hook still covers every other response, this one just can't risk it.
+      serverTime: new Date().toISOString(),
     });
   });
 }
