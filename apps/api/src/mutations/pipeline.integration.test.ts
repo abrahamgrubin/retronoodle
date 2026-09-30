@@ -224,6 +224,35 @@ describe.skipIf(!hasLiveEnv)('mutation pipeline against a live Supabase project 
     expect(max - min + 1).toBe(100);
   }, 120000);
 
+  it('RN-013: the same mutationId sent truly concurrently is applied exactly once, every response returning the same seq', async () => {
+    // Reproduces a real bug found live: retryPendingMutations() could resend the same pending
+    // mutation from two overlapping resync() calls, and the pipeline's upfront idempotency
+    // check (a plain SELECT next to the FOR UPDATE wait) isn't sufficient on its own to catch
+    // this under Postgres's READ COMMITTED snapshot semantics — see pipeline.ts's doc comment.
+    // Only the unique (retro_id, mutation_id) constraint, caught and handled, actually is.
+    const mutationId = randomUUID();
+    const cardId = randomUUID();
+    const concurrentSends = 5;
+
+    const responses = await Promise.all(
+      Array.from({ length: concurrentSends }, () =>
+        app!.inject({
+          method: 'POST',
+          url: `/retros/${retroId}/mutations`,
+          headers: authHeader(),
+          payload: { mutationId, type: 'card.create', payload: { cardId, columnId, body: 'Sent concurrently, same mutationId' } },
+        }),
+      ),
+    );
+
+    expect(responses.every((r) => r.statusCode === 200)).toBe(true);
+    const seqs = new Set(responses.map((r) => r.json().seq as number));
+    expect(seqs.size).toBe(1); // every response agrees on the one real seq
+
+    const { data: matchingCards } = await admin.from('cards').select('id').eq('id', cardId);
+    expect(matchingCards).toHaveLength(1); // applied exactly once, not 5 times
+  }, 30000);
+
   it('broadcasts the mutation to a subscribed team member within 500ms', async () => {
     // Reuse the facilitator's own session (already a team member) to subscribe.
     const listenerClient = createClient<Database>(SUPABASE_URL!, SUPABASE_ANON_KEY!);

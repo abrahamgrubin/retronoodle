@@ -237,6 +237,16 @@ function Board({
   userId: string;
   initialBoard: BoardResponse;
 }) {
+  // RN-013: declared before the store below so its lazy initializer can close over it — see the
+  // effect further down that actually assigns resyncRef.current for the full explanation.
+  const resyncRef = useRef<(showBadge: boolean) => void>(() => {});
+  // Guards resync() against running twice concurrently — a stale seq gap and a Realtime
+  // reconnect can both fire within the same moment, and without this a second resync would
+  // start its own retryPendingMutations() while the first's is still in flight, resending the
+  // same pending mutationId twice in parallel (found live: two concurrent POSTs with the same
+  // mutationId, one of which hit a duplicate-key error server-side — see pipeline.ts's fix).
+  const isResyncingRef = useRef(false);
+
   const [useBoardStore] = useState(() =>
     createRetroStore<BoardState>({
       initialBoard: {
@@ -250,11 +260,24 @@ function Board({
       reduce: reduceBoard,
     }),
   );
-  const { board, lastError, applyServerEvent, applyLocalPatch, resetBoard, sendMutation, clearError } = useBoardStore();
+  const {
+    board,
+    lastError,
+    hasStaleGap,
+    applyServerEvent,
+    applyLocalPatch,
+    resetBoard,
+    retryPendingMutations,
+    sendMutation,
+    clearError,
+  } = useBoardStore();
   const isFacilitator = userId === initialBoard.retro.facilitatorId;
   // RN-012: computed once, from the snapshot that's already in hand — every later countdown
   // (this phase or the next) is estimated against this same offset, not recomputed each time.
   const [clockOffsetMs] = useState(() => computeClockOffsetMs(initialBoard.serverTime));
+  // RN-013: "Reconnecting…" badge — true from the moment the Realtime channel drops until a
+  // resync (refetch + replay of anything still pending) finishes.
+  const [isReconnecting, setIsReconnecting] = useState(false);
   // The Action items column follows the matrix's separate "Create or edit action items" row
   // (Review/Discuss/Wrap up), not "Add, edit, delete own card" (Write/Group) — matching the
   // server-side check in cardCreate/cardEdit/cardDelete's apply().
@@ -263,16 +286,91 @@ function Board({
     return columnKind === 'action_items' ? actions.actionItemEdit : actions.cardCrud;
   }
 
+  // RN-013: one resync path for every trigger — a stale seq gap, a Realtime reconnect, or
+  // RN-011's write->group card reveal (its own broadcast never carries card bodies — see
+  // onTransition.ts). Refetches the snapshot, replaces the store (re-applying anything still
+  // pending on top, so an offline edit doesn't flicker away), then resends whatever's still
+  // pending with its original mutationId.
+  //
+  // `showBadge` matters: the "Reconnecting…" badge means "the connection was actually lost,"
+  // not "a resync happened for any reason" — RN-011's write->group resync runs on every single
+  // phase advance, including ones with no connection trouble at all, and flashing "Reconnecting"
+  // for that was a real bug (found live: clicking Skip showed it every time). Only the two
+  // genuinely connection-related triggers (the Realtime reconnect handler and the hasStaleGap
+  // effect, both below) pass `true`.
+  //
+  // Held in a ref because two other effects below need to call "the current resync logic" from
+  // inside their own callbacks (the Realtime subscribe status handler, and the hasStaleGap
+  // effect) without re-subscribing or re-running just because accessToken rotated — this effect
+  // is what keeps resyncRef.current pointed at a closure built from the latest accessToken/
+  // retroId (accessToken can rotate over a long session; a stale closure would keep resyncing
+  // with an expired token).
+  useEffect(() => {
+    resyncRef.current = (showBadge) => {
+      if (isResyncingRef.current) return;
+      isResyncingRef.current = true;
+      if (showBadge) setIsReconnecting(true);
+      void fetchBoard(accessToken, retroId)
+        .then((fresh) => {
+          resetBoard(
+            {
+              phase: fresh.retro.phase,
+              cardsRevealed: fresh.retro.cardsRevealed,
+              phaseDeadline: fresh.retro.phaseDeadline,
+              columns: fresh.columns,
+              cards: fresh.cards,
+            },
+            fresh.seq,
+          );
+          return retryPendingMutations();
+        })
+        .finally(() => {
+          isResyncingRef.current = false;
+          if (showBadge) setIsReconnecting(false);
+        });
+    };
+  }, [accessToken, retroId, resetBoard, retryPendingMutations]);
+
+  // RN-013: "a seq gap older than 1s" — retroStore.ts's own hasStaleGap flag, reacted to here
+  // rather than the store calling back into BoardPage directly (keeps the store from invoking
+  // arbitrary caller code, and keeps this a plain effect reading resyncRef — always safe, unlike
+  // reading it from a closure built during render). This is a genuine connection-trouble signal
+  // (the story's own framing), so the badge shows for it.
+  useEffect(() => {
+    if (hasStaleGap) resyncRef.current(true);
+  }, [hasStaleGap]);
+
   useEffect(() => {
     const client = supabase;
     if (!client) return;
+    let hasSubscribedOnce = false;
+    // StrictMode (main.tsx) runs this effect's mount -> cleanup -> mount again in dev, and the
+    // first pair's channel teardown can still deliver a late CLOSED/CHANNEL_ERROR status to its
+    // (now-torn-down) subscribe callback after the second mount has already settled things —
+    // without this guard that stale callback would flip isReconnecting back on for a connection
+    // that was never actually lost. Set in this closure's own cleanup below.
+    let cancelled = false;
 
     const retroChannel = client.channel(`retro:${retroId}`, { config: { private: true } });
     retroChannel.on('broadcast', { event: '*' }, (message) => {
       const { seq, result } = message.payload as { seq: number; result: unknown };
       applyServerEvent({ seq, type: message.event, payload: result });
     });
-    retroChannel.subscribe();
+    retroChannel.subscribe((status) => {
+      if (cancelled) return;
+      if (status === 'SUBSCRIBED') {
+        // The first SUBSCRIBED is the initial connect — the board is already fresh from GET
+        // /board moments ago, nothing to resync. Every one after that is a reconnect: the badge
+        // (already showing, from the CHANNEL_ERROR/CLOSED/TIMED_OUT branch below) stays up
+        // through this resync and is cleared in its own finally, not here — clearing it early
+        // would flicker it off and immediately back on for the resync's duration.
+        const isReconnect = hasSubscribedOnce;
+        hasSubscribedOnce = true;
+        if (isReconnect) resyncRef.current(true);
+      } else if (status === 'TIMED_OUT' || status === 'CLOSED' || status === 'CHANNEL_ERROR') {
+        setIsReconnecting(true);
+      }
+    });
 
     // RN-011: the author's own private channel — carries the full (never redacted) card for
     // card.create/card.edit while it's hidden on the shared retro:{retroId} channel above, so a
@@ -288,6 +386,7 @@ function Board({
     userChannel.subscribe();
 
     return () => {
+      cancelled = true;
       void client.removeChannel(retroChannel);
       void client.removeChannel(userChannel);
     };
@@ -295,30 +394,20 @@ function Board({
 
   // RN-011: "Reveal happens ... on write -> group", but the transition's own broadcast only
   // carries the new phase, not every card's real text (see onTransition.ts's write->group
-  // comment for why) — so once Write ends, refetch once to pick up what was hidden a moment ago.
+  // comment for why) — so once Write ends, resync once to pick up what was hidden a moment ago.
+  // Not a connection problem (no badge) — this runs on every single phase advance out of Write.
   const previousPhaseRef = useRef(board.phase);
   useEffect(() => {
-    if (previousPhaseRef.current === 'write' && board.phase !== 'write') {
-      void fetchBoard(accessToken, retroId).then((fresh) => {
-        resetBoard(
-          {
-            phase: fresh.retro.phase,
-            cardsRevealed: fresh.retro.cardsRevealed,
-            phaseDeadline: fresh.retro.phaseDeadline,
-            columns: fresh.columns,
-            cards: fresh.cards,
-          },
-          fresh.seq,
-        );
-      });
-    }
+    if (previousPhaseRef.current === 'write' && board.phase !== 'write') resyncRef.current(false);
     previousPhaseRef.current = board.phase;
-  }, [board.phase, accessToken, retroId, resetBoard]);
+  }, [board.phase]);
 
   function addCard(columnId: string, body: string) {
     const cardId = uuidv7();
+    const mutationId = uuidv7();
     const now = new Date().toISOString();
     void sendMutation({
+      mutationId,
       optimisticReduce: (b) =>
         reduceBoard(b, {
           seq: -1,
@@ -335,36 +424,41 @@ function Board({
             hidden: false,
           },
         }),
-      send: () =>
-        postMutation(accessToken, retroId, { mutationId: uuidv7(), type: 'card.create', payload: { cardId, columnId, body } }),
+      send: () => postMutation(accessToken, retroId, { mutationId, type: 'card.create', payload: { cardId, columnId, body } }),
     });
   }
 
   function editCard(cardId: string, body: string) {
+    const mutationId = uuidv7();
     void sendMutation({
+      mutationId,
       // A local-only patch, not reduceBoard's card.edit branch: that branch expects the server's
       // full authoritative card (RN-011), and all a caller-initiated edit has is the new body.
       optimisticReduce: (b) => ({
         ...b,
         cards: b.cards.map((c) => (c.id === cardId && !c.hidden ? { ...c, body } : c)),
       }),
-      send: () => postMutation(accessToken, retroId, { mutationId: uuidv7(), type: 'card.edit', payload: { cardId, body } }),
+      send: () => postMutation(accessToken, retroId, { mutationId, type: 'card.edit', payload: { cardId, body } }),
     });
   }
 
   function deleteCard(cardId: string) {
+    const mutationId = uuidv7();
     void sendMutation({
+      mutationId,
       optimisticReduce: (b) => reduceBoard(b, { seq: -1, type: 'card.delete', payload: { id: cardId } }),
-      send: () => postMutation(accessToken, retroId, { mutationId: uuidv7(), type: 'card.delete', payload: { cardId } }),
+      send: () => postMutation(accessToken, retroId, { mutationId, type: 'card.delete', payload: { cardId } }),
     });
   }
 
   function revealCards() {
+    const mutationId = uuidv7();
     void sendMutation({
+      mutationId,
       // No optimistic shortcut — the real cards.reveal broadcast (arriving shortly after) is
       // what actually carries every hidden card's text; there's nothing useful to guess here.
       optimisticReduce: (b) => b,
-      send: () => postMutation(accessToken, retroId, { mutationId: uuidv7(), type: 'cards.reveal', payload: {} }),
+      send: () => postMutation(accessToken, retroId, { mutationId, type: 'cards.reveal', payload: {} }),
     });
   }
 
@@ -372,7 +466,9 @@ function Board({
     const type = direction === 'skip' ? 'phase.skip' : 'phase.back';
     const target = direction === 'skip' ? nextPhase(board.phase) : previousPhase(board.phase);
     if (!target) return;
+    const mutationId = uuidv7();
     void sendMutation({
+      mutationId,
       // The deadline here is an estimate — the real, server-computed one (from setPhase) arrives
       // moments later via the broadcast and replaces it; a countdown briefly off by network
       // latency beats one that visibly jumps from "no timer" to a number a beat later.
@@ -381,18 +477,20 @@ function Board({
         const estimatedDeadline = targetMinutes === null ? null : new Date(Date.now() + targetMinutes * 60_000).toISOString();
         return reduceBoard(b, { seq: -1, type, payload: { phase: target, phaseDeadline: estimatedDeadline } });
       },
-      send: () => postMutation(accessToken, retroId, { mutationId: uuidv7(), type, payload: {} }),
+      send: () => postMutation(accessToken, retroId, { mutationId, type, payload: {} }),
     });
   }
 
   function extendPhase(minutes: 1 | 2 | 5) {
+    const mutationId = uuidv7();
     void sendMutation({
+      mutationId,
       optimisticReduce: (b) => {
         if (!b.phaseDeadline) return b;
         const base = Math.max(Date.now(), Date.parse(b.phaseDeadline));
         return reduceBoard(b, { seq: -1, type: 'phase.extend', payload: { phaseDeadline: new Date(base + minutes * 60_000).toISOString() } });
       },
-      send: () => postMutation(accessToken, retroId, { mutationId: uuidv7(), type: 'phase.extend', payload: { minutes } }),
+      send: () => postMutation(accessToken, retroId, { mutationId, type: 'phase.extend', payload: { minutes } }),
     });
   }
 
@@ -405,6 +503,11 @@ function Board({
     <main style={{ fontFamily: 'system-ui, sans-serif', padding: 32 }}>
       <style>{'@keyframes rn-timer-flash { 0%, 100% { background: #c00; color: #fff; } 50% { background: #fff; color: #c00; } }'}</style>
       <h1 style={{ marginBottom: 4 }}>{initialBoard.retro.name}</h1>
+      {isReconnecting && (
+        <p role="status" style={{ margin: '0 0 4px', color: '#a66a00', fontSize: 13 }}>
+          Reconnecting…
+        </p>
+      )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
         {PHASE_PILLS.map((phase, index) => (
           <span

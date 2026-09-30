@@ -30,6 +30,14 @@ interface LockAndCheckRow {
   existing_payload: StoredEventPayload | null;
 }
 
+/** Postgres error code for a unique-constraint violation (node-postgres's DatabaseError exposes
+ * this as `.code`, per https://www.postgresql.org/docs/current/errcodes-appendix.html). */
+const UNIQUE_VIOLATION = '23505';
+
+function isUniqueViolation(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === UNIQUE_VIOLATION;
+}
+
 /**
  * POST /retros/:id/mutations, in one transaction (RN-008):
  *   SELECT ... FOR UPDATE on the retro row -> check can() -> apply (which checks phase gating
@@ -37,12 +45,27 @@ interface LockAndCheckRow {
  *   -> seq = last + 1 -> insert retro_events -> commit -> broadcast (redacted via RN-011's
  *   redact.ts for any mutation type marked `redactable`, full otherwise).
  *
- * The FOR UPDATE lock is what makes both guarantees hold under concurrency: every mutation for
- * a given retro serializes through that one row lock, so seq assignment can never race (no two
- * transactions ever compute the same "next seq", and a rolled-back mutation simply never
- * consumes one — there's no sequence object to leave a gap in), and a duplicate mutationId
- * arriving twice at once still only ever sees the first request's row commit before the second
- * one's SELECT for the idempotency check runs.
+ * The FOR UPDATE lock is what makes seq assignment gapless under concurrency: every mutation for
+ * a given retro serializes through that one row lock, so no two transactions ever compute the
+ * same "next seq", and a rolled-back mutation simply never consumes one.
+ *
+ * The upfront `existing` lookup (combined into the same query as the lock, below) is only an
+ * *optimization* for the common case — replaying an already-committed mutationId without
+ * re-running `apply()`'s side effects. It is NOT sufficient on its own to guarantee idempotency
+ * under true concurrency (RN-013 found this live): two requests for the same mutationId, both
+ * blocked on the `for update` wait, both resume once the first commits and releases the lock —
+ * but under READ COMMITTED, Postgres's EvalPlanQual re-check on a lock wait only re-fetches the
+ * *locked* row (`retros`); the `existing` CTE reads a different table (`retro_events`) using the
+ * statement's original snapshot, so the second request can still see "no existing row" and go
+ * ahead and call `apply()` again. The real idempotency guarantee is a unique constraint —
+ * `retro_events`'s own `(retro_id, mutation_id)`, but just as often one `apply()` hits on its own
+ * first (e.g. `cards.id`: the client reuses the same card id across a retry exactly like it
+ * reuses the mutationId, so a concurrent duplicate send collides on `cards_pkey` before ever
+ * reaching the retro_events insert — found live, see pipeline.test.ts). Either way the fix is the
+ * same: catch *any* unique-violation from `apply()` or the insert, roll back this request's own
+ * (duplicate) side effects, and check whether a retro_events row for this exact mutationId now
+ * exists — if so, some concurrent request already won the race, so return its cached result
+ * instead of erroring; if not, this was a genuinely different conflict and the error is real.
  *
  * Every extra round trip here is pure network latency against a remote Postgres (RN-008's own
  * acceptance criterion is a 500ms end-to-end budget), so the lock, the idempotency check and the
@@ -113,19 +136,36 @@ export async function processMutation(deps: {
         throw new MutationRejected(403, 'forbidden', 'Not allowed to mutate this retro');
       }
 
-      const applyResult = await def.apply({ client, retro, user, payload });
+      let applyResult: unknown;
+      let seq: number;
+      try {
+        applyResult = await def.apply({ client, retro, user, payload });
 
-      const storedPayload: StoredEventPayload = { payload, result: applyResult };
-      const insertResult = await client.query<{ seq: number }>(
-        `with next_seq as (
-           select coalesce(max(seq), 0) + 1 as seq from retro_events where retro_id = $1
-         )
-         insert into retro_events (id, retro_id, seq, mutation_id, type, payload, actor_id)
-         select $2, $1, next_seq.seq, $3, $4, $5::jsonb, $6 from next_seq
-         returning seq`,
-        [retroId, randomUUID(), envelope.mutationId, envelope.type, JSON.stringify(storedPayload), user.id],
-      );
-      const seq = insertResult.rows[0]!.seq;
+        const storedPayload: StoredEventPayload = { payload, result: applyResult };
+        const insertResult = await client.query<{ seq: number }>(
+          `with next_seq as (
+             select coalesce(max(seq), 0) + 1 as seq from retro_events where retro_id = $1
+           )
+           insert into retro_events (id, retro_id, seq, mutation_id, type, payload, actor_id)
+           select $2, $1, next_seq.seq, $3, $4, $5::jsonb, $6 from next_seq
+           returning seq`,
+          [retroId, randomUUID(), envelope.mutationId, envelope.type, JSON.stringify(storedPayload), user.id],
+        );
+        seq = insertResult.rows[0]!.seq;
+      } catch (err) {
+        if (!isUniqueViolation(err)) throw err;
+        // A true concurrent duplicate (see the function doc comment above): this request's own
+        // side effects (whichever of apply()'s writes or the retro_events insert actually hit
+        // the collision) need to be discarded before returning the winning request's result.
+        await client.query('ROLLBACK');
+        const existing = await client.query<{ seq: number; payload: StoredEventPayload }>(
+          'select seq, payload from retro_events where retro_id = $1 and mutation_id = $2',
+          [retroId, envelope.mutationId],
+        );
+        const existingRow = existing.rows[0];
+        if (!existingRow) throw err; // a genuinely different conflict — don't swallow the real error
+        return { seq: existingRow.seq, result: existingRow.payload.result };
+      }
 
       await client.query('COMMIT');
 
