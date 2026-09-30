@@ -1,7 +1,9 @@
 import { startWorker } from '@retronoodle/worker';
 import { loadDotEnv, readConfig } from './config.js';
 import { startProcess } from './process.js';
-import { buildServer } from './server.js';
+import { buildServer, type ServerOptions } from './server.js';
+import { createTokenVerifier } from './auth.js';
+import { createSupabaseAdmin } from './supabaseAdmin.js';
 
 loadDotEnv();
 const config = readConfig();
@@ -13,7 +15,19 @@ const log = {
 
 const running = await startProcess(config.role, {
   async startApi() {
-    const app = await buildServer({ webOrigin: config.webOrigin, logger: true });
+    let auth: ServerOptions['auth'];
+    if (config.supabaseUrl && config.supabaseServiceRoleKey) {
+      auth = {
+        verifyAccessToken: createTokenVerifier(config.supabaseUrl),
+        supabaseAdmin: createSupabaseAdmin(config.supabaseUrl, config.supabaseServiceRoleKey),
+      };
+    } else if (config.isProduction) {
+      throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required to start the API.');
+    } else {
+      log.info('auth skipped: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY not set (see .env.example)');
+    }
+
+    const app = await buildServer({ webOrigin: config.webOrigin, logger: true, auth });
     await app.listen({ port: config.port, host: '0.0.0.0' });
     return { stop: () => app.close() };
   },

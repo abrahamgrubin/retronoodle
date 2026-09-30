@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { HealthResponse } from '@retronoodle/shared';
+import { HealthResponse, MeResponse, type Database } from '@retronoodle/shared';
 import type { FastifyInstance } from 'fastify';
-import { buildServer } from './server.js';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { buildServer, type ServerOptions } from './server.js';
+import type { AuthClaims } from './auth.js';
 
 let app: FastifyInstance | undefined;
 
@@ -35,5 +37,106 @@ describe('GET /health', () => {
       headers: { origin: 'https://evil.example' },
     });
     expect(other.headers['access-control-allow-origin']).not.toBe('https://evil.example');
+  });
+});
+
+describe('GET /me', () => {
+  const claims: AuthClaims = {
+    sub: '00000000-0000-4000-8000-000000000001',
+    email: 'ada@example.com',
+    user_metadata: { full_name: 'Ada Lovelace', avatar_url: 'https://example.com/ada.png' },
+  };
+
+  function buildAuthedServer() {
+    const upsertCalls: unknown[] = [];
+    const supabaseAdmin = {
+      from() {
+        return {
+          upsert(payload: unknown) {
+            upsertCalls.push(payload);
+            return {
+              select() {
+                return {
+                  async single() {
+                    return {
+                      data: {
+                        id: claims.sub,
+                        display_name: 'Ada Lovelace',
+                        email: 'ada@example.com',
+                        avatar_url: 'https://example.com/ada.png',
+                        timezone: (payload as { timezone: string }).timezone,
+                        created_at: new Date().toISOString(),
+                      },
+                      error: null,
+                    };
+                  },
+                };
+              },
+            };
+          },
+        };
+      },
+    } as unknown as SupabaseClient<Database>;
+
+    const auth: ServerOptions['auth'] = {
+      async verifyAccessToken(token) {
+        if (token !== 'good-token') throw new Error('invalid token');
+        return claims;
+      },
+      supabaseAdmin,
+    };
+
+    return { upsertCalls, build: () => buildServer({ webOrigin: 'http://localhost:5173', auth }) };
+  }
+
+  it('returns 401 with no Authorization header', async () => {
+    app = await buildAuthedServer().build();
+    const res = await app.inject({ method: 'GET', url: '/me' });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('returns 401 for a token that fails verification', async () => {
+    app = await buildAuthedServer().build();
+    const res = await app.inject({
+      method: 'GET',
+      url: '/me',
+      headers: { authorization: 'Bearer not-a-real-token' },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('upserts the profile using the X-Timezone header and returns it', async () => {
+    const harness = buildAuthedServer();
+    app = await harness.build();
+    const res = await app.inject({
+      method: 'GET',
+      url: '/me',
+      headers: { authorization: 'Bearer good-token', 'x-timezone': 'America/New_York' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = MeResponse.parse(res.json());
+    expect(body.id).toBe(claims.sub);
+    expect(body.displayName).toBe('Ada Lovelace');
+    expect(body.avatarUrl).toBe('https://example.com/ada.png');
+    expect(body.timezone).toBe('America/New_York');
+    expect(harness.upsertCalls[0]).toMatchObject({
+      id: claims.sub,
+      display_name: 'Ada Lovelace',
+      timezone: 'America/New_York',
+    });
+  });
+
+  it('defaults to UTC when no X-Timezone header is sent', async () => {
+    const harness = buildAuthedServer();
+    app = await harness.build();
+    await app.inject({ method: 'GET', url: '/me', headers: { authorization: 'Bearer good-token' } });
+    expect(harness.upsertCalls[0]).toMatchObject({ timezone: 'UTC' });
+  });
+
+  it('is not registered when the server has no auth configured', async () => {
+    app = await buildServer({ webOrigin: 'http://localhost:5173' });
+    const res = await app.inject({ method: 'GET', url: '/me' });
+    expect(res.statusCode).toBe(404);
   });
 });

@@ -7,6 +7,8 @@ export interface Config {
   port: number;
   webOrigin: string;
   databaseUrl: string | undefined;
+  supabaseUrl: string | undefined;
+  supabaseServiceRoleKey: string | undefined;
   isProduction: boolean;
 }
 
@@ -22,6 +24,8 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
     port: Number(env.PORT ?? 3000),
     webOrigin: env.WEB_ORIGIN ?? 'http://localhost:5173',
     databaseUrl: env.DATABASE_URL || undefined,
+    supabaseUrl: env.SUPABASE_URL || undefined,
+    supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY || undefined,
     isProduction: env.NODE_ENV === 'production',
   };
 }
