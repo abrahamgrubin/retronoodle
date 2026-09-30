@@ -19,6 +19,7 @@ import { MutationRejected } from './errors.js';
  */
 export const cardCreateMutation: MutationTypeDef<CardCreatePayload> = {
   schema: CardCreatePayload,
+  redactable: true,
   async apply({ client, retro, user, payload }) {
     const lookup = await client.query<{ column_id: string | null; column_kind: string | null; last_position: string | null }>(
       `select
@@ -60,6 +61,7 @@ export const cardCreateMutation: MutationTypeDef<CardCreatePayload> = {
       position,
       createdAt: created_at.toISOString(),
       updatedAt: updated_at.toISOString(),
+      hidden: false,
     });
   },
 };

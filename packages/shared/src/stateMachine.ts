@@ -90,3 +90,12 @@ const PHASE_SUBTITLES: Record<RetroPhase, string> = {
 export function phaseSubtitle(phase: RetroPhase): string {
   return PHASE_SUBTITLES[phase];
 }
+
+/** Footer hint line (RN-009's layout note, first given real copy by RN-011). Only Write's text
+ * is specified by a story so far — every other phase gets its footer hint from whichever later
+ * story defines it; returning null here means the footer renders nothing rather than invented
+ * copy. */
+export function footerHint(phase: RetroPhase): string | null {
+  if (phase === 'write') return 'Add cards to each column · your notes are private until the next phase';
+  return null;
+}

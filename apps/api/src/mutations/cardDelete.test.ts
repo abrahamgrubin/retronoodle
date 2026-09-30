@@ -7,7 +7,13 @@ const user = { id: '00000000-0000-4000-8000-000000000004', email: 'a@example.com
 const cardId = '00000000-0000-4000-8000-000000000005';
 
 function retroAt(phase: string): LockedRetro {
-  return { id: '00000000-0000-4000-8000-000000000001', team_id: '00000000-0000-4000-8000-000000000002', facilitator_id: '00000000-0000-4000-8000-000000000003', phase };
+  return {
+    id: '00000000-0000-4000-8000-000000000001',
+    team_id: '00000000-0000-4000-8000-000000000002',
+    facilitator_id: '00000000-0000-4000-8000-000000000003',
+    phase,
+    cards_revealed: true,
+  };
 }
 
 function fakeClient(authorId: string | undefined, columnKind: 'standard' | 'action_items' = 'standard') {

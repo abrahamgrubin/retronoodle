@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RetroPhase } from './retros.js';
-import { allowedActions, nextPhase, phaseSubtitle, previousPhase } from './stateMachine.js';
+import { allowedActions, footerHint, nextPhase, phaseSubtitle, previousPhase } from './stateMachine.js';
 
 const ALL_PHASES: RetroPhase[] = ['setup', 'review', 'write', 'group', 'vote', 'discuss', 'wrap_up', 'closed'];
 
@@ -146,5 +146,18 @@ describe('phaseSubtitle', () => {
     const subtitles = ALL_PHASES.map(phaseSubtitle);
     expect(new Set(subtitles).size).toBe(ALL_PHASES.length);
     for (const subtitle of subtitles) expect(subtitle.length).toBeGreaterThan(0);
+  });
+});
+
+describe('footerHint', () => {
+  it('matches the story-specified Write copy verbatim (RN-011)', () => {
+    expect(footerHint('write')).toBe('Add cards to each column · your notes are private until the next phase');
+  });
+
+  it('is null for every other phase — no story has specified their copy yet', () => {
+    for (const phase of ALL_PHASES) {
+      if (phase === 'write') continue;
+      expect(footerHint(phase)).toBeNull();
+    }
   });
 });

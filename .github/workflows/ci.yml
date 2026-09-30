@@ -46,7 +46,22 @@ jobs:
             -e 's/^ANON_KEY="\(.*\)"$/SUPABASE_ANON_KEY=\1/' \
             -e 's/^SERVICE_ROLE_KEY="\(.*\)"$/SUPABASE_SERVICE_ROLE_KEY=\1/' \
             -e 's/^DB_URL="\(.*\)"$/DATABASE_URL=\1/' >> "$GITHUB_ENV"
+          # The web dev server (started below, by Playwright's webServer) only reads VITE_-
+          # prefixed vars — same values, just aliased for Vite's client-side env exposure.
+          supabase status -o env | grep -E '^(API_URL|ANON_KEY)=' | sed \
+            -e 's/^API_URL="\(.*\)"$/VITE_SUPABASE_URL=\1/' \
+            -e 's/^ANON_KEY="\(.*\)"$/VITE_SUPABASE_ANON_KEY=\1/' >> "$GITHUB_ENV"
+          echo "VITE_API_URL=http://localhost:3000" >> "$GITHUB_ENV"
       - run: pnpm --filter @retronoodle/api exec vitest run src/realtime/RealtimeBus.integration.test.ts
       - run: pnpm --filter @retronoodle/api exec vitest run src/mutations/pipeline.integration.test.ts
       - run: pnpm --filter @retronoodle/api exec vitest run src/routes/board.integration.test.ts
       - run: pnpm --filter @retronoodle/api exec vitest run src/mutations/phaseTransition.integration.test.ts
+      - run: pnpm --filter @retronoodle/api exec vitest run src/realtime/hiddenCards.integration.test.ts
+      - run: pnpm --filter @retronoodle/web exec playwright install --with-deps chromium
+      - run: pnpm --filter @retronoodle/web exec playwright test
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          retention-days: 7

@@ -8,6 +8,7 @@ export interface LockedRetro {
   team_id: string;
   facilitator_id: string;
   phase: string;
+  cards_revealed: boolean;
 }
 
 export interface MutationContext<TPayload> {
@@ -27,6 +28,11 @@ export interface MutationTypeDef<TPayload = unknown> {
    * see cardCreate.ts), and `apply()` is the one place that already has the DB access to know
    * that. Reject with `MutationRejected(409, 'phase_not_allowed', ...)`. */
   apply: (ctx: MutationContext<TPayload>) => Promise<unknown>;
+  /** RN-011: whether this mutation type's result is a card that might currently be hidden
+   * (card.create, card.edit — see redact.ts). When true, the pipeline broadcasts a redacted
+   * version to the shared `retro:{retroId}` channel and the full version to the author's own
+   * `user:{id}` channel, instead of the plain single broadcast every other mutation type gets. */
+  redactable?: boolean;
 }
 
 /**

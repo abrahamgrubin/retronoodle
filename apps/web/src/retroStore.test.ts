@@ -126,3 +126,43 @@ describe('retroStore — sendMutation', () => {
     expect(store.getState().lastError).toBeNull();
   });
 });
+
+describe('retroStore — applyLocalPatch (RN-011)', () => {
+  it('applies the patch immediately without touching lastAppliedSeq', () => {
+    const store = makeStore();
+    store.getState().applyServerEvent(event(1, 'a'));
+    store.getState().applyLocalPatch((board) => [...board, 'patched']);
+    expect(store.getState().board).toEqual(['test.append:a', 'patched']);
+    expect(store.getState().lastAppliedSeq).toBe(1); // unchanged — not part of the seq stream
+
+    // A same-seq server event afterward still applies normally — the patch never consumed a seq.
+    store.getState().applyServerEvent(event(2, 'b'));
+    expect(store.getState().board).toEqual(['test.append:a', 'patched', 'test.append:b']);
+  });
+});
+
+describe('retroStore — resetBoard (RN-011)', () => {
+  it('replaces the board and seq, and drops any buffered out-of-order events', () => {
+    const store = makeStore();
+    store.getState().applyServerEvent(event(1, 'a'));
+    store.getState().applyServerEvent(event(5, 'buffered-and-orphaned')); // arrives early, buffered
+
+    store.getState().resetBoard(['fresh snapshot'], 10);
+    expect(store.getState().board).toEqual(['fresh snapshot']);
+    expect(store.getState().lastAppliedSeq).toBe(10);
+
+    // The event buffered before the reset must not resurrect once seq 5 becomes "next" again —
+    // proving the buffer was actually cleared, not just skipped over.
+    store.getState().applyServerEvent(event(11, 'c'));
+    expect(store.getState().board).toEqual(['fresh snapshot', 'test.append:c']);
+  });
+
+  it('clears lastError too', async () => {
+    const store = makeStore();
+    await store.getState().sendMutation({ optimisticReduce: (b) => b, send: async () => new Response('{}', { status: 500 }) });
+    expect(store.getState().lastError).not.toBeNull();
+
+    store.getState().resetBoard([], 0);
+    expect(store.getState().lastError).toBeNull();
+  });
+});

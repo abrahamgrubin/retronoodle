@@ -17,6 +17,18 @@ const onTransition: Partial<Record<`${RetroPhase}->${RetroPhase}`, TransitionEff
   'vote->group': async ({ client, retro }) => {
     await client.query('delete from votes where retro_id = $1', [retro.id]);
   },
+  // RN-011: "Reveal happens ... on write -> group". This only sets the durable flag — it
+  // deliberately does NOT also broadcast every card's full content here. A second broadcast for
+  // this transition would need its own retro_events row (and thus its own seq) to avoid
+  // colliding with phase.next's own seq on the same channel, which phaseNext.ts's apply() has no
+  // way to arrange without pipeline.ts growing a multi-event-per-mutation broadcast path. Instead,
+  // the web client refetches the board once it sees the phase leave Write (BoardPage.tsx) — one
+  // extra round trip, well inside the "within 500ms" acceptance criterion, and far simpler than
+  // the alternative. cards.reveal (the *manual* Reveal button) has no such problem: its own
+  // result already broadcasts every card as the mutation's normal, single, real event.
+  'write->group': async ({ client, retro }) => {
+    await client.query('update retros set cards_revealed = true where id = $1', [retro.id]);
+  },
 };
 
 export async function runTransitionEffect(client: PoolClient, retro: LockedRetro, from: RetroPhase, to: RetroPhase): Promise<void> {
