@@ -39,8 +39,10 @@ jobs:
       - name: Export local Supabase credentials (RN-004 Realtime integration test)
         run: |
           supabase status -o env
+          # `-o env` quotes its values (KEY="value"), but $GITHUB_ENV takes everything after
+          # `=` literally, so the quotes must be stripped or they end up in the value.
           supabase status -o env | grep -E '^(API_URL|ANON_KEY|SERVICE_ROLE_KEY)=' | sed \
-            -e 's/^API_URL=/SUPABASE_URL=/' \
-            -e 's/^ANON_KEY=/SUPABASE_ANON_KEY=/' \
-            -e 's/^SERVICE_ROLE_KEY=/SUPABASE_SERVICE_ROLE_KEY=/' >> "$GITHUB_ENV"
+            -e 's/^API_URL="\(.*\)"$/SUPABASE_URL=\1/' \
+            -e 's/^ANON_KEY="\(.*\)"$/SUPABASE_ANON_KEY=\1/' \
+            -e 's/^SERVICE_ROLE_KEY="\(.*\)"$/SUPABASE_SERVICE_ROLE_KEY=\1/' >> "$GITHUB_ENV"
       - run: pnpm --filter @retronoodle/api exec vitest run src/realtime/RealtimeBus.integration.test.ts
