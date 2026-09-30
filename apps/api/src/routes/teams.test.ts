@@ -5,6 +5,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { buildServer } from '../server.js';
 import type { AuthClaims } from '../auth/index.js';
 import type { RealtimeBus } from '../realtime/RealtimeBus.js';
+import { chain } from '../testUtils/supabaseChain.js';
 
 let app: FastifyInstance | undefined;
 
@@ -19,36 +20,6 @@ const AUTH_HEADER = { authorization: 'Bearer good-token' };
 function verifyAccessToken(token: string): Promise<AuthClaims> {
   if (token !== 'good-token') throw new Error('invalid token');
   return Promise.resolve(claims);
-}
-
-/** A minimal chainable stub for one `.from(table)` call. `terminal` resolves whatever the
- * handler ultimately awaits (`.single()`, `.maybeSingle()`, or the builder itself). Every other
- * method (`.select`, `.eq`, `.in`, `.insert`, `.delete`) just records its call and returns the
- * same chain, matching how far apps/api/src/routes/teams.ts actually chains each query. */
-function chain(terminal: { data?: unknown; error?: unknown }, calls: unknown[][] = []) {
-  const record =
-    (name: string) =>
-    (...args: unknown[]) => {
-      calls.push([name, ...args]);
-      return api;
-    };
-  const api = {
-    select: record('select'),
-    eq: record('eq'),
-    in: record('in'),
-    insert: record('insert'),
-    delete: record('delete'),
-    async single() {
-      return terminal;
-    },
-    async maybeSingle() {
-      return terminal;
-    },
-    then(resolve: (v: typeof terminal) => unknown) {
-      return Promise.resolve(resolve(terminal));
-    },
-  };
-  return api;
 }
 
 describe('team routes (RN-005)', () => {

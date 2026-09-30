@@ -22,19 +22,24 @@ export interface RetroResource {
 
 export type Resource = TeamResource | RetroResource | null;
 
-export type Action = 'team.create' | 'team.read' | 'team.member.remove' | 'retro.read';
+export type Action =
+  | 'team.create'
+  | 'team.read'
+  | 'team.member.remove'
+  | 'retro.create'
+  | 'retro.read'
+  | 'retro.manageJoinLink';
 
 /**
  * The one access-check function (CLAUDE.md: "Every access check goes through
  * `can(user, action, resource)`. No inline permission checks."). Pure and synchronous —
  * callers resolve the user's role for the resource (`membership.ts`) before calling this.
  *
- * This is RN-005's reconstruction of Design 3.4's action matrix from docs/stories.md; the
- * design doc itself wasn't available while building it, so it only covers the actions RN-005's
- * own routes need plus `retro.read` (explicitly required by this story's own acceptance
- * criteria, ahead of the retro routes RN-006 adds). Later stories add more `Action` cases here
- * as they add the routes that need them (e.g. phase transitions, retro.close) — this file, not
- * inline checks in route handlers, is where those rules go.
+ * This is a reconstruction of Design 3.4's action matrix from docs/stories.md, built up story
+ * by story as routes need it (RN-005: team.*, retro.read; RN-006: retro.create,
+ * retro.manageJoinLink) since the design doc itself isn't available here. Later stories add
+ * more `Action` cases as they add the routes that need them (e.g. phase transitions,
+ * retro.close) — this file, not inline checks in route handlers, is where those rules go.
  */
 export function can(user: CanUser, action: Action, resource: Resource): boolean {
   switch (action) {
@@ -44,8 +49,14 @@ export function can(user: CanUser, action: Action, resource: Resource): boolean 
       return resource?.type === 'team' && resource.role !== null;
     case 'team.member.remove':
       return resource?.type === 'team' && resource.role === 'admin';
+    case 'retro.create':
+      return resource?.type === 'team' && resource.role !== null;
     case 'retro.read':
       return resource?.type === 'retro' && resource.teamRole !== null;
+    case 'retro.manageJoinLink':
+      // Facilitator-only (RN-006): regenerating invalidates the link for everyone. Facilitator
+      // isn't a stored role (see RetroResource) — it's just facilitatorId === user.id.
+      return resource?.type === 'retro' && resource.facilitatorId === user.id;
     default:
       return false;
   }

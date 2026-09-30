@@ -5,6 +5,48 @@ import { fetchHealth } from './api';
 import { fetchMe, signInWithGoogle, signOut } from './auth';
 import { supabase } from './supabaseClient';
 import { createTeam, fetchMyTeams } from './teams';
+import { createRetro } from './retros';
+
+// Start/Stop/Continue from supabase/seed.sql. Placeholder until RN-007 builds the real template
+// picker — RN-006 only needs *a* valid templateId to prove retro creation and the join link.
+const DEFAULT_TEMPLATE_ID = '00000000-0000-4000-8000-0000000000e1';
+
+function RetroCreator({ accessToken, teamId }: { accessToken: string; teamId: string }) {
+  const [retroName, setRetroName] = useState('');
+  const create = useMutation({
+    mutationFn: (name: string) => createRetro(accessToken, teamId, name, DEFAULT_TEMPLATE_ID),
+  });
+
+  if (create.isSuccess) {
+    const joinUrl = `${window.location.origin}/join/${create.data.joinCode}`;
+    return (
+      <p>
+        Created <strong>{create.data.name}</strong>. Join link:{' '}
+        <input readOnly value={joinUrl} onFocus={(e) => e.target.select()} style={{ width: 320 }} />{' '}
+        <button onClick={() => void navigator.clipboard.writeText(joinUrl)}>Copy</button>
+      </p>
+    );
+  }
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (retroName.trim()) create.mutate(retroName.trim());
+      }}
+    >
+      <input
+        value={retroName}
+        onChange={(e) => setRetroName(e.target.value)}
+        placeholder="Retro name"
+        disabled={create.isPending}
+      />
+      <button type="submit" disabled={create.isPending || !retroName.trim()}>
+        Create a retro
+      </button>
+    </form>
+  );
+}
 
 function TeamsPanel({ accessToken }: { accessToken: string }) {
   const queryClient = useQueryClient();
@@ -48,9 +90,12 @@ function TeamsPanel({ accessToken }: { accessToken: string }) {
   if (!team) return null; // unreachable: teams.data.length > 0 was checked above
 
   return (
-    <p>
-      Your team: <strong>{team.name}</strong> ({team.role})
-    </p>
+    <>
+      <p>
+        Your team: <strong>{team.name}</strong> ({team.role})
+      </p>
+      <RetroCreator accessToken={accessToken} teamId={team.id} />
+    </>
   );
 }
 

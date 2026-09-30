@@ -2,8 +2,9 @@ import cors from '@fastify/cors';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { HealthResponse, MeResponse, type Database } from '@retronoodle/shared';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { createRequireAuth, type VerifyAccessToken } from './auth/index.js';
+import { createRequireAuth, timezoneFromHeader, upsertProfile, type VerifyAccessToken } from './auth/index.js';
 import { registerTeamRoutes } from './routes/teams.js';
+import { registerRetroRoutes } from './routes/retros.js';
 import type { RealtimeBus } from './realtime/RealtimeBus.js';
 
 export interface ServerOptions {
@@ -38,23 +39,7 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
       const user = request.user;
       if (!user) return reply.code(401).send({ error: 'unauthorized' });
 
-      const timezoneHeader = request.headers['x-timezone'];
-      const timezone = typeof timezoneHeader === 'string' && timezoneHeader.length > 0 ? timezoneHeader : 'UTC';
-
-      const { data, error } = await supabaseAdmin
-        .from('profiles')
-        .upsert(
-          {
-            id: user.id,
-            display_name: user.displayName,
-            email: user.email,
-            avatar_url: user.avatarUrl,
-            timezone,
-          },
-          { onConflict: 'id' },
-        )
-        .select()
-        .single();
+      const { data, error } = await upsertProfile(supabaseAdmin, user, timezoneFromHeader(request.headers['x-timezone']));
 
       if (error || !data) {
         request.log.error({ err: error }, 'failed to upsert profile');
@@ -71,6 +56,7 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
     });
 
     registerTeamRoutes(app, { supabaseAdmin, requireAuth, realtimeBus });
+    registerRetroRoutes(app, { supabaseAdmin, requireAuth });
   }
 
   return app;
