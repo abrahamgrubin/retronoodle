@@ -4,6 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   CreateRetroRequest,
   JoinResponse,
+  phaseDurationMinutes,
   RetroCreatedResponse,
   TemplateColumn,
   type Database,
@@ -78,6 +79,9 @@ export function registerRetroRoutes(app: FastifyInstance, deps: RetroRoutesDeps)
         return reply.code(500).send({ error: 'retro_create_failed' });
       }
       const initialPhase = (carriedItems?.length ?? 0) > 0 ? 'review' : 'write';
+      // RN-012: both review and write have a default duration, so this is never null in
+      // practice — the retro starts its countdown from the moment it's created.
+      const initialPhaseDeadline = new Date(Date.now() + phaseDurationMinutes(initialPhase)! * 60_000).toISOString();
 
       // The template must be a built-in or belong to this team — not some other team's.
       const { data: template } = await supabaseAdmin
@@ -101,6 +105,7 @@ export function registerRetroRoutes(app: FastifyInstance, deps: RetroRoutesDeps)
           template_source: template.source,
           name: body.name,
           phase: initialPhase,
+          phase_deadline: initialPhaseDeadline,
           join_code_hash: hashJoinCode(joinCode),
         })
         .select()

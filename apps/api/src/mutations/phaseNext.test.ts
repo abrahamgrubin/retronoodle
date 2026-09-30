@@ -14,16 +14,21 @@ function retroAt(phase: string): LockedRetro {
     facilitator_id: facilitatorId,
     phase,
     cards_revealed: false,
+    phase_deadline: '2026-01-01T00:05:00.000Z',
   };
 }
 
+const newDeadline = new Date('2026-01-01T00:10:00.000Z');
+
 function fakeClient() {
-  const query = vi.fn().mockResolvedValue({ rows: [] });
+  // setPhase's own `update ... returning phase_deadline` needs a row back; every other query
+  // here (onTransition's vote delete) ignores its return value, so one fixed shape covers both.
+  const query = vi.fn().mockResolvedValue({ rows: [{ phase_deadline: newDeadline }] });
   return { query } as unknown as PoolClient;
 }
 
 describe('phase.next', () => {
-  it('advances the facilitator through the canonical sequence', async () => {
+  it('advances the facilitator through the canonical sequence, setting a fresh deadline', async () => {
     const cases: Array<[string, string]> = [
       ['review', 'write'],
       ['write', 'group'],
@@ -35,9 +40,10 @@ describe('phase.next', () => {
     for (const [from, to] of cases) {
       const client = fakeClient();
       const result = await phaseNextMutation.apply({ client, retro: retroAt(from), user: facilitator, payload: {} });
-      expect(result).toEqual({ phase: to });
+      expect(result).toEqual({ phase: to, phaseDeadline: newDeadline.toISOString() });
       const updateCall = (client.query as ReturnType<typeof vi.fn>).mock.calls.find((c) => (c[0] as string).includes('set phase'));
-      expect(updateCall?.[1]).toEqual([to, retroAt(from).id]);
+      expect(updateCall?.[1]?.[0]).toBe(to);
+      expect(updateCall?.[1]?.[2]).toBe(retroAt(from).id);
     }
   });
 

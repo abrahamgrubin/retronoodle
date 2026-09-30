@@ -9,6 +9,7 @@ export interface LockedRetro {
   facilitator_id: string;
   phase: string;
   cards_revealed: boolean;
+  phase_deadline: string | null;
 }
 
 export interface MutationContext<TPayload> {

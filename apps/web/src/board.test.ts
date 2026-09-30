@@ -17,16 +17,19 @@ describe('fetchBoard', () => {
             templateId: '00000000-0000-4000-8000-000000000004',
             templateSource: 'builtin',
             cardsRevealed: false,
+            phaseDeadline: '2026-01-01T00:05:00.000Z',
           },
           columns: [],
           cards: [],
           seq: 0,
+          serverTime: '2026-01-01T00:00:00.000Z',
         }),
       );
     });
 
     const board = await fetchBoard('token-123', 'retro-1', fetchImpl as unknown as typeof fetch);
     expect(board.retro.name).toBe('Sprint 1 retro');
+    expect(board.serverTime).toBe('2026-01-01T00:00:00.000Z');
     expect(seenHeaders?.Authorization).toBe('Bearer token-123');
   });
 

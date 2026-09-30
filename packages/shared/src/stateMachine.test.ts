@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RetroPhase } from './retros.js';
-import { allowedActions, footerHint, nextPhase, phaseSubtitle, previousPhase } from './stateMachine.js';
+import { allowedActions, footerHint, nextPhase, phaseDurationMinutes, phaseSubtitle, previousPhase } from './stateMachine.js';
 
 const ALL_PHASES: RetroPhase[] = ['setup', 'review', 'write', 'group', 'vote', 'discuss', 'wrap_up', 'closed'];
 
@@ -159,5 +159,21 @@ describe('footerHint', () => {
       if (phase === 'write') continue;
       expect(footerHint(phase)).toBeNull();
     }
+  });
+});
+
+describe('phaseDurationMinutes', () => {
+  it('matches the decided defaults (RN-012, decision Sep 29)', () => {
+    expect(phaseDurationMinutes('review')).toBe(5);
+    expect(phaseDurationMinutes('write')).toBe(5);
+    expect(phaseDurationMinutes('group')).toBe(5);
+    expect(phaseDurationMinutes('vote')).toBe(3);
+    expect(phaseDurationMinutes('discuss')).toBe(30);
+    expect(phaseDurationMinutes('wrap_up')).toBe(5);
+  });
+
+  it('is null for setup and closed — neither ever gets a countdown', () => {
+    expect(phaseDurationMinutes('setup')).toBeNull();
+    expect(phaseDurationMinutes('closed')).toBeNull();
   });
 });

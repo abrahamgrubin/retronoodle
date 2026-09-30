@@ -14,6 +14,7 @@ function retroAt(phase: string): LockedRetro {
     facilitator_id: '00000000-0000-4000-8000-000000000003',
     phase,
     cards_revealed: true,
+    phase_deadline: '2026-01-01T00:05:00.000Z',
   };
 }
 

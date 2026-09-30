@@ -26,6 +26,14 @@ describe('GET /health', () => {
     expect(Number.isNaN(Date.parse(body.time))).toBe(false);
   });
 
+  it('includes serverTime on every object-shaped response (RN-012)', async () => {
+    app = await buildServer({ webOrigin: 'http://localhost:5173' });
+    const res = await app.inject({ method: 'GET', url: '/health' });
+    const raw = res.json() as { serverTime?: unknown };
+    expect(typeof raw.serverTime).toBe('string');
+    expect(Number.isNaN(Date.parse(raw.serverTime as string))).toBe(false);
+  });
+
   it('allows only the configured web origin', async () => {
     app = await buildServer({ webOrigin: 'https://retronoodle.com' });
     const allowed = await app.inject({
