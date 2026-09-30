@@ -10,6 +10,7 @@ const teamNonMember: Resource = { type: 'team', role: null };
 const retroAsAdmin: Resource = { type: 'retro', teamRole: 'admin', facilitatorId: 'someone-else' };
 const retroAsMember: Resource = { type: 'retro', teamRole: 'member', facilitatorId: 'someone-else' };
 const retroNonMember: Resource = { type: 'retro', teamRole: null, facilitatorId: 'someone-else' };
+const retroAsFacilitator: Resource = { type: 'retro', teamRole: 'member', facilitatorId: user.id };
 
 describe('can — role x action matrix (Design 3.4, reconstructed for RN-005)', () => {
   it.each<[Action, Resource, boolean]>([
@@ -31,6 +32,18 @@ describe('can — role x action matrix (Design 3.4, reconstructed for RN-005)', 
     ['retro.read', retroAsAdmin, true],
     ['retro.read', retroAsMember, true],
     ['retro.read', retroNonMember, false],
+
+    // retro.create: any team member (admin or plain member) may create a retro.
+    ['retro.create', teamAdmin, true],
+    ['retro.create', teamMember, true],
+    ['retro.create', teamNonMember, false],
+
+    // retro.manageJoinLink: facilitator only — team admin doesn't get a pass, only whoever
+    // facilitates this specific retro.
+    ['retro.manageJoinLink', retroAsFacilitator, true],
+    ['retro.manageJoinLink', retroAsAdmin, false],
+    ['retro.manageJoinLink', retroAsMember, false],
+    ['retro.manageJoinLink', retroNonMember, false],
   ])('%s on %o -> %s', (action, resource, expected) => {
     expect(can(user, action, resource)).toBe(expected);
   });

@@ -2,6 +2,11 @@
 -- content is finalized in RN-007). This is local-dev-only convenience data, not production seed
 -- data — the production Demo Team used for the RN-029 demo retro is created through real Google
 -- sign-in, not this file.
+--
+-- IDs below use 4000-8000 (a valid v4-shaped version/variant) rather than plain zeros — Zod's
+-- z.string().uuid() enforces RFC 4122's version/variant nibbles, and an all-zero id other than
+-- the literal nil UUID fails that check. Found live by RN-006, the first story to validate one
+-- of these seeded ids (a template id) through a zod .uuid() schema.
 
 -- A synthetic auth user so `teams.created_by` has somewhere to point on a fresh local stack.
 -- Never used to sign in; RN-003 wires up real Google sign-in.
@@ -12,7 +17,7 @@ insert into auth.users (
   email_change_token_new, email_change
 ) values (
   '00000000-0000-0000-0000-000000000000',
-  '00000000-0000-0000-0000-0000000000d0',
+  '00000000-0000-4000-8000-0000000000d0',
   'authenticated',
   'authenticated',
   'demo@retronoodle.com',
@@ -26,7 +31,7 @@ insert into auth.users (
 );
 
 insert into public.profiles (id, display_name, email, avatar_url, timezone) values (
-  '00000000-0000-0000-0000-0000000000d0',
+  '00000000-0000-4000-8000-0000000000d0',
   'Demo Facilitator',
   'demo@retronoodle.com',
   null,
@@ -34,15 +39,15 @@ insert into public.profiles (id, display_name, email, avatar_url, timezone) valu
 );
 
 insert into public.teams (id, name, created_by, retro_cadence_days) values (
-  '00000000-0000-0000-0000-0000000000d1',
+  '00000000-0000-4000-8000-0000000000d1',
   'Demo Team',
-  '00000000-0000-0000-0000-0000000000d0',
+  '00000000-0000-4000-8000-0000000000d0',
   14
 );
 
 insert into public.team_members (team_id, user_id, role) values (
-  '00000000-0000-0000-0000-0000000000d1',
-  '00000000-0000-0000-0000-0000000000d0',
+  '00000000-0000-4000-8000-0000000000d1',
+  '00000000-0000-4000-8000-0000000000d0',
   'admin'
 );
 
@@ -50,7 +55,7 @@ insert into public.team_members (team_id, user_id, role) values (
 -- code appends a blue Action items column at retro start (RN-007) — never stored here.
 insert into public.templates (id, team_id, source, name, columns) values
   (
-    '00000000-0000-0000-0000-0000000000e1',
+    '00000000-0000-4000-8000-0000000000e1',
     null,
     'builtin',
     'Start / Stop / Continue',
@@ -61,7 +66,7 @@ insert into public.templates (id, team_id, source, name, columns) values
     ]'::jsonb
   ),
   (
-    '00000000-0000-0000-0000-0000000000e2',
+    '00000000-0000-4000-8000-0000000000e2',
     null,
     'builtin',
     'Mad / Sad / Glad',
@@ -72,7 +77,7 @@ insert into public.templates (id, team_id, source, name, columns) values
     ]'::jsonb
   ),
   (
-    '00000000-0000-0000-0000-0000000000e3',
+    '00000000-0000-4000-8000-0000000000e3',
     null,
     'builtin',
     '4Ls',
@@ -84,7 +89,7 @@ insert into public.templates (id, team_id, source, name, columns) values
     ]'::jsonb
   ),
   (
-    '00000000-0000-0000-0000-0000000000e4',
+    '00000000-0000-4000-8000-0000000000e4',
     null,
     'builtin',
     'Sailboat',
