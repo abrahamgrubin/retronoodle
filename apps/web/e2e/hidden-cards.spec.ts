@@ -40,17 +40,25 @@ async function createSignedInUser(label: string): Promise<TestUser> {
   return { userId: data.user.id, accessToken: session.session.access_token, refreshToken: session.session.refresh_token };
 }
 
+/** Throws with the status and body on failure, instead of the caller getting an opaque
+ * "Cannot read properties of undefined" three calls later — every setup step here must succeed. */
 async function apiFetch(path: string, accessToken: string, body?: unknown) {
-  return fetch(`${API_URL}${path}`, {
+  const res = await fetch(`${API_URL}${path}`, {
     method: body ? 'POST' : 'GET',
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
   });
+  if (!res.ok) throw new Error(`${path} failed: ${res.status} ${await res.text().catch(() => '')}`);
+  return res;
 }
 
 /** Creates a team (author is the only member at first), a retro (starts in Write), and returns
  * its first standard column's id — the shared fixture every test in this file builds on. */
 async function setupRetro(author: TestUser) {
+  // team_members.user_id FKs to profiles.id — GET /me is what upserts that row (same "new user"
+  // gap RN-006 hit for /join/:code); skipping it makes POST /teams 500 on the FK violation.
+  await apiFetch('/me', author.accessToken);
+
   const teamId = randomUUID();
   await apiFetch('/teams', author.accessToken, { id: teamId, name: `RN-011 e2e team ${teamId}` });
 
