@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
-import { createTokenVerifier } from './auth.js';
+import { createTokenVerifier } from './token.js';
 
 const SUPABASE_URL = 'https://test.supabase.co';
 const KID = 'test-key';

@@ -2,7 +2,9 @@ import cors from '@fastify/cors';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { HealthResponse, MeResponse, type Database } from '@retronoodle/shared';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { createRequireAuth, type VerifyAccessToken } from './auth.js';
+import { createRequireAuth, type VerifyAccessToken } from './auth/index.js';
+import { registerTeamRoutes } from './routes/teams.js';
+import type { RealtimeBus } from './realtime/RealtimeBus.js';
 
 export interface ServerOptions {
   webOrigin: string;
@@ -10,6 +12,7 @@ export interface ServerOptions {
   auth?: {
     verifyAccessToken: VerifyAccessToken;
     supabaseAdmin: SupabaseClient<Database>;
+    realtimeBus: RealtimeBus;
   };
 }
 
@@ -26,7 +29,7 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
   });
 
   if (options.auth) {
-    const { verifyAccessToken, supabaseAdmin } = options.auth;
+    const { verifyAccessToken, supabaseAdmin, realtimeBus } = options.auth;
     const requireAuth = createRequireAuth(verifyAccessToken);
 
     // First authenticated request upserts the caller's profile (RN-003). Later stories add
@@ -66,6 +69,8 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
         timezone: data.timezone,
       });
     });
+
+    registerTeamRoutes(app, { supabaseAdmin, requireAuth, realtimeBus });
   }
 
   return app;
