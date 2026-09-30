@@ -2,9 +2,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { HealthResponse, MeResponse, type Database } from '@retronoodle/shared';
 import type { FastifyInstance } from 'fastify';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { buildServer, type ServerOptions } from './server.js';
+import { buildServer } from './server.js';
 import type { AuthClaims } from './auth/index.js';
 import type { RealtimeBus } from './realtime/RealtimeBus.js';
+import { testAuthOptions } from './testUtils/testAuth.js';
 
 const noopRealtimeBus = { broadcastRetro: async () => {}, broadcastUser: async () => {} } as unknown as RealtimeBus;
 
@@ -81,14 +82,14 @@ describe('GET /me', () => {
       },
     } as unknown as SupabaseClient<Database>;
 
-    const auth: ServerOptions['auth'] = {
+    const auth = testAuthOptions({
       async verifyAccessToken(token) {
         if (token !== 'good-token') throw new Error('invalid token');
         return claims;
       },
       supabaseAdmin,
       realtimeBus: noopRealtimeBus,
-    };
+    });
 
     return { upsertCalls, build: () => buildServer({ webOrigin: 'http://localhost:5173', auth }) };
   }

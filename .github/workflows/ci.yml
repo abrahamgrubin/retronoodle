@@ -36,13 +36,15 @@ jobs:
       - run: supabase start
       - run: supabase db reset
       - run: ./supabase/tests/schema-checks.sh postgresql://postgres:postgres@127.0.0.1:54322/postgres
-      - name: Export local Supabase credentials (RN-004 Realtime integration test)
+      - name: Export local Supabase credentials (RN-004/RN-008 integration tests)
         run: |
           supabase status -o env
           # `-o env` quotes its values (KEY="value"), but $GITHUB_ENV takes everything after
           # `=` literally, so the quotes must be stripped or they end up in the value.
-          supabase status -o env | grep -E '^(API_URL|ANON_KEY|SERVICE_ROLE_KEY)=' | sed \
+          supabase status -o env | grep -E '^(API_URL|ANON_KEY|SERVICE_ROLE_KEY|DB_URL)=' | sed \
             -e 's/^API_URL="\(.*\)"$/SUPABASE_URL=\1/' \
             -e 's/^ANON_KEY="\(.*\)"$/SUPABASE_ANON_KEY=\1/' \
-            -e 's/^SERVICE_ROLE_KEY="\(.*\)"$/SUPABASE_SERVICE_ROLE_KEY=\1/' >> "$GITHUB_ENV"
+            -e 's/^SERVICE_ROLE_KEY="\(.*\)"$/SUPABASE_SERVICE_ROLE_KEY=\1/' \
+            -e 's/^DB_URL="\(.*\)"$/DATABASE_URL=\1/' >> "$GITHUB_ENV"
       - run: pnpm --filter @retronoodle/api exec vitest run src/realtime/RealtimeBus.integration.test.ts
+      - run: pnpm --filter @retronoodle/api exec vitest run src/mutations/pipeline.integration.test.ts

@@ -5,3 +5,4 @@ export * from './auth.js';
 export * from './teams.js';
 export * from './retros.js';
 export * from './templates.js';
+export * from './mutations.js';

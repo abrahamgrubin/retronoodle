@@ -6,6 +6,7 @@ import { buildServer } from '../server.js';
 import type { AuthClaims } from '../auth/index.js';
 import type { RealtimeBus } from '../realtime/RealtimeBus.js';
 import { chain } from '../testUtils/supabaseChain.js';
+import { testAuthOptions } from '../testUtils/testAuth.js';
 
 let app: FastifyInstance | undefined;
 
@@ -44,7 +45,7 @@ describe('team routes (RN-005)', () => {
 
       app = await buildServer({
         webOrigin: 'http://localhost:5173',
-        auth: { verifyAccessToken, supabaseAdmin, realtimeBus: {} as RealtimeBus },
+        auth: testAuthOptions({ verifyAccessToken, supabaseAdmin }),
       });
 
       const res = await app.inject({
@@ -84,7 +85,7 @@ describe('team routes (RN-005)', () => {
 
       return buildServer({
         webOrigin: 'http://localhost:5173',
-        auth: { verifyAccessToken, supabaseAdmin, realtimeBus: {} as RealtimeBus },
+        auth: testAuthOptions({ verifyAccessToken, supabaseAdmin }),
       });
     }
 
@@ -130,7 +131,7 @@ describe('team routes (RN-005)', () => {
 
       app = await buildServer({
         webOrigin: 'http://localhost:5173',
-        auth: { verifyAccessToken, supabaseAdmin, realtimeBus: {} as RealtimeBus },
+        auth: testAuthOptions({ verifyAccessToken, supabaseAdmin }),
       });
 
       const res = await app.inject({ method: 'GET', url: '/me/teams', headers: AUTH_HEADER });
@@ -151,7 +152,7 @@ describe('team routes (RN-005)', () => {
 
       app = await buildServer({
         webOrigin: 'http://localhost:5173',
-        auth: { verifyAccessToken, supabaseAdmin, realtimeBus: {} as RealtimeBus },
+        auth: testAuthOptions({ verifyAccessToken, supabaseAdmin }),
       });
 
       const res = await app.inject({ method: 'GET', url: '/me/teams', headers: AUTH_HEADER });
@@ -187,7 +188,7 @@ describe('team routes (RN-005)', () => {
         build: () =>
           buildServer({
             webOrigin: 'http://localhost:5173',
-            auth: { verifyAccessToken, supabaseAdmin, realtimeBus },
+            auth: testAuthOptions({ verifyAccessToken, supabaseAdmin, realtimeBus }),
           }),
       };
     }
