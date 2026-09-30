@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRetroStore, type RetroEvent } from './retroStore';
 
 // A trivial board (array of strings) and reducer (push the payload) — this file has no opinion
@@ -70,10 +70,62 @@ describe('retroStore — applyServerEvent', () => {
   });
 });
 
+describe('retroStore — stale gap detection (RN-013)', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('sets hasStaleGap once a buffered gap has waited ~1s without closing', () => {
+    const store = makeStore();
+    store.getState().applyServerEvent(event(1, 'a'));
+    store.getState().applyServerEvent(event(3, 'c')); // seq 2 missing
+
+    vi.advanceTimersByTime(999);
+    expect(store.getState().hasStaleGap).toBe(false);
+    vi.advanceTimersByTime(2);
+    expect(store.getState().hasStaleGap).toBe(true);
+  });
+
+  it('never sets hasStaleGap if the gap closes before 1s', () => {
+    const store = makeStore();
+    store.getState().applyServerEvent(event(1, 'a'));
+    store.getState().applyServerEvent(event(3, 'c'));
+    vi.advanceTimersByTime(500);
+    store.getState().applyServerEvent(event(2, 'b')); // closes the gap in time
+
+    vi.advanceTimersByTime(1000);
+    expect(store.getState().hasStaleGap).toBe(false);
+  });
+
+  it('a later gap (after resetBoard) gets its own fresh timer', () => {
+    const store = makeStore();
+    store.getState().applyServerEvent(event(1, 'a'));
+    store.getState().applyServerEvent(event(3, 'c'));
+    store.getState().resetBoard(['fresh'], 10); // clears the pending timer and hasStaleGap
+
+    store.getState().applyServerEvent(event(12, 'e')); // seq 11 missing
+    vi.advanceTimersByTime(999);
+    expect(store.getState().hasStaleGap).toBe(false); // the old timer didn't leak through
+    vi.advanceTimersByTime(2);
+    expect(store.getState().hasStaleGap).toBe(true); // the new gap's own timer fired
+  });
+
+  it('clears hasStaleGap once the gap finally closes on its own, not just via resetBoard', () => {
+    const store = makeStore();
+    store.getState().applyServerEvent(event(1, 'a'));
+    store.getState().applyServerEvent(event(3, 'c'));
+    vi.advanceTimersByTime(1000);
+    expect(store.getState().hasStaleGap).toBe(true);
+
+    store.getState().applyServerEvent(event(2, 'b')); // the missing event finally arrives
+    expect(store.getState().hasStaleGap).toBe(false);
+  });
+});
+
 describe('retroStore — sendMutation', () => {
   it('applies optimistically and leaves the board as-is on success', async () => {
     const store = makeStore();
     await store.getState().sendMutation({
+      mutationId: 'm1',
       optimisticReduce: (board) => [...board, 'optimistic:x'],
       send: async () => new Response(JSON.stringify({ seq: 1 }), { status: 200 }),
     });
@@ -84,6 +136,7 @@ describe('retroStore — sendMutation', () => {
   it('rolls back and sets lastError from the response body on rejection', async () => {
     const store = makeStore();
     await store.getState().sendMutation({
+      mutationId: 'm1',
       optimisticReduce: (board) => [...board, 'optimistic:x'],
       send: async () => new Response(JSON.stringify({ error: 'forbidden', message: 'Not allowed' }), { status: 403 }),
     });
@@ -91,16 +144,18 @@ describe('retroStore — sendMutation', () => {
     expect(store.getState().lastError).toBe('Not allowed');
   });
 
-  it('rolls back and sets a generic lastError when the request itself throws', async () => {
+  it('RN-013: a network failure (fetch itself throws) keeps the optimistic state instead of rolling back', async () => {
     const store = makeStore();
     await store.getState().sendMutation({
+      mutationId: 'm1',
       optimisticReduce: (board) => [...board, 'optimistic:x'],
       send: async () => {
-        throw new Error('network down');
+        throw new Error('offline');
       },
     });
-    expect(store.getState().board).toEqual([]);
-    expect(store.getState().lastError).toBe('Network error — please try again.');
+    // Kept, not rolled back — "typing in a card editor never blocks" and the edit isn't lost.
+    expect(store.getState().board).toEqual(['optimistic:x']);
+    expect(store.getState().lastError).toBeNull();
   });
 
   it('only rolls back to the board as it was before this specific mutation', async () => {
@@ -108,6 +163,7 @@ describe('retroStore — sendMutation', () => {
     store.getState().applyServerEvent(event(1, 'confirmed'));
 
     await store.getState().sendMutation({
+      mutationId: 'm1',
       optimisticReduce: (board) => [...board, 'optimistic:x'],
       send: async () => new Response('{}', { status: 500 }),
     });
@@ -117,10 +173,7 @@ describe('retroStore — sendMutation', () => {
 
   it('clearError resets lastError', async () => {
     const store = makeStore();
-    await store.getState().sendMutation({
-      optimisticReduce: (board) => board,
-      send: async () => new Response('{}', { status: 500 }),
-    });
+    await store.getState().sendMutation({ mutationId: 'm1', optimisticReduce: (b) => b, send: async () => new Response('{}', { status: 500 }) });
     expect(store.getState().lastError).not.toBeNull();
     store.getState().clearError();
     expect(store.getState().lastError).toBeNull();
@@ -141,7 +194,7 @@ describe('retroStore — applyLocalPatch (RN-011)', () => {
   });
 });
 
-describe('retroStore — resetBoard (RN-011)', () => {
+describe('retroStore — resetBoard (RN-011, extended by RN-013)', () => {
   it('replaces the board and seq, and drops any buffered out-of-order events', () => {
     const store = makeStore();
     store.getState().applyServerEvent(event(1, 'a'));
@@ -159,10 +212,67 @@ describe('retroStore — resetBoard (RN-011)', () => {
 
   it('clears lastError too', async () => {
     const store = makeStore();
-    await store.getState().sendMutation({ optimisticReduce: (b) => b, send: async () => new Response('{}', { status: 500 }) });
+    await store
+      .getState()
+      .sendMutation({ mutationId: 'm1', optimisticReduce: (b) => b, send: async () => new Response('{}', { status: 500 }) });
     expect(store.getState().lastError).not.toBeNull();
 
     store.getState().resetBoard([], 0);
     expect(store.getState().lastError).toBeNull();
+  });
+
+  it('RN-013: re-applies a still-pending mutation on top of the fresh snapshot, so an offline edit stays visible', async () => {
+    const store = makeStore();
+    void store.getState().sendMutation({
+      mutationId: 'm1',
+      optimisticReduce: (board) => [...board, 'optimistic:offline-edit'],
+      send: () => new Promise<Response>(() => {}), // never resolves — simulates "still offline"
+    });
+    await Promise.resolve(); // let sendMutation's synchronous optimistic-apply run
+
+    store.getState().resetBoard(['fresh snapshot'], 10);
+    expect(store.getState().board).toEqual(['fresh snapshot', 'optimistic:offline-edit']);
+  });
+});
+
+describe('retroStore — retryPendingMutations (RN-013)', () => {
+  it('resends a pending mutation with its original mutationId and clears it from pending on success', async () => {
+    const store = makeStore();
+    const send = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+    await store.getState().sendMutation({ mutationId: 'm1', optimisticReduce: (b) => [...b, 'x'], send });
+    expect(send).toHaveBeenCalledTimes(1); // failed, stayed pending
+
+    await store.getState().retryPendingMutations();
+    expect(send).toHaveBeenCalledTimes(2); // resent
+
+    // A second retry call has nothing left pending — send isn't called again.
+    await store.getState().retryPendingMutations();
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  it('rolls back and sets lastError if the retried mutation comes back rejected', async () => {
+    const store = makeStore();
+    const send = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ message: 'Phase changed' }), { status: 409 }));
+
+    await store.getState().sendMutation({ mutationId: 'm1', optimisticReduce: (b) => [...b, 'x'], send });
+    await store.getState().retryPendingMutations();
+
+    expect(store.getState().lastError).toBe('Phase changed');
+  });
+
+  it('leaves a mutation pending if the retry itself fails again (still offline)', async () => {
+    const store = makeStore();
+    const send = vi.fn().mockRejectedValue(new Error('still offline'));
+
+    await store.getState().sendMutation({ mutationId: 'm1', optimisticReduce: (b) => [...b, 'x'], send });
+    await store.getState().retryPendingMutations();
+    expect(send).toHaveBeenCalledTimes(2);
+
+    await store.getState().retryPendingMutations();
+    expect(send).toHaveBeenCalledTimes(3); // still pending, tried again
   });
 });
