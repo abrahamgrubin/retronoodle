@@ -48,3 +48,4 @@ jobs:
             -e 's/^DB_URL="\(.*\)"$/DATABASE_URL=\1/' >> "$GITHUB_ENV"
       - run: pnpm --filter @retronoodle/api exec vitest run src/realtime/RealtimeBus.integration.test.ts
       - run: pnpm --filter @retronoodle/api exec vitest run src/mutations/pipeline.integration.test.ts
+      - run: pnpm --filter @retronoodle/api exec vitest run src/routes/board.integration.test.ts

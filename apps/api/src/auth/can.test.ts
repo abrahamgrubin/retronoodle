@@ -12,6 +12,9 @@ const retroAsMember: Resource = { type: 'retro', teamRole: 'member', facilitator
 const retroNonMember: Resource = { type: 'retro', teamRole: null, facilitatorId: 'someone-else' };
 const retroAsFacilitator: Resource = { type: 'retro', teamRole: 'member', facilitatorId: user.id };
 
+const ownCard: Resource = { type: 'card', authorId: user.id };
+const othersCard: Resource = { type: 'card', authorId: 'someone-else' };
+
 describe('can — role x action matrix (Design 3.4, reconstructed for RN-005)', () => {
   it.each<[Action, Resource, boolean]>([
     // team.create: no resource yet, so anyone authenticated may create a team.
@@ -54,6 +57,12 @@ describe('can — role x action matrix (Design 3.4, reconstructed for RN-005)', 
     ['retro.manageJoinLink', retroAsAdmin, false],
     ['retro.manageJoinLink', retroAsMember, false],
     ['retro.manageJoinLink', retroNonMember, false],
+
+    // card.edit / card.delete: ownership, not a role — only the author, ever.
+    ['card.edit', ownCard, true],
+    ['card.edit', othersCard, false],
+    ['card.delete', ownCard, true],
+    ['card.delete', othersCard, false],
   ])('%s on %o -> %s', (action, resource, expected) => {
     expect(can(user, action, resource)).toBe(expected);
   });

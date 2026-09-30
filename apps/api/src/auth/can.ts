@@ -20,7 +20,13 @@ export interface RetroResource {
   facilitatorId: string;
 }
 
-export type Resource = TeamResource | RetroResource | null;
+/** Ownership, not a role — RN-009: "only the author may edit or delete". */
+export interface CardResource {
+  type: 'card';
+  authorId: string;
+}
+
+export type Resource = TeamResource | RetroResource | CardResource | null;
 
 export type Action =
   | 'team.create'
@@ -30,7 +36,9 @@ export type Action =
   | 'retro.read'
   | 'retro.manageJoinLink'
   | 'retro.mutate'
-  | 'template.read';
+  | 'template.read'
+  | 'card.edit'
+  | 'card.delete';
 
 /**
  * The one access-check function (CLAUDE.md: "Every access check goes through
@@ -39,10 +47,10 @@ export type Action =
  *
  * This is a reconstruction of Design 3.4's action matrix from docs/stories.md, built up story
  * by story as routes need it (RN-005: team.*, retro.read; RN-006: retro.create,
- * retro.manageJoinLink; RN-007: template.read; RN-008: retro.mutate) since the design doc
- * itself isn't available here. Later stories add more `Action` cases as they add the routes
- * that need them (e.g. phase transitions, retro.close) — this file, not inline checks in route
- * handlers, is where those rules go.
+ * retro.manageJoinLink; RN-007: template.read; RN-008: retro.mutate; RN-009: card.edit,
+ * card.delete) since the design doc itself isn't available here. Later stories add more
+ * `Action` cases as they add the routes that need them (e.g. phase transitions, retro.close) —
+ * this file, not inline checks in route handlers, is where those rules go.
  */
 export function can(user: CanUser, action: Action, resource: Resource): boolean {
   switch (action) {
@@ -68,6 +76,10 @@ export function can(user: CanUser, action: Action, resource: Resource): boolean 
       // Facilitator-only (RN-006): regenerating invalidates the link for everyone. Facilitator
       // isn't a stored role (see RetroResource) — it's just facilitatorId === user.id.
       return resource?.type === 'retro' && resource.facilitatorId === user.id;
+    case 'card.edit':
+    case 'card.delete':
+      // Ownership, not a role (RN-009): only the author may edit or delete their own card.
+      return resource?.type === 'card' && resource.authorId === user.id;
     default:
       return false;
   }
