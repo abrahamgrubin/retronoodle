@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { uuidv7 } from 'uuidv7';
-import type { BoardCard, BoardResponse } from '@retronoodle/shared';
+import { allowedActions, nextPhase, phaseSubtitle, previousPhase, type BoardCard, type BoardResponse, type RetroPhase } from '@retronoodle/shared';
 import { signInWithGoogle } from './auth';
 import { fetchBoard } from './board';
 import { reduceBoard, type BoardState } from './boardReducer';
@@ -58,12 +58,12 @@ function AddCardForm({ onAdd }: { onAdd: (body: string) => void }) {
 
 function CardView({
   card,
-  isOwn,
+  canEdit,
   onEdit,
   onDelete,
 }: {
   card: BoardCard;
-  isOwn: boolean;
+  canEdit: boolean;
   onEdit: (body: string) => void;
   onDelete: () => void;
 }) {
@@ -116,7 +116,7 @@ function CardView({
     <div style={{ border: '1px solid #ccc', borderRadius: 6, padding: 8, marginBottom: 8 }}>
       <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{card.body}</p>
       <p style={{ margin: '4px 0 0', fontSize: 12, color: '#666' }}>{card.authorName}</p>
-      {isOwn && (
+      {canEdit && (
         <div style={{ marginTop: 4 }}>
           <button type="button" onClick={() => setEditing(true)}>
             Edit
@@ -145,12 +145,20 @@ function Board({
 }) {
   const [useBoardStore] = useState(() =>
     createRetroStore<BoardState>({
-      initialBoard: { columns: initialBoard.columns, cards: initialBoard.cards },
+      initialBoard: { phase: initialBoard.retro.phase, columns: initialBoard.columns, cards: initialBoard.cards },
       initialSeq: initialBoard.seq,
       reduce: reduceBoard,
     }),
   );
   const { board, lastError, applyServerEvent, sendMutation, clearError } = useBoardStore();
+  const isFacilitator = userId === initialBoard.retro.facilitatorId;
+  // The Action items column follows the matrix's separate "Create or edit action items" row
+  // (Review/Discuss/Wrap up), not "Add, edit, delete own card" (Write/Group) — matching the
+  // server-side check in cardCreate/cardEdit/cardDelete's apply().
+  function canEditColumn(columnKind: 'standard' | 'action_items'): boolean {
+    const actions = allowedActions(board.phase);
+    return columnKind === 'action_items' ? actions.actionItemEdit : actions.cardCrud;
+  }
 
   useEffect(() => {
     const client = supabase;
@@ -195,10 +203,55 @@ function Board({
     });
   }
 
+  function changePhase(direction: 'next' | 'back') {
+    const type = direction === 'next' ? 'phase.next' : 'phase.back';
+    const target = direction === 'next' ? nextPhase(board.phase) : previousPhase(board.phase);
+    if (!target) return;
+    void sendMutation({
+      optimisticReduce: (b) => reduceBoard(b, { seq: -1, type, payload: { phase: target } }),
+      send: () => postMutation(accessToken, retroId, { mutationId: uuidv7(), type, payload: {} }),
+    });
+  }
+
+  // Header pill bar per mock (RN-010): current phase is the dark pill; past phases stay
+  // clickable-looking but inert — there's no "jump to phase" action, only next/back/skip.
+  const PHASE_PILLS: RetroPhase[] = ['review', 'write', 'group', 'vote', 'discuss', 'wrap_up'];
+  const currentPillIndex = PHASE_PILLS.indexOf(board.phase);
+
   return (
     <main style={{ fontFamily: 'system-ui, sans-serif', padding: 32 }}>
       <h1 style={{ marginBottom: 4 }}>{initialBoard.retro.name}</h1>
-      <p style={{ margin: '0 0 16px', color: '#666' }}>Phase: {initialBoard.retro.phase}</p>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+        {PHASE_PILLS.map((phase, index) => (
+          <span
+            key={phase}
+            style={{
+              padding: '4px 10px',
+              borderRadius: 999,
+              fontSize: 12,
+              background: phase === board.phase ? '#222' : '#eee',
+              color: phase === board.phase ? '#fff' : index < currentPillIndex ? '#aaa' : '#888',
+            }}
+          >
+            {phase.replace('_', ' ')}
+          </span>
+        ))}
+      </div>
+      <p style={{ margin: '0 0 8px', color: '#666' }}>{phaseSubtitle(board.phase)}</p>
+      {isFacilitator && (
+        <p style={{ margin: '0 0 16px' }}>
+          {previousPhase(board.phase) && (
+            <button type="button" onClick={() => changePhase('back')}>
+              Back
+            </button>
+          )}{' '}
+          {nextPhase(board.phase) && (
+            <button type="button" onClick={() => changePhase('next')}>
+              Next phase
+            </button>
+          )}
+        </p>
+      )}
       {lastError && (
         <p role="alert" style={{ color: 'crimson' }}>
           {lastError}{' '}
@@ -215,6 +268,7 @@ function Board({
             const cards = board.cards
               .filter((c) => c.columnId === column.id)
               .sort((a, b) => a.position.localeCompare(b.position));
+            const canEdit = canEditColumn(column.kind);
             return (
               <section
                 key={column.id}
@@ -228,12 +282,12 @@ function Board({
                   <CardView
                     key={card.id}
                     card={card}
-                    isOwn={card.authorId === userId}
+                    canEdit={canEdit && card.authorId === userId}
                     onEdit={(body) => editCard(card.id, body)}
                     onDelete={() => deleteCard(card.id)}
                   />
                 ))}
-                <AddCardForm onAdd={(body) => addCard(column.id, body)} />
+                {canEdit && <AddCardForm onAdd={(body) => addCard(column.id, body)} />}
               </section>
             );
           })}

@@ -36,7 +36,8 @@ describe('can — role x action matrix (Design 3.4, reconstructed for RN-005)', 
     ['retro.read', retroAsMember, true],
     ['retro.read', retroNonMember, false],
 
-    // retro.mutate: stubbed until RN-010's real phase-action matrix — any team member for now.
+    // retro.mutate: whether the caller may attempt a mutation at all (team membership) — which
+    // mutation *types* the current phase allows is a separate check (RN-010's phaseCheck).
     ['retro.mutate', retroAsAdmin, true],
     ['retro.mutate', retroAsMember, true],
     ['retro.mutate', retroNonMember, false],
@@ -57,6 +58,14 @@ describe('can — role x action matrix (Design 3.4, reconstructed for RN-005)', 
     ['retro.manageJoinLink', retroAsAdmin, false],
     ['retro.manageJoinLink', retroAsMember, false],
     ['retro.manageJoinLink', retroNonMember, false],
+
+    // retro.transitionPhase (RN-010): facilitator only — "phase.next/back/skip that only the
+    // facilitator may send". Same rule as manageJoinLink, checked independently here in case the
+    // two ever diverge.
+    ['retro.transitionPhase', retroAsFacilitator, true],
+    ['retro.transitionPhase', retroAsAdmin, false],
+    ['retro.transitionPhase', retroAsMember, false],
+    ['retro.transitionPhase', retroNonMember, false],
 
     // card.edit / card.delete: ownership, not a role — only the author, ever.
     ['card.edit', ownCard, true],

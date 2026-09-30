@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { RetroPhase } from './retros.js';
 
 /** POST /retros/:id/mutations body (RN-008). Every mutation type has its own payload schema
  * below; the envelope itself only knows the type name and a client-generated mutationId used
@@ -59,3 +60,14 @@ export const CardDeleteResult = z.object({
   id: z.string().uuid(),
 });
 export type CardDeleteResult = z.infer<typeof CardDeleteResult>;
+
+/** `phase.next`, `phase.back`, `phase.skip` (RN-010): the target phase is always derived from
+ * the retro's current phase server-side (via stateMachine's nextPhase/previousPhase), never
+ * supplied by the caller, so there's nothing to carry in the payload. */
+export const PhaseTransitionPayload = z.object({}).strict();
+export type PhaseTransitionPayload = z.infer<typeof PhaseTransitionPayload>;
+
+export const PhaseTransitionResult = z.object({
+  phase: RetroPhase,
+});
+export type PhaseTransitionResult = z.infer<typeof PhaseTransitionResult>;

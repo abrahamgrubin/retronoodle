@@ -1,7 +1,16 @@
-import type { BoardCard, BoardColumn, CardCreateResult, CardDeleteResult, CardEditResult } from '@retronoodle/shared';
+import type {
+  BoardCard,
+  BoardColumn,
+  CardCreateResult,
+  CardDeleteResult,
+  CardEditResult,
+  PhaseTransitionResult,
+  RetroPhase,
+} from '@retronoodle/shared';
 import type { RetroEvent } from './retroStore';
 
 export interface BoardState {
+  phase: RetroPhase;
   columns: BoardColumn[];
   cards: BoardCard[];
 }
@@ -34,6 +43,14 @@ export function reduceBoard(board: BoardState, event: RetroEvent): BoardState {
     case 'card.delete': {
       const result = event.payload as CardDeleteResult;
       return { ...board, cards: board.cards.filter((c) => c.id !== result.id) };
+    }
+    // phase.next and phase.skip resolve to the same target phase server-side (RN-010) — both
+    // broadcast the same result shape, so both fold into board state the same way here too.
+    case 'phase.next':
+    case 'phase.skip':
+    case 'phase.back': {
+      const result = event.payload as PhaseTransitionResult;
+      return { ...board, phase: result.phase };
     }
     default:
       return board;

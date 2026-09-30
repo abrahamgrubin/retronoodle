@@ -19,7 +19,13 @@ export interface MutationContext<TPayload> {
 
 export interface MutationTypeDef<TPayload = unknown> {
   schema: ZodType<TPayload>;
-  /** Runs inside the locked transaction. Throw MutationRejected to reject and roll back. */
+  /** Runs inside the locked transaction. Throw MutationRejected to reject and roll back.
+   *
+   * Phase gating (RN-010, Design 6.1's `allowedActions()`) is each mutation type's own concern,
+   * checked inside `apply()` rather than as a separate hook on this definition: which action row
+   * of the matrix applies can depend on the target resource (e.g. card.create's column `kind` —
+   * see cardCreate.ts), and `apply()` is the one place that already has the DB access to know
+   * that. Reject with `MutationRejected(409, 'phase_not_allowed', ...)`. */
   apply: (ctx: MutationContext<TPayload>) => Promise<unknown>;
 }
 

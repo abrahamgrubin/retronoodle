@@ -35,12 +35,12 @@ describe('POST /teams/:teamId/retros', () => {
   const templateId = '00000000-0000-4000-8000-0000000000e1';
   const retroId = '00000000-0000-4000-8000-0000000000bb';
 
-  it('a team member can create a retro and gets the join code once', async () => {
+  it('a team member can create a retro and gets the join code once — starts in Write, no carried items', async () => {
     const retroRow = {
       id: retroId,
       team_id: teamId,
       name: 'Sprint 1 retro',
-      phase: 'setup',
+      phase: 'write',
       facilitator_id: claims.sub,
       template_id: templateId,
       template_source: 'builtin',
@@ -55,6 +55,7 @@ describe('POST /teams/:teamId/retros', () => {
     const supabaseAdmin = {
       from(table: string) {
         if (table === 'team_members') return chain({ data: { role: 'member' }, error: null });
+        if (table === 'action_items') return chain({ data: [], error: null });
         if (table === 'templates') {
           return chain({ data: { id: templateId, team_id: null, source: 'builtin', columns: templateColumns }, error: null });
         }
@@ -74,7 +75,7 @@ describe('POST /teams/:teamId/retros', () => {
 
     expect(res.statusCode).toBe(201);
     const body = res.json();
-    expect(body.phase).toBe('setup');
+    expect(body.phase).toBe('write');
     expect(body.facilitatorId).toBe(claims.sub);
     expect(typeof body.joinCode).toBe('string');
     expect(body.joinCode.length).toBeGreaterThan(0);
@@ -87,6 +88,7 @@ describe('POST /teams/:teamId/retros', () => {
         template_id: templateId,
         template_source: 'builtin',
         name: 'Sprint 1 retro',
+        phase: 'write',
       },
     ]);
 
@@ -103,6 +105,44 @@ describe('POST /teams/:teamId/retros', () => {
       kind: 'action_items',
       position: 2,
     });
+  });
+
+  it('starts in Review when the team has an open or in-progress carried-over action item', async () => {
+    const retroRow = {
+      id: retroId,
+      team_id: teamId,
+      name: 'Sprint 1 retro',
+      phase: 'review',
+      facilitator_id: claims.sub,
+      template_id: templateId,
+      template_source: 'builtin',
+      created_at: new Date().toISOString(),
+    };
+    const retroCalls: unknown[][] = [];
+    const supabaseAdmin = {
+      from(table: string) {
+        if (table === 'team_members') return chain({ data: { role: 'member' }, error: null });
+        if (table === 'action_items') return chain({ data: [{ id: 'some-item' }], error: null });
+        if (table === 'templates') {
+          return chain({ data: { id: templateId, team_id: null, source: 'builtin', columns: [] }, error: null });
+        }
+        if (table === 'retros') return chain({ data: retroRow, error: null }, retroCalls);
+        if (table === 'retro_columns') return chain({ data: null, error: null });
+        throw new Error(`unexpected table ${table}`);
+      },
+    } as unknown as SupabaseClient<Database>;
+
+    app = await buildWith(supabaseAdmin);
+    const res = await app.inject({
+      method: 'POST',
+      url: `/teams/${teamId}/retros`,
+      headers: AUTH_HEADER,
+      payload: { id: retroId, name: 'Sprint 1 retro', templateId },
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.json().phase).toBe('review');
+    expect(retroCalls[0]).toMatchObject(['insert', { phase: 'review' }]);
   });
 
   it('a non-member gets 403', async () => {
@@ -127,6 +167,7 @@ describe('POST /teams/:teamId/retros', () => {
     const supabaseAdmin = {
       from(table: string) {
         if (table === 'team_members') return chain({ data: { role: 'admin' }, error: null });
+        if (table === 'action_items') return chain({ data: [], error: null });
         if (table === 'templates') {
           return chain({ data: { id: templateId, team_id: 'some-other-team' }, error: null });
         }

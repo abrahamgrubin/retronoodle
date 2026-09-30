@@ -29,9 +29,10 @@ interface LockAndCheckRow {
 
 /**
  * POST /retros/:id/mutations, in one transaction (RN-008):
- *   SELECT ... FOR UPDATE on the retro row -> check can() (phase rules stubbed until RN-010)
- *   -> apply -> seq = last + 1 -> insert retro_events -> commit -> broadcast (redact() stubbed
- *   until RN-011, so this sends the full event for now).
+ *   SELECT ... FOR UPDATE on the retro row -> check can() -> apply (which checks phase gating
+ *   itself, RN-010's Design 6.1 action matrix — see registry.ts's MutationTypeDef.apply comment)
+ *   -> seq = last + 1 -> insert retro_events -> commit -> broadcast (redact() stubbed until
+ *   RN-011, so this sends the full event for now).
  *
  * The FOR UPDATE lock is what makes both guarantees hold under concurrency: every mutation for
  * a given retro serializes through that one row lock, so seq assignment can never race (no two

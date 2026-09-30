@@ -1,5 +1,5 @@
 import { generateKeyBetween } from 'fractional-indexing';
-import { CardCreatePayload, CardCreateResult } from '@retronoodle/shared';
+import { allowedActions, CardCreatePayload, CardCreateResult, type RetroPhase } from '@retronoodle/shared';
 import type { MutationTypeDef } from './registry.js';
 import { MutationRejected } from './errors.js';
 
@@ -11,19 +11,31 @@ import { MutationRejected } from './errors.js';
  * The column-ownership check and the last-position lookup are independent reads, combined into
  * one round trip (every query here is extra latency against the 500ms end-to-end budget the
  * pipeline is built around).
+ *
+ * Phase gating (RN-010) depends on which column this is — the Action items column follows the
+ * matrix's separate "Create or edit action items" row (Review/Discuss/Wrap up), not "Add, edit,
+ * delete own card" (Write/Group) — so this can't be a simple `phaseCheck: (phase) => boolean` on
+ * the registry entry; it needs the column's `kind`, which the lookup above already fetches.
  */
 export const cardCreateMutation: MutationTypeDef<CardCreatePayload> = {
   schema: CardCreatePayload,
   async apply({ client, retro, user, payload }) {
-    const lookup = await client.query<{ column_id: string | null; last_position: string | null }>(
+    const lookup = await client.query<{ column_id: string | null; column_kind: string | null; last_position: string | null }>(
       `select
          (select id from retro_columns where id = $1 and retro_id = $2) as column_id,
+         (select kind from retro_columns where id = $1 and retro_id = $2) as column_kind,
          (select position from cards where column_id = $1 order by position desc limit 1) as last_position`,
       [payload.columnId, retro.id],
     );
     const row = lookup.rows[0];
     if (!row?.column_id) {
       throw new MutationRejected(400, 'invalid_column', 'That column does not belong to this retro');
+    }
+
+    const phase = retro.phase as RetroPhase;
+    const allowed = row.column_kind === 'action_items' ? allowedActions(phase).actionItemEdit : allowedActions(phase).cardCrud;
+    if (!allowed) {
+      throw new MutationRejected(409, 'phase_not_allowed', `card.create is not allowed during ${phase}`);
     }
 
     const position = generateKeyBetween(row.last_position, null);
