@@ -18,17 +18,36 @@ describe.skipIf(!hasLiveEnv)('drag-to-group and topics against a live Supabase p
   const pool = createPool(DATABASE_URL || 'postgresql://localhost/nonexistent');
 
   let app: FastifyInstance | undefined;
-  let authorId: string | undefined;
   let teamId: string | undefined;
-  let authorToken: string | undefined;
   let templateId: string | undefined;
+  const createdUserIds: string[] = [];
 
   afterAll(async () => {
     await app?.close();
     if (teamId) await admin.from('teams').delete().eq('id', teamId);
-    if (authorId) await admin.auth.admin.deleteUser(authorId);
+    await Promise.all(createdUserIds.map((id) => admin.auth.admin.deleteUser(id)));
     await pool.end();
   });
+
+  // POST /retros/:id/mutations is rate-limited to 20/s *per user* (routes/mutations.ts) — against
+  // this suite's real target database, `app.inject()` has no network latency to throttle it, so
+  // reusing one token across this whole file's ~25 mutation calls can trip that limit well before
+  // any of it is actually a burst a real user would send. A fresh signed-in user per test keeps
+  // each test's own handful of calls on its own limiter bucket.
+  async function createTeamMember(label: string) {
+    const email = `rn015-${label}-${randomUUID()}@example.com`;
+    const password = `Rn015-${randomUUID()}!`;
+    const { data: created, error } = await admin.auth.admin.createUser({ email, password, email_confirm: true });
+    if (error || !created.user) throw error ?? new Error(`failed to create ${label}`);
+    createdUserIds.push(created.user.id);
+    const anon = createClient<Database>(SUPABASE_URL!, SUPABASE_ANON_KEY!);
+    const { data: session, error: signInErr } = await anon.auth.signInWithPassword({ email, password });
+    if (signInErr || !session.session) throw signInErr ?? new Error(`failed to sign in ${label}`);
+    const token = session.session.access_token;
+    await app!.inject({ method: 'GET', url: '/me', headers: { authorization: `Bearer ${token}` } });
+    await admin.from('team_members').insert({ team_id: teamId!, user_id: created.user.id, role: 'member' });
+    return token;
+  }
 
   async function sendMutation(token: string, retroId: string, type: string, payload: unknown = {}) {
     return app!.inject({
@@ -39,12 +58,12 @@ describe.skipIf(!hasLiveEnv)('drag-to-group and topics against a live Supabase p
     });
   }
 
-  async function createRetroWithCards(count: number) {
+  async function createRetroWithCards(token: string, count: number) {
     const retroId = randomUUID();
     await app!.inject({
       method: 'POST',
       url: `/teams/${teamId}/retros`,
-      headers: { authorization: `Bearer ${authorToken}` },
+      headers: { authorization: `Bearer ${token}` },
       payload: { id: retroId, name: `RN-015 retro ${retroId}`, templateId },
     });
     const { data: columns } = await admin.from('retro_columns').select('id, kind').eq('retro_id', retroId).order('position');
@@ -53,24 +72,14 @@ describe.skipIf(!hasLiveEnv)('drag-to-group and topics against a live Supabase p
     const cardIds: string[] = [];
     for (let i = 0; i < count; i++) {
       const cardId = randomUUID();
-      await sendMutation(authorToken!, retroId, 'card.create', { cardId, columnId, body: `Card ${i}` });
+      await sendMutation(token, retroId, 'card.create', { cardId, columnId, body: `Card ${i}` });
       cardIds.push(cardId);
     }
-    await sendMutation(authorToken!, retroId, 'phase.next'); // write -> group
+    await sendMutation(token, retroId, 'phase.next'); // write -> group
     return { retroId, columnId, cardIds };
   }
 
   beforeAll(async () => {
-    const email = `rn015-author-${randomUUID()}@example.com`;
-    const password = `Rn015-${randomUUID()}!`;
-    const { data: created, error } = await admin.auth.admin.createUser({ email, password, email_confirm: true });
-    if (error || !created.user) throw error ?? new Error('failed to create author');
-    authorId = created.user.id;
-    const anon = createClient<Database>(SUPABASE_URL!, SUPABASE_ANON_KEY!);
-    const { data: session, error: signInErr } = await anon.auth.signInWithPassword({ email, password });
-    if (signInErr || !session.session) throw signInErr ?? new Error('failed to sign in author');
-    authorToken = session.session.access_token;
-
     app = await buildServer({
       webOrigin: 'http://localhost:5173',
       auth: {
@@ -82,39 +91,48 @@ describe.skipIf(!hasLiveEnv)('drag-to-group and topics against a live Supabase p
       },
     });
 
-    await app.inject({ method: 'GET', url: '/me', headers: { authorization: `Bearer ${authorToken}` } });
+    // A one-off owner just to stand up the team and read its templates — every test below
+    // creates its own member to actually create retros and send mutations as (see above).
+    const email = `rn015-owner-${randomUUID()}@example.com`;
+    const password = `Rn015-${randomUUID()}!`;
+    const { data: created, error } = await admin.auth.admin.createUser({ email, password, email_confirm: true });
+    if (error || !created.user) throw error ?? new Error('failed to create owner');
+    createdUserIds.push(created.user.id);
+    const anon = createClient<Database>(SUPABASE_URL!, SUPABASE_ANON_KEY!);
+    const { data: session, error: signInErr } = await anon.auth.signInWithPassword({ email, password });
+    if (signInErr || !session.session) throw signInErr ?? new Error('failed to sign in owner');
+    const ownerToken = session.session.access_token;
+
+    await app.inject({ method: 'GET', url: '/me', headers: { authorization: `Bearer ${ownerToken}` } });
     teamId = randomUUID();
     await app.inject({
       method: 'POST',
       url: '/teams',
-      headers: { authorization: `Bearer ${authorToken}` },
+      headers: { authorization: `Bearer ${ownerToken}` },
       payload: { id: teamId, name: 'RN-015 topics test team' },
     });
 
     const templatesRes = await app.inject({
       method: 'GET',
       url: `/teams/${teamId}/templates`,
-      headers: { authorization: `Bearer ${authorToken}` },
+      headers: { authorization: `Bearer ${ownerToken}` },
     });
     templateId = templatesRes.json()[0].id as string;
   }, 30000);
 
   it('creates a group from two cards, adds a third, and all three persist after reload', async () => {
-    const { retroId, cardIds } = await createRetroWithCards(3);
+    const token = await createTeamMember('a');
+    const { retroId, cardIds } = await createRetroWithCards(token, 3);
     const topicId = randomUUID();
 
-    const create = await sendMutation(authorToken!, retroId, 'topic.createFromCards', { topicId, cardIds: [cardIds[0], cardIds[1]] });
+    const create = await sendMutation(token, retroId, 'topic.createFromCards', { topicId, cardIds: [cardIds[0], cardIds[1]] });
     expect(create.statusCode).toBe(200);
     expect(create.json().result.topic).toMatchObject({ id: topicId, name: 'Card 0' });
 
-    const add = await sendMutation(authorToken!, retroId, 'card.addToTopic', { cardId: cardIds[2], topicId });
+    const add = await sendMutation(token, retroId, 'card.addToTopic', { cardId: cardIds[2], topicId });
     expect(add.statusCode).toBe(200);
 
-    const board = await app!.inject({
-      method: 'GET',
-      url: `/retros/${retroId}/board`,
-      headers: { authorization: `Bearer ${authorToken}` },
-    });
+    const board = await app!.inject({ method: 'GET', url: `/retros/${retroId}/board`, headers: { authorization: `Bearer ${token}` } });
     const cards = board.json().cards as Array<{ id: string; topicId: string | null }>;
     for (const cardId of cardIds) {
       expect(cards.find((c) => c.id === cardId)).toMatchObject({ topicId });
@@ -123,67 +141,56 @@ describe.skipIf(!hasLiveEnv)('drag-to-group and topics against a live Supabase p
   });
 
   it('dissolves a group when a drag-out leaves it with one card, and the remaining card is reported as ungrouped', async () => {
-    const { retroId, columnId, cardIds } = await createRetroWithCards(2);
+    const token = await createTeamMember('b');
+    const { retroId, columnId, cardIds } = await createRetroWithCards(token, 2);
     const topicId = randomUUID();
-    await sendMutation(authorToken!, retroId, 'topic.createFromCards', { topicId, cardIds: [cardIds[0], cardIds[1]] });
+    await sendMutation(token, retroId, 'topic.createFromCards', { topicId, cardIds: [cardIds[0], cardIds[1]] });
 
-    const move = await sendMutation(authorToken!, retroId, 'card.move', { cardId: cardIds[0], columnId, position: 'z9' });
+    const move = await sendMutation(token, retroId, 'card.move', { cardId: cardIds[0], columnId, position: 'z9' });
     expect(move.statusCode).toBe(200);
     expect(move.json().result).toMatchObject({
       card: { topicId: null },
       dissolvedTopic: { topicId, remainingCard: { id: cardIds[1], topicId: null } },
     });
 
-    const board = await app!.inject({
-      method: 'GET',
-      url: `/retros/${retroId}/board`,
-      headers: { authorization: `Bearer ${authorToken}` },
-    });
+    const board = await app!.inject({ method: 'GET', url: `/retros/${retroId}/board`, headers: { authorization: `Bearer ${token}` } });
     const cards = board.json().cards as Array<{ id: string; topicId: string | null }>;
     expect(cards.find((c) => c.id === cardIds[1])).toMatchObject({ topicId: null });
     expect(board.json().topics).toEqual([]);
   });
 
   it('lets anyone rename a group, and the latest rename wins', async () => {
-    const { retroId, cardIds } = await createRetroWithCards(2);
+    const token = await createTeamMember('c');
+    const { retroId, cardIds } = await createRetroWithCards(token, 2);
     const topicId = randomUUID();
-    await sendMutation(authorToken!, retroId, 'topic.createFromCards', { topicId, cardIds: [cardIds[0], cardIds[1]] });
+    await sendMutation(token, retroId, 'topic.createFromCards', { topicId, cardIds: [cardIds[0], cardIds[1]] });
 
-    const rename = await sendMutation(authorToken!, retroId, 'topic.rename', { topicId, name: 'Renamed group' });
+    const rename = await sendMutation(token, retroId, 'topic.rename', { topicId, name: 'Renamed group' });
     expect(rename.statusCode).toBe(200);
 
-    const board = await app!.inject({
-      method: 'GET',
-      url: `/retros/${retroId}/board`,
-      headers: { authorization: `Bearer ${authorToken}` },
-    });
+    const board = await app!.inject({ method: 'GET', url: `/retros/${retroId}/board`, headers: { authorization: `Bearer ${token}` } });
     expect(board.json().topics).toEqual([{ id: topicId, columnId: expect.any(String), name: 'Renamed group' }]);
   });
 
   it('rejects grouping once past Group (Vote locks it)', async () => {
-    const { retroId, cardIds } = await createRetroWithCards(2);
-    await sendMutation(authorToken!, retroId, 'phase.next'); // group -> vote
+    const token = await createTeamMember('d');
+    const { retroId, cardIds } = await createRetroWithCards(token, 2);
+    await sendMutation(token, retroId, 'phase.next'); // group -> vote
 
-    const res = await sendMutation(authorToken!, retroId, 'topic.createFromCards', {
-      topicId: randomUUID(),
-      cardIds: [cardIds[0], cardIds[1]],
-    });
+    const res = await sendMutation(token, retroId, 'topic.createFromCards', { topicId: randomUUID(), cardIds: [cardIds[0], cardIds[1]] });
     expect(res.statusCode).toBe(409);
     expect(res.json().error).toBe('phase_not_allowed');
   });
 
   it('on entering Vote, every card belongs to exactly one topic — grouped cards keep their group, ungrouped ones each get their own', async () => {
-    const { retroId, cardIds } = await createRetroWithCards(3);
+    const token = await createTeamMember('e');
+    const { retroId, cardIds } = await createRetroWithCards(token, 3);
     const topicId = randomUUID();
-    await sendMutation(authorToken!, retroId, 'topic.createFromCards', { topicId, cardIds: [cardIds[0], cardIds[1]] });
+    await sendMutation(token, retroId, 'topic.createFromCards', { topicId, cardIds: [cardIds[0], cardIds[1]] });
 
-    await sendMutation(authorToken!, retroId, 'phase.next'); // group -> vote
+    await sendMutation(token, retroId, 'phase.next'); // group -> vote
 
-    const board = await app!.inject({
-      method: 'GET',
-      url: `/retros/${retroId}/board`,
-      headers: { authorization: `Bearer ${authorToken}` },
-    });
+    const board = await app!.inject({ method: 'GET', url: `/retros/${retroId}/board`, headers: { authorization: `Bearer ${token}` } });
     const cards = board.json().cards as Array<{ id: string; topicId: string | null }>;
     for (const card of cards) expect(card.topicId).not.toBeNull();
     expect(cards.find((c) => c.id === cardIds[0])!.topicId).toBe(topicId);
