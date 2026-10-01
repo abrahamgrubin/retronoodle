@@ -154,9 +154,13 @@ describe('footerHint', () => {
     expect(footerHint('write')).toBe('Add cards to each column · your notes are private until the next phase');
   });
 
+  it('matches the story-specified Group copy verbatim (RN-015)', () => {
+    expect(footerHint('group')).toBe('Drag a card onto another to group them');
+  });
+
   it('is null for every other phase — no story has specified their copy yet', () => {
     for (const phase of ALL_PHASES) {
-      if (phase === 'write') continue;
+      if (phase === 'write' || phase === 'group') continue;
       expect(footerHint(phase)).toBeNull();
     }
   });

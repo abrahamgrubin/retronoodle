@@ -97,6 +97,8 @@ export function phaseSubtitle(phase: RetroPhase): string {
  * copy. */
 export function footerHint(phase: RetroPhase): string | null {
   if (phase === 'write') return 'Add cards to each column · your notes are private until the next phase';
+  // RN-015 layout spec, verbatim.
+  if (phase === 'group') return 'Drag a card onto another to group them';
   return null;
 }
 

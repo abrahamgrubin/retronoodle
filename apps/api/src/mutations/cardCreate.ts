@@ -61,6 +61,8 @@ export const cardCreateMutation: MutationTypeDef<CardCreatePayload> = {
       position,
       createdAt: created_at.toISOString(),
       updatedAt: updated_at.toISOString(),
+      // A brand-new card is never already part of a group (RN-015).
+      topicId: null,
       hidden: false,
     });
   },

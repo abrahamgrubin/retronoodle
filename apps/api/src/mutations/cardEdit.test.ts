@@ -30,6 +30,7 @@ function fakeClient(authorId: string | undefined, columnKind: 'standard' | 'acti
             column_kind: columnKind,
             position: 'a0',
             created_at: new Date('2026-01-01T00:00:00.000Z'),
+            topic_id: null,
           },
         ]
       : [],
@@ -49,6 +50,7 @@ const expectedResult = {
   position: 'a0',
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-02T00:00:00.000Z',
+  topicId: null,
   hidden: false,
 };
 
@@ -61,6 +63,28 @@ describe('card.edit', () => {
     const updateCall = (client.query as ReturnType<typeof vi.fn>).mock.calls[1] as unknown[];
     expect(updateCall[0]).toContain('update cards');
     expect(updateCall[1]).toEqual(['Updated', cardId]);
+  });
+
+  it('preserves an existing topicId (RN-015: editing a card does not change its group)', async () => {
+    const query = vi.fn();
+    query.mockResolvedValueOnce({
+      rows: [
+        {
+          author_id: user.id,
+          author_name: 'A',
+          column_id: columnId,
+          column_kind: 'standard',
+          position: 'a0',
+          created_at: new Date('2026-01-01T00:00:00.000Z'),
+          topic_id: '00000000-0000-4000-8000-000000000009',
+        },
+      ],
+    });
+    query.mockResolvedValueOnce({ rows: [{ updated_at: new Date('2026-01-02T00:00:00.000Z') }] });
+    const client = { query } as unknown as PoolClient;
+
+    const result = await cardEditMutation.apply({ client, retro: retroAt('write'), user, payload: { cardId, body: 'Updated' } });
+    expect(result).toMatchObject({ topicId: '00000000-0000-4000-8000-000000000009' });
   });
 
   it('rejects a non-author', async () => {

@@ -21,9 +21,14 @@ function retroAt(phase: string): LockedRetro {
 const newDeadline = new Date('2026-01-01T00:10:00.000Z');
 
 function fakeClient() {
-  // setPhase's own `update ... returning phase_deadline` needs a row back; every other query
-  // here (onTransition's vote delete) ignores its return value, so one fixed shape covers both.
-  const query = vi.fn().mockResolvedValue({ rows: [{ phase_deadline: newDeadline }] });
+  // setPhase's own `update ... returning phase_deadline` is the only query here whose return
+  // value anything reads — everything else (onTransition's vote delete, cards_revealed update,
+  // and RN-015's group->vote "find ungrouped cards" lookup) ignores it, so an empty row set
+  // covers all of them; group->vote's own mutation-level behavior is covered in
+  // onTransition-specific/cardMove tests, not this generically-phased one.
+  const query = vi.fn().mockImplementation((sql: string) =>
+    sql.includes('set phase =') ? Promise.resolve({ rows: [{ phase_deadline: newDeadline }] }) : Promise.resolve({ rows: [] }),
+  );
   return { query } as unknown as PoolClient;
 }
 

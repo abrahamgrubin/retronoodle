@@ -18,6 +18,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { generateKeyBetween } from 'fractional-indexing';
 import {
   allowedActions,
+  defaultTopicName,
   footerHint,
   nextPhase,
   phaseDurationMinutes,
@@ -27,6 +28,7 @@ import {
   type BoardColumn,
   type BoardResponse,
   type RetroPhase,
+  type Topic,
   type VisibleBoardCard,
 } from '@retronoodle/shared';
 import { signInWithGoogle } from './auth';
@@ -112,6 +114,7 @@ function CardView({
   onEdit,
   onDelete,
   dragHandleProps,
+  menu,
 }: {
   card: VisibleBoardCard;
   canEdit: boolean;
@@ -121,6 +124,10 @@ function CardView({
   // PointerSensor attaches its own pointerdown listener here, and putting that on the textarea's
   // ancestor would fight with dragging-to-select text while editing a card's body.
   dragHandleProps?: Record<string, unknown>;
+  // RN-015: the "Group with…" menu — independent of canEdit (grouping has no ownership
+  // restriction during Group, unlike edit/delete), so it's its own slot rather than bundled with
+  // the Edit/Delete buttons below.
+  menu?: ReactNode;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(card.body);
@@ -171,17 +178,82 @@ function CardView({
     <div style={{ border: '1px solid #ccc', borderRadius: 6, padding: 8, marginBottom: 8 }} {...dragHandleProps}>
       <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{card.body}</p>
       <p style={{ margin: '4px 0 0', fontSize: 12, color: '#666' }}>{card.authorName}</p>
-      {canEdit && (
-        <div style={{ marginTop: 4 }}>
-          <button type="button" onClick={() => setEditing(true)}>
-            Edit
-          </button>{' '}
-          <button type="button" onClick={onDelete}>
-            Delete
-          </button>
+      {(canEdit || menu) && (
+        <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+          {canEdit && (
+            <>
+              <button type="button" onClick={() => setEditing(true)}>
+                Edit
+              </button>
+              <button type="button" onClick={onDelete}>
+                Delete
+              </button>
+            </>
+          )}
+          {menu}
         </div>
       )}
     </div>
+  );
+}
+
+/** "Group with…" (RN-015 layout spec): a searchable list of other cards in the same column,
+ * picking one groups with it exactly like dropping onto that card's center would (see
+ * BoardPage's groupCardWith) — the AC's keyboard fallback, since every element here (the
+ * <summary> disclosure, the input, each result button) is natively focusable and operable without
+ * a pointer. */
+function CardMenu({
+  card,
+  otherCards,
+  onGroupWith,
+}: {
+  card: VisibleBoardCard;
+  otherCards: VisibleBoardCard[];
+  onGroupWith: (targetCardId: string) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const candidates = otherCards.filter((c) => !(card.topicId && c.topicId === card.topicId));
+  const trimmedQuery = query.trim().toLowerCase();
+  const results = trimmedQuery ? candidates.filter((c) => c.body.toLowerCase().includes(trimmedQuery)) : candidates;
+
+  return (
+    <details style={{ position: 'relative' }}>
+      <summary style={{ cursor: 'pointer', listStyle: 'none', fontSize: 14, color: '#666' }} aria-label="Card menu">
+        ⋯
+      </summary>
+      <div
+        style={{
+          position: 'absolute',
+          zIndex: 1,
+          background: '#fff',
+          border: '1px solid #ccc',
+          borderRadius: 6,
+          padding: 8,
+          marginTop: 4,
+          width: 220,
+        }}
+      >
+        <input
+          autoFocus
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Group with…"
+          aria-label="Search cards to group with"
+          style={{ width: '100%', boxSizing: 'border-box', marginBottom: 6 }}
+        />
+        {results.length === 0 && <p style={{ fontSize: 12, color: '#999', margin: 0 }}>No matching cards</p>}
+        {results.map((c) => (
+          <button
+            key={c.id}
+            type="button"
+            onClick={() => onGroupWith(c.id)}
+            style={{ display: 'block', width: '100%', textAlign: 'left', padding: '4px 0', border: 'none', background: 'none', cursor: 'pointer' }}
+          >
+            {c.body.slice(0, 40)}
+          </button>
+        ))}
+      </div>
+    </details>
   );
 }
 
@@ -196,12 +268,14 @@ function SortableCardView({
   canEdit,
   onEdit,
   onDelete,
+  menu,
 }: {
   card: VisibleBoardCard;
   canDrag: boolean;
   canEdit: boolean;
   onEdit: (body: string) => void;
   onDelete: () => void;
+  menu?: ReactNode;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
@@ -215,9 +289,153 @@ function SortableCardView({
         onEdit={onEdit}
         onDelete={onDelete}
         dragHandleProps={canDrag ? { ...attributes, ...listeners } : undefined}
+        menu={menu}
       />
     </div>
   );
+}
+
+/** A group's visual container (RN-015 layout spec): "light tint of the column color with a 2px
+ * border," editable name defaulting to the placeholder text, a count chip, and more-than-3
+ * collapsing to the first 2 plus "+N more". Member cards stay fully interactive — each is still
+ * its own SortableCardView, so dragging one back out (ungrouping it, per card.move's own
+ * behavior) and the "Group with…" menu both keep working from inside a group. */
+function TopicGroupView({
+  topic,
+  cards,
+  columnColor,
+  canRename,
+  canDragCard,
+  canEditCard,
+  onRename,
+  onEditCard,
+  onDeleteCard,
+  menuFor,
+}: {
+  topic: Topic;
+  cards: BoardCard[];
+  columnColor: string;
+  canRename: boolean;
+  canDragCard: (card: BoardCard) => boolean;
+  canEditCard: (card: BoardCard) => boolean;
+  onRename: (name: string) => void;
+  onEditCard: (cardId: string, body: string) => void;
+  onDeleteCard: (cardId: string) => void;
+  menuFor: (card: VisibleBoardCard) => ReactNode;
+}) {
+  const [editingName, setEditingName] = useState(false);
+  const [draftName, setDraftName] = useState(topic.name);
+  const [expanded, setExpanded] = useState(false);
+  const visibleCards = expanded ? cards : cards.slice(0, 2);
+  const hiddenCount = cards.length - visibleCards.length;
+
+  function commitRename() {
+    const trimmed = draftName.trim();
+    setEditingName(false);
+    if (trimmed && trimmed !== topic.name) onRename(trimmed);
+    else setDraftName(topic.name);
+  }
+
+  return (
+    <div
+      style={{
+        background: `color-mix(in srgb, ${columnColor} 15%, white)`,
+        border: `2px solid ${columnColor}`,
+        borderRadius: 8,
+        padding: 8,
+        marginBottom: 8,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 8 }}>
+        {editingName ? (
+          <input
+            autoFocus
+            value={draftName}
+            onChange={(e) => setDraftName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitRename();
+              else if (e.key === 'Escape') {
+                setDraftName(topic.name);
+                setEditingName(false);
+              }
+            }}
+            onBlur={commitRename}
+            placeholder="Name this group"
+            aria-label="Group name"
+            style={{ fontWeight: 'bold', flex: 1, minWidth: 0 }}
+          />
+        ) : (
+          <strong
+            role={canRename ? 'button' : undefined}
+            tabIndex={canRename ? 0 : undefined}
+            onClick={() => canRename && setEditingName(true)}
+            onKeyDown={(e) => {
+              if (canRename && (e.key === 'Enter' || e.key === ' ')) {
+                e.preventDefault();
+                setEditingName(true);
+              }
+            }}
+            style={{ cursor: canRename ? 'pointer' : undefined, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+          >
+            {topic.name || 'Name this group'}
+          </strong>
+        )}
+        <span style={{ fontSize: 12, color: '#666', flexShrink: 0 }}>
+          {cards.length} card{cards.length === 1 ? '' : 's'}
+        </span>
+      </div>
+      {visibleCards.map((card) =>
+        card.hidden ? (
+          <HiddenCardPlaceholder key={card.id} columnColor={columnColor} />
+        ) : (
+          <SortableCardView
+            key={card.id}
+            card={card}
+            canDrag={canDragCard(card)}
+            canEdit={canEditCard(card)}
+            onEdit={(body) => onEditCard(card.id, body)}
+            onDelete={() => onDeleteCard(card.id)}
+            menu={menuFor(card)}
+          />
+        ),
+      )}
+      {hiddenCount > 0 && (
+        <button type="button" onClick={() => setExpanded(true)} style={{ fontSize: 12 }}>
+          +{hiddenCount} more
+        </button>
+      )}
+    </div>
+  );
+}
+
+type ColumnRow = { kind: 'card'; card: BoardCard } | { kind: 'group'; topic: Topic; cards: BoardCard[] };
+
+/** Lays a column's cards out for rendering (RN-015): ungrouped cards stay individually
+ * position-ordered; a group's member cards render together as one row, positioned at its
+ * earliest member's position ("a group stays in its column at the position of the card it was
+ * dropped on") — topics have no `position` column of their own (see topics.ts), so this is
+ * derived rather than stored. A card whose topicId doesn't (yet) resolve to a known topic — which
+ * shouldn't happen since every topic-bearing event folds both in together, see boardReducer.ts —
+ * is simply skipped rather than rendered as a broken group. */
+function buildColumnRows(cards: BoardCard[], topics: Topic[]): ColumnRow[] {
+  const grouped = new Map<string, BoardCard[]>();
+  const entries: { row: ColumnRow; sortKey: string }[] = [];
+  for (const card of cards) {
+    if (!card.topicId) {
+      entries.push({ row: { kind: 'card', card }, sortKey: card.position });
+      continue;
+    }
+    const existing = grouped.get(card.topicId);
+    if (existing) existing.push(card);
+    else grouped.set(card.topicId, [card]);
+  }
+  for (const [topicId, members] of grouped) {
+    const topic = topics.find((t) => t.id === topicId);
+    if (!topic) continue;
+    const sorted = members.slice().sort((a, b) => a.position.localeCompare(b.position));
+    entries.push({ row: { kind: 'group', topic, cards: sorted }, sortKey: sorted[0]!.position });
+  }
+  return entries.sort((a, b) => a.sortKey.localeCompare(b.sortKey)).map((e) => e.row);
 }
 
 /** The column's own droppable area (RN-014) — lets a card be dropped on empty space below the
@@ -337,6 +555,7 @@ function Board({
         phaseDeadline: initialBoard.retro.phaseDeadline,
         columns: initialBoard.columns,
         cards: initialBoard.cards,
+        topics: initialBoard.topics,
       },
       initialSeq: initialBoard.seq,
       reduce: reduceBoard,
@@ -381,6 +600,11 @@ function Board({
     return card.authorId === userId;
   }
 
+  // RN-015: "Group cards, accept AI groups" — Group phase only, no ownership check (unlike
+  // cardCrud/cardDrag's "own cards" scopes). Gates both the center-drop grouping path and the
+  // "Group with…" menu's visibility, and whether a group's name is clickable to rename.
+  const canGroup = allowedActions(board.phase).cardGroup;
+
   const [activeId, setActiveId] = useState<string | null>(null);
   const activeCard = board.cards.find((c) => c.id === activeId && !c.hidden) as VisibleBoardCard | undefined;
   const sensors = useSensors(
@@ -393,17 +617,86 @@ function Board({
     void sendMutation({
       mutationId,
       // A local-only patch, same reasoning as editCard's: all a drop gives us is the new
-      // columnId/position, not a full server-shaped card.
+      // columnId/position, not a full server-shaped card. Always clears topicId (RN-015: a move
+      // always places the card by position, which always leaves whatever group it was in).
       optimisticReduce: (b) => ({
         ...b,
-        cards: b.cards.map((c) => (c.id === cardId ? { ...c, columnId, position } : c)),
+        cards: b.cards.map((c) => (c.id === cardId ? { ...c, columnId, position, topicId: null } : c)),
       }),
       send: () => postMutation(accessToken, retroId, { mutationId, type: 'card.move', payload: { cardId, columnId, position } }),
     });
   }
 
+  // RN-015: "Dropping card A on card B's center creates a named group containing both" — the
+  // default name (first card's text, truncated) is computed the same way the server would if the
+  // payload omitted `name` (defaultTopicName, shared so the two never briefly disagree).
+  function createTopicFromCards(cardIdA: string, cardIdB: string) {
+    const topicId = uuidv7();
+    const mutationId = uuidv7();
+    void sendMutation({
+      mutationId,
+      optimisticReduce: (b) => {
+        const first = b.cards.find((c) => c.id === cardIdA) ?? b.cards.find((c) => c.id === cardIdB);
+        if (!first) return b;
+        const topic: Topic = { id: topicId, columnId: first.columnId, name: !first.hidden ? defaultTopicName(first.body) : 'New group' };
+        return {
+          ...b,
+          topics: [...b.topics, topic],
+          cards: b.cards.map((c) => (c.id === cardIdA || c.id === cardIdB ? { ...c, topicId } : c)),
+        };
+      },
+      send: () =>
+        postMutation(accessToken, retroId, { mutationId, type: 'topic.createFromCards', payload: { topicId, cardIds: [cardIdA, cardIdB] } }),
+    });
+  }
+
+  // RN-015: dropping onto a card that's already grouped, or picking one from the "Group with…"
+  // menu. The server's own result also carries a possible dissolvedTopic for the card's *previous*
+  // group (see boardReducer.ts) — nothing to predict optimistically for that half, same as
+  // revealCards's broadcast-only approach.
+  function addToTopic(cardId: string, topicId: string) {
+    const mutationId = uuidv7();
+    void sendMutation({
+      mutationId,
+      optimisticReduce: (b) => ({ ...b, cards: b.cards.map((c) => (c.id === cardId ? { ...c, topicId } : c)) }),
+      send: () => postMutation(accessToken, retroId, { mutationId, type: 'card.addToTopic', payload: { cardId, topicId } }),
+    });
+  }
+
+  function renameTopic(topicId: string, name: string) {
+    const mutationId = uuidv7();
+    void sendMutation({
+      mutationId,
+      optimisticReduce: (b) => ({ ...b, topics: b.topics.map((t) => (t.id === topicId ? { ...t, name } : t)) }),
+      send: () => postMutation(accessToken, retroId, { mutationId, type: 'topic.rename', payload: { topicId, name } }),
+    });
+  }
+
+  // The single decision point both the center-drop path and the "Group with…" menu route
+  // through: joining a card that's already grouped adds to its group, otherwise a brand-new one
+  // is created from just the two cards involved.
+  function groupCardWith(draggedCard: BoardCard, targetCard: BoardCard) {
+    if (draggedCard.topicId && draggedCard.topicId === targetCard.topicId) return; // already grouped together
+    if (targetCard.topicId) addToTopic(draggedCard.id, targetCard.topicId);
+    else createTopicFromCards(draggedCard.id, targetCard.id);
+  }
+
   function handleDragStart(event: DragStartEvent) {
     setActiveId(event.active.id as string);
+  }
+
+  // RN-015 layout spec: "hovering over a card's center gives it a 2px blue outline" — the
+  // collision zone is the middle 50% of the target's rect, checked against the dragged card's own
+  // center (not the pointer) so this matches regardless of where on the dragged card the pointer
+  // grabbed it.
+  function isCenterDrop(event: DragEndEvent): boolean {
+    const activeRect = event.active.rect.current.translated;
+    const overRect = event.over?.rect;
+    if (!activeRect || !overRect) return false;
+    const activeCenterY = activeRect.top + activeRect.height / 2;
+    const zoneTop = overRect.top + overRect.height * 0.25;
+    const zoneBottom = overRect.top + overRect.height * 0.75;
+    return activeCenterY >= zoneTop && activeCenterY <= zoneBottom;
   }
 
   // One mutation per drop (the story's own framing) — figures out the target column (a card's
@@ -412,6 +705,10 @@ function Board({
   // neighbors. No onDragOver handling: the drop's final state is correct either way, live cross-
   // column reflow mid-drag is the known gap (consistent with this session's other mock-fidelity
   // gaps, e.g. RN-009/010/012).
+  //
+  // RN-015: "dropping onto a card's center (collision zone ≈ middle 50%) groups; dropping between
+  // cards moves" — checked first, before any of the move-specific position math below, since a
+  // grouping drop doesn't touch position at all.
   function handleDragEnd(event: DragEndEvent) {
     setActiveId(null);
     const { active, over } = event;
@@ -422,6 +719,12 @@ function Board({
     if (!draggedCard) return;
 
     const overCard = board.cards.find((c) => c.id === over.id);
+
+    if (overCard && overCard.columnId === draggedCard.columnId && canGroup && isCenterDrop(event)) {
+      groupCardWith(draggedCard, overCard);
+      return;
+    }
+
     const targetColumnId = overCard ? overCard.columnId : (over.id as string);
     const targetColumn = board.columns.find((c) => c.id === targetColumnId);
     if (!targetColumn || targetColumn.kind === 'action_items') return;
@@ -471,6 +774,7 @@ function Board({
               phaseDeadline: fresh.retro.phaseDeadline,
               columns: fresh.columns,
               cards: fresh.cards,
+              topics: fresh.topics,
             },
             fresh.seq,
           );
@@ -721,7 +1025,25 @@ function Board({
                 .filter((c) => c.columnId === column.id)
                 .sort((a, b) => a.position.localeCompare(b.position));
               const canEdit = canEditColumn(column.kind);
-              const sortableIds = cards.filter((c) => !c.hidden).map((c) => c.id);
+              const rows = buildColumnRows(cards, board.topics);
+              // Kept in sync with rendered (grouped) order, not raw position order, so dnd-kit's
+              // own notion of item order matches the DOM it's actually measuring.
+              const sortableIds = rows.flatMap((row) =>
+                row.kind === 'card' ? (row.card.hidden ? [] : [row.card.id]) : row.cards.filter((c) => !c.hidden).map((c) => c.id),
+              );
+              function menuForCard(card: VisibleBoardCard): ReactNode {
+                if (!canGroup) return undefined;
+                return (
+                  <CardMenu
+                    card={card}
+                    otherCards={cards.filter((c): c is VisibleBoardCard => !c.hidden && c.id !== card.id)}
+                    onGroupWith={(targetId) => {
+                      const target = cards.find((c) => c.id === targetId);
+                      if (target) groupCardWith(card, target);
+                    }}
+                  />
+                );
+              }
               return (
                 <DroppableColumn key={column.id} column={column}>
                   <h2 style={{ fontSize: 16, margin: '0 0 4px' }}>
@@ -729,17 +1051,34 @@ function Board({
                   </h2>
                   {column.prompt && <p style={{ fontSize: 12, color: '#666', margin: '0 0 8px' }}>{column.prompt}</p>}
                   <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
-                    {cards.map((card) =>
-                      card.hidden ? (
-                        <HiddenCardPlaceholder key={card.id} columnColor={column.color} />
+                    {rows.map((row) =>
+                      row.kind === 'card' ? (
+                        row.card.hidden ? (
+                          <HiddenCardPlaceholder key={row.card.id} columnColor={column.color} />
+                        ) : (
+                          <SortableCardView
+                            key={row.card.id}
+                            card={row.card}
+                            canDrag={canDragCard(row.card, column.kind)}
+                            canEdit={canEdit && row.card.authorId === userId}
+                            onEdit={(body) => editCard(row.card.id, body)}
+                            onDelete={() => deleteCard(row.card.id)}
+                            menu={menuForCard(row.card)}
+                          />
+                        )
                       ) : (
-                        <SortableCardView
-                          key={card.id}
-                          card={card}
-                          canDrag={canDragCard(card, column.kind)}
-                          canEdit={canEdit && card.authorId === userId}
-                          onEdit={(body) => editCard(card.id, body)}
-                          onDelete={() => deleteCard(card.id)}
+                        <TopicGroupView
+                          key={row.topic.id}
+                          topic={row.topic}
+                          cards={row.cards}
+                          columnColor={column.color}
+                          canRename={canGroup}
+                          canDragCard={(c) => canDragCard(c, column.kind)}
+                          canEditCard={(c) => canEdit && c.authorId === userId}
+                          onRename={(name) => renameTopic(row.topic.id, name)}
+                          onEditCard={(id, body) => editCard(id, body)}
+                          onDeleteCard={(id) => deleteCard(id)}
+                          menuFor={menuForCard}
                         />
                       ),
                     )}

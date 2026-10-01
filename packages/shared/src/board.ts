@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { RetroPhase, TemplateSource } from './retros.js';
+import { Topic } from './topics.js';
 
 export const BoardColumn = z.object({
   id: z.string().uuid(),
@@ -20,6 +21,11 @@ export const VisibleBoardCard = z.object({
   position: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
+  // RN-015: null until the card joins a group. Grouping only ever happens once cards are already
+  // revealed (Group phase onward), so this is never a redaction concern the way body/authorName
+  // are — a hidden card's topicId (always null in practice, since topics don't exist yet in
+  // Write) is still included below for schema symmetry, not because it ever carries anything.
+  topicId: z.string().uuid().nullable(),
   hidden: z.literal(false),
 });
 export type VisibleBoardCard = z.infer<typeof VisibleBoardCard>;
@@ -31,6 +37,7 @@ export const HiddenBoardCard = z.object({
   columnId: z.string().uuid(),
   authorId: z.string().uuid(),
   position: z.string(),
+  topicId: z.string().uuid().nullable(),
   hidden: z.literal(true),
 });
 export type HiddenBoardCard = z.infer<typeof HiddenBoardCard>;
@@ -58,6 +65,9 @@ export const BoardResponse = z.object({
   }),
   columns: z.array(BoardColumn),
   cards: z.array(BoardCard),
+  // RN-015: every topic in the retro, regardless of column — the client matches cards to topics
+  // by `BoardCard.topicId`, not the other way around (see topics.ts).
+  topics: z.array(Topic),
   seq: z.number().int().nonnegative(),
   // RN-012: "every API response includes serverTime" — the client compares this to its own
   // clock once, at load, to get a stable offset, then counts the phase timer down locally

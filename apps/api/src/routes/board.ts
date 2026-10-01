@@ -37,15 +37,16 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
       return reply.code(403).send({ error: 'forbidden' });
     }
 
-    const [columnsResult, cardsResult, lastEventResult] = await Promise.all([
+    const [columnsResult, cardsResult, topicsResult, lastEventResult] = await Promise.all([
       supabaseAdmin.from('retro_columns').select().eq('retro_id', retroId).order('position'),
       supabaseAdmin.from('cards').select().eq('retro_id', retroId),
+      supabaseAdmin.from('topics').select().eq('retro_id', retroId),
       supabaseAdmin.from('retro_events').select('seq').eq('retro_id', retroId).order('seq', { ascending: false }).limit(1).maybeSingle(),
     ]);
 
-    if (columnsResult.error || cardsResult.error || lastEventResult.error) {
+    if (columnsResult.error || cardsResult.error || topicsResult.error || lastEventResult.error) {
       request.log.error(
-        { columns: columnsResult.error, cards: cardsResult.error, event: lastEventResult.error },
+        { columns: columnsResult.error, cards: cardsResult.error, topics: topicsResult.error, event: lastEventResult.error },
         'failed to read board data',
       );
       return reply.code(500).send({ error: 'board_read_failed' });
@@ -98,10 +99,12 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
           position: c.position,
           createdAt: c.created_at,
           updatedAt: c.updated_at,
+          topicId: c.topic_id,
           hidden: false,
         };
         return redactCard(full, redactCtx);
       }),
+      topics: (topicsResult.data ?? []).map((t) => ({ id: t.id, columnId: t.column_id, name: t.name })),
       seq: lastEventResult.data?.seq ?? 0,
       // RN-012: this specific response is what a late joiner's clock-offset calculation anchors
       // to, so it's set explicitly here rather than relying solely on the global serverTime hook

@@ -18,8 +18,9 @@ export const cardEditMutation: MutationTypeDef<CardEditPayload> = {
       column_kind: string;
       position: string;
       created_at: Date;
+      topic_id: string | null;
     }>(
-      `select c.author_id, p.display_name as author_name, c.column_id, rc.kind as column_kind, c.position, c.created_at
+      `select c.author_id, p.display_name as author_name, c.column_id, rc.kind as column_kind, c.position, c.created_at, c.topic_id
        from cards c
        join retro_columns rc on rc.id = c.column_id
        join profiles p on p.id = c.author_id
@@ -55,6 +56,8 @@ export const cardEditMutation: MutationTypeDef<CardEditPayload> = {
       position: card.position,
       createdAt: card.created_at.toISOString(),
       updatedAt: updated_at.toISOString(),
+      // Editing a card's body doesn't change its group membership (RN-015).
+      topicId: card.topic_id,
       hidden: false,
     });
   },

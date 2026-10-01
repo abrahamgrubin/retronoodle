@@ -1,5 +1,6 @@
 import type { PoolClient } from 'pg';
 import type { ZodType } from 'zod';
+import type { HiddenBoardCard, VisibleBoardCard } from '@retronoodle/shared';
 import type { AuthUser } from '../auth/index.js';
 
 /** The row locked by `SELECT ... FOR UPDATE` for the duration of the mutation transaction. */
@@ -34,6 +35,11 @@ export interface MutationTypeDef<TPayload = unknown> {
    * version to the shared `retro:{retroId}` channel and the full version to the author's own
    * `user:{id}` channel, instead of the plain single broadcast every other mutation type gets. */
   redactable?: boolean;
+  /** RN-015: card.move's result isn't a bare card anymore (`{card, dissolvedTopic}`) — these let
+   * pipeline.ts still find and replace the card to redact without every redactable type needing
+   * them. Omitted (card.create/card.edit) means "the whole result IS the card." */
+  extractCardForRedaction?: (result: unknown) => VisibleBoardCard;
+  withRedactedCard?: (result: unknown, card: VisibleBoardCard | HiddenBoardCard) => unknown;
 }
 
 /**

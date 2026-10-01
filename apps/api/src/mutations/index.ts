@@ -11,6 +11,9 @@ import { phaseBackMutation } from './phaseBack.js';
 import { cardsRevealMutation } from './cardsReveal.js';
 import { phaseExtendMutation } from './phaseExtend.js';
 import { cardMoveMutation } from './cardMove.js';
+import { topicCreateFromCardsMutation } from './topicCreateFromCards.js';
+import { cardAddToTopicMutation } from './cardAddToTopic.js';
+import { topicRenameMutation } from './topicRename.js';
 
 export function createDefaultMutationRegistry(): MutationRegistry {
   const registry = new MutationRegistry();
@@ -18,6 +21,9 @@ export function createDefaultMutationRegistry(): MutationRegistry {
   registry.register('card.edit', cardEditMutation);
   registry.register('card.delete', cardDeleteMutation);
   registry.register('card.move', cardMoveMutation);
+  registry.register('topic.createFromCards', topicCreateFromCardsMutation);
+  registry.register('card.addToTopic', cardAddToTopicMutation);
+  registry.register('topic.rename', topicRenameMutation);
   registry.register('phase.next', phaseNextMutation);
   // phase.skip resolves to the same target as phase.next (see phaseNext.ts's own comment) — the
   // timer's Skip button (RN-012) sends this instead, so it's registered under its own type name.

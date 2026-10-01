@@ -56,6 +56,7 @@ const cardRow = {
   position: 'a0',
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
+  topic_id: null,
 };
 
 function build(teamRole: 'admin' | 'member' | null) {
@@ -65,6 +66,7 @@ function build(teamRole: 'admin' | 'member' | null) {
       if (table === 'team_members') return chain({ data: teamRole ? { role: teamRole } : null, error: null });
       if (table === 'retro_columns') return chain({ data: [columnRow], error: null });
       if (table === 'cards') return chain({ data: [cardRow], error: null });
+      if (table === 'topics') return chain({ data: [], error: null });
       if (table === 'profiles') return chain({ data: [{ id: claims.sub, display_name: 'Ada Lovelace' }], error: null });
       if (table === 'retro_events') return chain({ data: { seq: 3 }, error: null });
       throw new Error(`unexpected table ${table}`);
@@ -101,6 +103,7 @@ describe('GET /retros/:id/board', () => {
       authorName: 'Ada Lovelace',
       body: 'Ship it',
     });
+    expect(body.topics).toEqual([]);
     expect(body.seq).toBe(3);
   });
 
@@ -115,7 +118,7 @@ describe('GET /retros/:id/board', () => {
     const res = await app.inject({ method: 'GET', url: `/retros/${retroId}/board`, headers: OTHER_AUTH_HEADER });
     expect(res.statusCode).toBe(200);
     const card = res.json().cards[0];
-    expect(card).toEqual({ id: cardRow.id, columnId: columnRow.id, authorId: claims.sub, position: 'a0', hidden: true });
+    expect(card).toEqual({ id: cardRow.id, columnId: columnRow.id, authorId: claims.sub, position: 'a0', topicId: null, hidden: true });
     expect('body' in card).toBe(false);
   });
 });
