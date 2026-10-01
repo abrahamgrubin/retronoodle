@@ -83,6 +83,9 @@ export const cardMoveMutation: MutationTypeDef<CardMovePayload> = {
         createdAt: row.created_at.toISOString(),
         updatedAt: updated_at.toISOString(),
         topicId: null,
+        // Placeholder, same as cardEdit.ts's: moving a card never touches card_reactions, and
+        // the client preserves its existing reactions rather than trusting this field.
+        reactions: [],
         hidden: false,
       },
       dissolvedTopic,

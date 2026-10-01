@@ -33,6 +33,11 @@ export async function fetchFullBoardCards(client: PoolClient, retroId: string): 
       createdAt: row.created_at.toISOString(),
       updatedAt: row.updated_at.toISOString(),
       topicId: row.topic_id,
+      // Truthfully empty, not a placeholder: both callers (cards.reveal, and formerly the
+      // write->group effect) only ever see a card at the exact moment it first becomes visible —
+      // reacting was impossible before that ("Never on hidden cards", RN-016), so there is
+      // nothing yet to report.
+      reactions: [],
       hidden: false,
     }),
   );

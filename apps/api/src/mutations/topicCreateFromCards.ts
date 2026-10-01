@@ -73,6 +73,9 @@ export const topicCreateFromCardsMutation: MutationTypeDef<TopicCreateFromCardsP
         createdAt: r.created_at.toISOString(),
         updatedAt: r.updated_at.toISOString(),
         topicId: payload.topicId,
+        // Placeholder (RN-016) — grouping never touches card_reactions, and the client preserves
+        // each card's existing reactions rather than trusting this field (boardReducer.ts).
+        reactions: [],
         hidden: false,
       })),
     });

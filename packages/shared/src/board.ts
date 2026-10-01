@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { RetroPhase, TemplateSource } from './retros.js';
 import { Topic } from './topics.js';
+import { ReactionSummary } from './reactions.js';
 
 export const BoardColumn = z.object({
   id: z.string().uuid(),
@@ -26,6 +27,9 @@ export const VisibleBoardCard = z.object({
   // are — a hidden card's topicId (always null in practice, since topics don't exist yet in
   // Write) is still included below for schema symmetry, not because it ever carries anything.
   topicId: z.string().uuid().nullable(),
+  // RN-016: "Never on hidden cards" — a card is never reactable before it's ever been visible,
+  // so HiddenBoardCard (below) has no equivalent field at all, not even an always-empty one.
+  reactions: z.array(ReactionSummary),
   hidden: z.literal(false),
 });
 export type VisibleBoardCard = z.infer<typeof VisibleBoardCard>;

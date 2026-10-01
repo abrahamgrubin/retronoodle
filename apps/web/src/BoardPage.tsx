@@ -19,6 +19,7 @@ import { generateKeyBetween } from 'fractional-indexing';
 import {
   allowedActions,
   defaultTopicName,
+  EMOJI_QUICK_SET,
   footerHint,
   nextPhase,
   phaseDurationMinutes,
@@ -27,13 +28,15 @@ import {
   type BoardCard,
   type BoardColumn,
   type BoardResponse,
+  type Emoji,
+  type ReactionSummary,
   type RetroPhase,
   type Topic,
   type VisibleBoardCard,
 } from '@retronoodle/shared';
 import { signInWithGoogle } from './auth';
 import { fetchBoard } from './board';
-import { reduceBoard, type BoardState } from './boardReducer';
+import { reduceBoard, toggleReaction, type BoardState } from './boardReducer';
 import { computeClockOffsetMs, formatCountdown, remainingMs } from './clock';
 import { postMutation } from './mutations';
 import { createRetroStore } from './retroStore';
@@ -108,6 +111,15 @@ function HiddenCardPlaceholder({ columnColor }: { columnColor: string }) {
   );
 }
 
+/** RN-016: bundled rather than four separate props, since every call site (SortableCardView,
+ * TopicGroupView's per-member rendering) always supplies all four together. */
+export interface ReactionBarProps {
+  reactions: ReactionSummary[];
+  viewerId: string;
+  canReact: boolean;
+  onToggleReaction: (emoji: Emoji) => void;
+}
+
 function CardView({
   card,
   canEdit,
@@ -115,6 +127,7 @@ function CardView({
   onDelete,
   dragHandleProps,
   menu,
+  reactionProps,
 }: {
   card: VisibleBoardCard;
   canEdit: boolean;
@@ -128,6 +141,7 @@ function CardView({
   // restriction during Group, unlike edit/delete), so it's its own slot rather than bundled with
   // the Edit/Delete buttons below.
   menu?: ReactNode;
+  reactionProps: ReactionBarProps;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(card.body);
@@ -178,6 +192,7 @@ function CardView({
     <div style={{ border: '1px solid #ccc', borderRadius: 6, padding: 8, marginBottom: 8 }} {...dragHandleProps}>
       <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{card.body}</p>
       <p style={{ margin: '4px 0 0', fontSize: 12, color: '#666' }}>{card.authorName}</p>
+      <ReactionBar {...reactionProps} />
       {(canEdit || menu) && (
         <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
           {canEdit && (
@@ -193,6 +208,112 @@ function CardView({
           {menu}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Rough, human-readable names for the fixed quick-set (RN-016) — used only to make the picker's
+ * "search" filter something sensible; not shown anywhere, and never sent to the server. */
+const EMOJI_NAMES: Record<Emoji, string> = {
+  '👍': 'thumbs up',
+  '❤️': 'heart love',
+  '😂': 'laugh joy lol',
+  '🎉': 'party celebrate',
+  '👀': 'eyes look',
+  '🙌': 'raised hands praise',
+  '💡': 'idea lightbulb',
+  '🔥': 'fire hot',
+  '😬': 'grimace awkward',
+  '🤔': 'thinking hmm',
+  '👏': 'clap applause',
+  '🚀': 'rocket launch ship',
+};
+
+/** "Add reaction" popover (RN-016 layout note: "popover with search and a 12-emoji quick set") —
+ * not a full emoji library; "search" narrows this same fixed 12 by a rough name match. Built on
+ * <details>/<summary> for the same reason as CardMenu: natively keyboard-operable without any
+ * custom focus handling. */
+function ReactionPicker({ onPick }: { onPick: (emoji: Emoji) => void }) {
+  const [query, setQuery] = useState('');
+  const detailsRef = useRef<HTMLDetailsElement>(null);
+  const trimmedQuery = query.trim().toLowerCase();
+  const results = trimmedQuery ? EMOJI_QUICK_SET.filter((emoji) => EMOJI_NAMES[emoji].includes(trimmedQuery)) : EMOJI_QUICK_SET;
+
+  return (
+    <details ref={detailsRef} style={{ position: 'relative' }}>
+      <summary
+        style={{ cursor: 'pointer', listStyle: 'none', fontSize: 12, color: '#666', border: '1px dashed #ccc', borderRadius: 999, padding: '1px 6px' }}
+        aria-label="Add reaction"
+      >
+        + react
+      </summary>
+      <div
+        style={{ position: 'absolute', zIndex: 1, background: '#fff', border: '1px solid #ccc', borderRadius: 6, padding: 8, marginTop: 4, width: 180 }}
+      >
+        <input
+          autoFocus
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search emoji"
+          aria-label="Search emoji"
+          style={{ width: '100%', boxSizing: 'border-box', marginBottom: 6 }}
+        />
+        {results.length === 0 && <p style={{ fontSize: 12, color: '#999', margin: 0 }}>No matches</p>}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+          {results.map((emoji) => (
+            <button
+              key={emoji}
+              type="button"
+              onClick={() => {
+                onPick(emoji);
+                setQuery('');
+                if (detailsRef.current) detailsRef.current.open = false;
+              }}
+              aria-label={`React with ${EMOJI_NAMES[emoji]}`}
+              style={{ fontSize: 18, border: 'none', background: 'none', cursor: 'pointer', padding: 2 }}
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+      </div>
+    </details>
+  );
+}
+
+/** One card's reaction chips plus the "Add reaction" picker (RN-016). A chip shows emoji + count
+ * and gets the blue-outlined/tinted "selected" style only when the *viewer* is one of its
+ * userIds (mock chip states) — clicking a chip toggles the viewer's own reaction. Rendered even
+ * when `canReact` is false and there are reactions to show ("existing reaction chips stay
+ * visible" during Vote — only "the picker and chip toggles are disabled"). */
+function ReactionBar({ reactions, viewerId, canReact, onToggleReaction }: ReactionBarProps) {
+  const visible = reactions.filter((r) => r.userIds.length > 0);
+  if (visible.length === 0 && !canReact) return null;
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4, alignItems: 'center' }}>
+      {visible.map((r) => {
+        const mine = r.userIds.includes(viewerId);
+        return (
+          <button
+            key={r.emoji}
+            type="button"
+            disabled={!canReact}
+            aria-pressed={mine}
+            onClick={() => onToggleReaction(r.emoji)}
+            style={{
+              border: mine ? '1px solid #3b82f6' : '1px solid #ccc',
+              background: mine ? '#eff6ff' : '#fff',
+              borderRadius: 999,
+              padding: '1px 8px',
+              fontSize: 12,
+              cursor: canReact ? 'pointer' : 'default',
+            }}
+          >
+            {r.emoji} {r.userIds.length}
+          </button>
+        );
+      })}
+      {canReact && <ReactionPicker onPick={onToggleReaction} />}
     </div>
   );
 }
@@ -269,6 +390,7 @@ function SortableCardView({
   onEdit,
   onDelete,
   menu,
+  reactionProps,
 }: {
   card: VisibleBoardCard;
   canDrag: boolean;
@@ -276,6 +398,7 @@ function SortableCardView({
   onEdit: (body: string) => void;
   onDelete: () => void;
   menu?: ReactNode;
+  reactionProps: ReactionBarProps;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
@@ -290,6 +413,7 @@ function SortableCardView({
         onDelete={onDelete}
         dragHandleProps={canDrag ? { ...attributes, ...listeners } : undefined}
         menu={menu}
+        reactionProps={reactionProps}
       />
     </div>
   );
@@ -311,6 +435,7 @@ function TopicGroupView({
   onEditCard,
   onDeleteCard,
   menuFor,
+  reactionPropsFor,
 }: {
   topic: Topic;
   cards: BoardCard[];
@@ -322,6 +447,7 @@ function TopicGroupView({
   onEditCard: (cardId: string, body: string) => void;
   onDeleteCard: (cardId: string) => void;
   menuFor: (card: VisibleBoardCard) => ReactNode;
+  reactionPropsFor: (card: VisibleBoardCard) => ReactionBarProps;
 }) {
   const [editingName, setEditingName] = useState(false);
   const [draftName, setDraftName] = useState(topic.name);
@@ -396,6 +522,7 @@ function TopicGroupView({
             onEdit={(body) => onEditCard(card.id, body)}
             onDelete={() => onDeleteCard(card.id)}
             menu={menuFor(card)}
+            reactionProps={reactionPropsFor(card)}
           />
         ),
       )}
@@ -605,6 +732,17 @@ function Board({
   // "Group with…" menu's visibility, and whether a group's name is clickable to rename.
   const canGroup = allowedActions(board.phase).cardGroup;
 
+  // RN-016: "Allowed on any revealed card... Not allowed during Vote" — no ownership check
+  // ("anyone can react to anyone's card") and no column-kind branching (Action items cards react
+  // the same as any other). 'after_reveal' (Write) additionally needs cardsRevealed; a hidden
+  // card never reaches this function at all (only visible cards render a ReactionBar).
+  function canReactToCard(): boolean {
+    const scope = allowedActions(board.phase).cardReact;
+    if (scope === 'never') return false;
+    if (scope === 'after_reveal') return board.cardsRevealed;
+    return true;
+  }
+
   const [activeId, setActiveId] = useState<string | null>(null);
   const activeCard = board.cards.find((c) => c.id === activeId && !c.hidden) as VisibleBoardCard | undefined;
   const sensors = useSensors(
@@ -679,6 +817,25 @@ function Board({
     if (draggedCard.topicId && draggedCard.topicId === targetCard.topicId) return; // already grouped together
     if (targetCard.topicId) addToTopic(draggedCard.id, targetCard.topicId);
     else createTopicFromCards(draggedCard.id, targetCard.id);
+  }
+
+  // RN-016: one call flips membership either way — `added` isn't known locally until the server
+  // confirms it, so this guesses the direction from whatever the viewer's own current state is
+  // (toggleReaction, boardReducer.ts, is the exact same fold the confirmed broadcast uses).
+  function toggleCardReaction(cardId: string, emoji: Emoji) {
+    const mutationId = uuidv7();
+    void sendMutation({
+      mutationId,
+      optimisticReduce: (b) => ({
+        ...b,
+        cards: b.cards.map((c) => {
+          if (c.id !== cardId || c.hidden) return c;
+          const mine = c.reactions.some((r) => r.emoji === emoji && r.userIds.includes(userId));
+          return { ...c, reactions: toggleReaction(c.reactions, { cardId, userId, emoji, added: !mine }) };
+        }),
+      }),
+      send: () => postMutation(accessToken, retroId, { mutationId, type: 'reaction.toggle', payload: { cardId, emoji } }),
+    });
   }
 
   function handleDragStart(event: DragStartEvent) {
@@ -877,6 +1034,8 @@ function Board({
             position: '',
             createdAt: now,
             updatedAt: now,
+            topicId: null,
+            reactions: [],
             hidden: false,
           },
         }),
@@ -1044,6 +1203,14 @@ function Board({
                   />
                 );
               }
+              function reactionPropsFor(card: VisibleBoardCard): ReactionBarProps {
+                return {
+                  reactions: card.reactions,
+                  viewerId: userId,
+                  canReact: canReactToCard(),
+                  onToggleReaction: (emoji) => toggleCardReaction(card.id, emoji),
+                };
+              }
               return (
                 <DroppableColumn key={column.id} column={column}>
                   <h2 style={{ fontSize: 16, margin: '0 0 4px' }}>
@@ -1064,6 +1231,7 @@ function Board({
                             onEdit={(body) => editCard(row.card.id, body)}
                             onDelete={() => deleteCard(row.card.id)}
                             menu={menuForCard(row.card)}
+                            reactionProps={reactionPropsFor(row.card)}
                           />
                         )
                       ) : (
@@ -1079,6 +1247,7 @@ function Board({
                           onEditCard={(id, body) => editCard(id, body)}
                           onDeleteCard={(id) => deleteCard(id)}
                           menuFor={menuForCard}
+                          reactionPropsFor={reactionPropsFor}
                         />
                       ),
                     )}
@@ -1091,7 +1260,13 @@ function Board({
         <DragOverlay>
           {activeCard && (
             <div style={{ transform: 'rotate(2deg)', boxShadow: '0 4px 12px rgba(0,0,0,0.2)' }}>
-              <CardView card={activeCard} canEdit={false} onEdit={() => {}} onDelete={() => {}} />
+              <CardView
+                card={activeCard}
+                canEdit={false}
+                onEdit={() => {}}
+                onDelete={() => {}}
+                reactionProps={{ reactions: activeCard.reactions, viewerId: userId, canReact: false, onToggleReaction: () => {} }}
+              />
             </div>
           )}
         </DragOverlay>

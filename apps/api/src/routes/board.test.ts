@@ -67,6 +67,7 @@ function build(teamRole: 'admin' | 'member' | null) {
       if (table === 'retro_columns') return chain({ data: [columnRow], error: null });
       if (table === 'cards') return chain({ data: [cardRow], error: null });
       if (table === 'topics') return chain({ data: [], error: null });
+      if (table === 'card_reactions') return chain({ data: [], error: null });
       if (table === 'profiles') return chain({ data: [{ id: claims.sub, display_name: 'Ada Lovelace' }], error: null });
       if (table === 'retro_events') return chain({ data: { seq: 3 }, error: null });
       throw new Error(`unexpected table ${table}`);

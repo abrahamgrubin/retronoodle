@@ -9,3 +9,4 @@ export * from './mutations.js';
 export * from './board.js';
 export * from './stateMachine.js';
 export * from './topics.js';
+export * from './reactions.js';
