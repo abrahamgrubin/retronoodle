@@ -103,7 +103,7 @@ describe.skipIf(!hasLiveEnv)('hidden cards against a live Supabase project (RN-0
 
     const otherBoard = await app!.inject({ method: 'GET', url: `/retros/${retroId}/board`, headers: { authorization: `Bearer ${otherToken}` } });
     const otherCard = otherBoard.json().cards.find((c: { id: string }) => c.id === cardId);
-    expect(otherCard).toEqual({ id: cardId, columnId, authorId, position: otherCard.position, hidden: true });
+    expect(otherCard).toEqual({ id: cardId, columnId, authorId, position: otherCard.position, topicId: null, hidden: true });
     expect(JSON.stringify(otherBoard.json())).not.toContain('Author secret');
 
     const authorBoard = await app!.inject({

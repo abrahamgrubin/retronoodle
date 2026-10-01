@@ -14,7 +14,7 @@ export function isCardCurrentlyHidden(ctx: Pick<RedactContext, 'phase' | 'cardsR
 }
 
 export function toHiddenCard(card: VisibleBoardCard): HiddenBoardCard {
-  return { id: card.id, columnId: card.columnId, authorId: card.authorId, position: card.position, hidden: true };
+  return { id: card.id, columnId: card.columnId, authorId: card.authorId, position: card.position, topicId: card.topicId, hidden: true };
 }
 
 /**

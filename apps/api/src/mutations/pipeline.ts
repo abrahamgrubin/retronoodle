@@ -178,8 +178,13 @@ export async function processMutation(deps: {
       // so their other open tabs still see real text (the author is always ctx.user here: only
       // the author may create or edit their own card).
       if (def.redactable && isCardCurrentlyHidden({ phase: retro.phase as RetroPhase, cardsRevealed: retro.cards_revealed })) {
-        const card = applyResult as VisibleBoardCard;
-        await realtimeBus.broadcastRetro(retroId, { type: envelope.type, payload: { seq, result: toHiddenCard(card) } });
+        // RN-015: most redactable results ARE the card (card.create/card.edit); card.move's
+        // isn't (`{card, dissolvedTopic}`), so it supplies extractCardForRedaction/
+        // withRedactedCard to find and replace the card within its own composite shape.
+        const card = def.extractCardForRedaction ? def.extractCardForRedaction(applyResult) : (applyResult as VisibleBoardCard);
+        const hiddenCard = toHiddenCard(card);
+        const hiddenResult = def.withRedactedCard ? def.withRedactedCard(applyResult, hiddenCard) : hiddenCard;
+        await realtimeBus.broadcastRetro(retroId, { type: envelope.type, payload: { seq, result: hiddenResult } });
         await realtimeBus.broadcastUser(user.id, { type: envelope.type, payload: { seq, result: applyResult } });
       } else {
         await realtimeBus.broadcastRetro(retroId, { type: envelope.type, payload: { seq, result: applyResult } });

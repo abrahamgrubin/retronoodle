@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { RetroPhase } from './retros.js';
 import { VisibleBoardCard } from './board.js';
+import { Topic } from './topics.js';
 
 /** POST /retros/:id/mutations body (RN-008). Every mutation type has its own payload schema
  * below; the envelope itself only knows the type name and a client-generated mutationId used
@@ -67,8 +68,68 @@ export const CardMovePayload = z.object({
 });
 export type CardMovePayload = z.infer<typeof CardMovePayload>;
 
-export const CardMoveResult = VisibleBoardCard;
-export type CardMoveResult = VisibleBoardCard;
+/** RN-015: a drop always places a card by position, so it always leaves whatever group it was
+ * in — "dropping between cards still moves rather than groups" / "dragging a card out of a group
+ * removes it" are the same rule seen from two stories. `dissolvedTopic` is set when that departure
+ * leaves the old group with a single card ("a one-card group dissolves") — the one other card
+ * whose membership silently changed as a result, reported here since a plain card.move result
+ * only ever describes the card that was actually dragged. */
+const DissolvedTopic = z.object({ topicId: z.string().uuid(), remainingCard: VisibleBoardCard });
+export type DissolvedTopic = z.infer<typeof DissolvedTopic>;
+
+export const CardMoveResult = z.object({
+  card: VisibleBoardCard,
+  dissolvedTopic: DissolvedTopic.nullable(),
+});
+export type CardMoveResult = z.infer<typeof CardMoveResult>;
+
+/** `topic.createFromCards` (RN-015): dropping card A onto card B's center when neither is
+ * already grouped. `cardIds` is always exactly the two cards involved in practice (the drop
+ * target and the card dropped on it, or the same pair via the "Group with…" menu) — left as a
+ * general array rather than a fixed pair since nothing about the mutation itself requires
+ * exactly two, and `name` defaults server-side (`defaultTopicName`, topics.ts) when omitted. */
+export const TopicCreateFromCardsPayload = z.object({
+  topicId: z.string().uuid(),
+  cardIds: z.array(z.string().uuid()).min(2),
+  name: z.string().trim().min(1).max(200).optional(),
+});
+export type TopicCreateFromCardsPayload = z.infer<typeof TopicCreateFromCardsPayload>;
+
+export const TopicCreateFromCardsResult = z.object({
+  topic: Topic,
+  cards: z.array(VisibleBoardCard),
+});
+export type TopicCreateFromCardsResult = z.infer<typeof TopicCreateFromCardsResult>;
+
+/** `card.addToTopic` (RN-015): dropping a card onto a card that's already part of a group, or
+ * picking an already-grouped card from the "Group with…" menu. Can itself dissolve the card's
+ * *previous* group the same way card.move can (see DissolvedTopic above) — joining a different
+ * group is still a departure from whichever one it was in before. */
+export const CardAddToTopicPayload = z.object({
+  cardId: z.string().uuid(),
+  topicId: z.string().uuid(),
+});
+export type CardAddToTopicPayload = z.infer<typeof CardAddToTopicPayload>;
+
+export const CardAddToTopicResult = z.object({
+  topic: Topic,
+  card: VisibleBoardCard,
+  dissolvedTopic: DissolvedTopic.nullable(),
+});
+export type CardAddToTopicResult = z.infer<typeof CardAddToTopicResult>;
+
+/** `topic.rename` (RN-015): "Anyone can rename a group; the last rename wins" — no ownership
+ * check, just the same Group-phase `cardGroup` gate grouping itself uses. */
+export const TopicRenamePayload = z.object({
+  topicId: z.string().uuid(),
+  name: z.string().trim().min(1).max(200),
+});
+export type TopicRenamePayload = z.infer<typeof TopicRenamePayload>;
+
+export const TopicRenameResult = z.object({
+  topic: Topic,
+});
+export type TopicRenameResult = z.infer<typeof TopicRenameResult>;
 
 /** `phase.next`, `phase.back`, `phase.skip` (RN-010): the target phase is always derived from
  * the retro's current phase server-side (via stateMachine's nextPhase/previousPhase), never

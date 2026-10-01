@@ -14,13 +14,21 @@ const card: VisibleBoardCard = {
   position: 'a0',
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
+  topicId: null,
   hidden: false,
 };
 
 describe('redactCard — never returns body for a non-author during Write', () => {
   it('hides the card from a non-author during Write before reveal', () => {
     const result = redactCard(card, { viewerId: otherId, phase: 'write', cardsRevealed: false });
-    expect(result).toEqual({ id: card.id, columnId: card.columnId, authorId, position: card.position, hidden: true });
+    expect(result).toEqual({
+      id: card.id,
+      columnId: card.columnId,
+      authorId,
+      position: card.position,
+      topicId: null,
+      hidden: true,
+    });
     expect('body' in result).toBe(false);
     expect('authorName' in result).toBe(false);
   });
@@ -63,6 +71,7 @@ describe('toHiddenCard', () => {
       columnId: card.columnId,
       authorId: card.authorId,
       position: card.position,
+      topicId: null,
       hidden: true,
     });
   });

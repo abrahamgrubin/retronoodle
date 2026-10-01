@@ -1,12 +1,17 @@
 import type {
   BoardCard,
   BoardColumn,
+  CardAddToTopicResult,
   CardDeleteResult,
+  CardMoveResult,
   CardsRevealResult,
   HiddenBoardCard,
   PhaseExtendResult,
   PhaseTransitionResult,
   RetroPhase,
+  Topic,
+  TopicCreateFromCardsResult,
+  TopicRenameResult,
   VisibleBoardCard,
 } from '@retronoodle/shared';
 import type { RetroEvent } from './retroStore';
@@ -19,6 +24,9 @@ export interface BoardState {
   phaseDeadline: string | null;
   columns: BoardColumn[];
   cards: BoardCard[];
+  // RN-015: topics the retro has so far. A card's membership lives on the card (`topicId`), not
+  // here — see topics.ts's own comment on why a topic doesn't carry its own card list.
+  topics: Topic[];
 }
 
 function isHiddenPayload(payload: unknown): payload is HiddenBoardCard {
@@ -35,15 +43,33 @@ function upsertCard(board: BoardState, card: BoardCard): BoardState {
   return { ...board, cards: existing ? board.cards.map((c) => (c.id === card.id ? card : c)) : [...board.cards, card] };
 }
 
-/** card.create, card.edit and card.move (RN-009/RN-014) all broadcast the same VisibleBoardCard-
- * or-HiddenBoardCard-shaped result and fold into board state identically — upsert by id, with
- * upsertCard's clobber guard protecting a card already held in full. */
+/** card.create and card.edit (RN-009, RN-011) broadcast the same VisibleBoardCard- or
+ * HiddenBoardCard-shaped result and fold into board state identically — upsert by id, with
+ * upsertCard's clobber guard protecting a card already held in full. card.move (RN-014) used to
+ * share this path too, but its result is no longer a bare card (RN-015's dissolvedTopic) — see
+ * its own case below. */
 function upsertFromCardEvent(board: BoardState, payload: unknown): BoardState {
   const result = payload as VisibleBoardCard | HiddenBoardCard;
   const card: BoardCard = isHiddenPayload(result)
-    ? { id: result.id, columnId: result.columnId, authorId: result.authorId, position: result.position, hidden: true }
+    ? { id: result.id, columnId: result.columnId, authorId: result.authorId, position: result.position, topicId: result.topicId, hidden: true }
     : { ...result, hidden: false };
   return upsertCard(board, card);
+}
+
+function upsertTopic(board: BoardState, topic: Topic): BoardState {
+  const existing = board.topics.find((t) => t.id === topic.id);
+  return { ...board, topics: existing ? board.topics.map((t) => (t.id === topic.id ? topic : t)) : [...board.topics, topic] };
+}
+
+/** Folds a `dissolvedTopic` (RN-015: "a one-card group dissolves"), shared by card.move and
+ * card.addToTopic's results — the one other card whose membership silently changed, plus the
+ * topic it (and the card the caller actually acted on) no longer belong to. */
+function applyDissolvedTopic(board: BoardState, dissolvedTopic: { topicId: string; remainingCard: VisibleBoardCard } | null): BoardState {
+  if (!dissolvedTopic) return board;
+  return upsertCard(
+    { ...board, topics: board.topics.filter((t) => t.id !== dissolvedTopic.topicId) },
+    { ...dissolvedTopic.remainingCard, hidden: false },
+  );
 }
 
 /** Folds one confirmed event (card create/edit/delete, a phase transition, or a reveal) into
@@ -54,17 +80,42 @@ function upsertFromCardEvent(board: BoardState, payload: unknown): BoardState {
  * client-generated id. */
 export function reduceBoard(board: BoardState, event: RetroEvent): BoardState {
   switch (event.type) {
-    // card.move (RN-014): a hidden echo carries nothing a non-author didn't already know (the
-    // placeholder never showed a body, and its position/columnId are already in the redacted
-    // shape) — upsertFromCardEvent's clobber guard handles it the same way create/edit's does.
     case 'card.create':
-    case 'card.edit':
-    case 'card.move': {
+    case 'card.edit': {
       return upsertFromCardEvent(board, event.payload);
+    }
+    // card.move (RN-014, extended by RN-015): the card half of this is the same redactable-card
+    // shape create/edit get, but it's wrapped (`{card, dissolvedTopic}`) rather than bare, since a
+    // move can also silently ungroup a *different* card ("a one-card group dissolves") — so this
+    // can't reuse upsertFromCardEvent directly.
+    case 'card.move': {
+      const result = event.payload as CardMoveResult;
+      return applyDissolvedTopic(upsertFromCardEvent(board, result.card), result.dissolvedTopic);
     }
     case 'card.delete': {
       const result = event.payload as CardDeleteResult;
       return { ...board, cards: board.cards.filter((c) => c.id !== result.id) };
+    }
+    // topic.createFromCards (RN-015): "Dropping card A on card B's center creates a named group
+    // containing both" — a new topic plus every card now in it (never redacted: grouping only
+    // ever happens once cards are already revealed).
+    case 'topic.createFromCards': {
+      const result = event.payload as TopicCreateFromCardsResult;
+      const withTopic = upsertTopic(board, result.topic);
+      return result.cards.reduce((b, card) => upsertCard(b, { ...card, hidden: false }), withTopic);
+    }
+    // card.addToTopic (RN-015): joining an existing group — can itself dissolve the card's
+    // *previous* group (dissolvedTopic), same as card.move.
+    case 'card.addToTopic': {
+      const result = event.payload as CardAddToTopicResult;
+      const withTopic = upsertTopic(board, result.topic);
+      const withCard = upsertCard(withTopic, { ...result.card, hidden: false });
+      return applyDissolvedTopic(withCard, result.dissolvedTopic);
+    }
+    // topic.rename (RN-015): "Anyone can rename a group; the last rename wins and syncs to all."
+    case 'topic.rename': {
+      const result = event.payload as TopicRenameResult;
+      return upsertTopic(board, result.topic);
     }
     // phase.next and phase.skip resolve to the same target phase server-side (RN-010) — both
     // broadcast the same result shape, so both fold into board state the same way here too.

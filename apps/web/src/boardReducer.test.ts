@@ -6,7 +6,7 @@ const columnId = '00000000-0000-4000-8000-000000000001';
 const cardId = '00000000-0000-4000-8000-000000000002';
 const authorId = '00000000-0000-4000-8000-000000000003';
 
-const emptyBoard: BoardState = { phase: 'write', cardsRevealed: false, phaseDeadline: null, columns: [], cards: [] };
+const emptyBoard: BoardState = { phase: 'write', cardsRevealed: false, phaseDeadline: null, columns: [], cards: [], topics: [] };
 
 function createEvent(overrides: Partial<Record<string, unknown>> = {}): RetroEvent {
   return {
@@ -21,6 +21,7 @@ function createEvent(overrides: Partial<Record<string, unknown>> = {}): RetroEve
       position: 'a0',
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
+      topicId: null,
       hidden: false,
       ...overrides,
     },
@@ -28,7 +29,7 @@ function createEvent(overrides: Partial<Record<string, unknown>> = {}): RetroEve
 }
 
 function hiddenPayload(overrides: Partial<Record<string, unknown>> = {}) {
-  return { id: cardId, columnId, authorId, position: 'a0', hidden: true, ...overrides };
+  return { id: cardId, columnId, authorId, position: 'a0', topicId: null, hidden: true, ...overrides };
 }
 
 describe('reduceBoard', () => {
@@ -55,8 +56,46 @@ describe('reduceBoard', () => {
     const otherColumnId = '00000000-0000-4000-8000-000000000009';
     const board = reduceBoard(emptyBoard, createEvent());
     const event = createEvent({ columnId: otherColumnId, position: 'b0' });
-    const moved = reduceBoard(board, { ...event, type: 'card.move' });
+    const moved = reduceBoard(board, { seq: 2, type: 'card.move', payload: { card: event.payload, dissolvedTopic: null } });
     expect(moved.cards[0]).toMatchObject({ columnId: otherColumnId, position: 'b0', body: 'Ship it' });
+  });
+
+  it('card.move also folds in a dissolvedTopic (RN-015: "a one-card group dissolves")', () => {
+    const otherCardId = '00000000-0000-4000-8000-00000000000a';
+    const topicId = '00000000-0000-4000-8000-00000000000b';
+    const board: BoardState = {
+      ...emptyBoard,
+      topics: [{ id: topicId, columnId, name: 'A group' }],
+      cards: [
+        { id: cardId, columnId, authorId, authorName: 'Ada', body: 'Ship it', position: 'a0', createdAt: '', updatedAt: '', topicId, hidden: false },
+        { id: otherCardId, columnId, authorId, authorName: 'Ada', body: 'Also here', position: 'a1', createdAt: '', updatedAt: '', topicId, hidden: false },
+      ],
+    };
+    const otherColumnId = '00000000-0000-4000-8000-000000000009';
+    const moved = reduceBoard(board, {
+      seq: 2,
+      type: 'card.move',
+      payload: {
+        card: { ...(createEvent({ columnId: otherColumnId, position: 'b0' }).payload as Record<string, unknown>), topicId: null },
+        dissolvedTopic: {
+          topicId,
+          remainingCard: {
+            id: otherCardId,
+            columnId,
+            authorId,
+            authorName: 'Ada',
+            body: 'Also here',
+            position: 'a1',
+            createdAt: '',
+            updatedAt: '',
+            topicId: null,
+            hidden: false,
+          },
+        },
+      },
+    });
+    expect(moved.topics).toEqual([]);
+    expect(moved.cards.find((c) => c.id === otherCardId)).toMatchObject({ topicId: null });
   });
 
   it('card.delete removes the matching card', () => {
@@ -89,7 +128,7 @@ describe('reduceBoard', () => {
   describe('RN-011: hidden cards', () => {
     it('a hidden card.create adds a placeholder with no body or authorName', () => {
       const board = reduceBoard(emptyBoard, { seq: 1, type: 'card.create', payload: hiddenPayload() });
-      expect(board.cards).toEqual([{ id: cardId, columnId, authorId, position: 'a0', hidden: true }]);
+      expect(board.cards).toEqual([{ id: cardId, columnId, authorId, position: 'a0', topicId: null, hidden: true }]);
     });
 
     it('a hidden echo never clobbers a card we already hold in full (the author\'s own optimistic copy)', () => {
@@ -111,9 +150,11 @@ describe('reduceBoard', () => {
       const afterHiddenMove = reduceBoard(withHiddenCard, {
         seq: 2,
         type: 'card.move',
-        payload: hiddenPayload({ columnId: otherColumnId, position: 'b0' }),
+        payload: { card: hiddenPayload({ columnId: otherColumnId, position: 'b0' }), dissolvedTopic: null },
       });
-      expect(afterHiddenMove.cards).toEqual([{ id: cardId, columnId: otherColumnId, authorId, position: 'b0', hidden: true }]);
+      expect(afterHiddenMove.cards).toEqual([
+        { id: cardId, columnId: otherColumnId, authorId, position: 'b0', topicId: null, hidden: true },
+      ]);
     });
 
     it('cards.reveal upgrades every referenced hidden card to its full version', () => {
@@ -139,6 +180,86 @@ describe('reduceBoard', () => {
       const revealed = reduceBoard(withHiddenCard, { seq: 2, type: 'cards.reveal', payload: { cards: [] } });
       expect(revealed.cards).toEqual(withHiddenCard.cards);
       expect(revealed.cardsRevealed).toBe(true);
+    });
+  });
+
+  describe('RN-015: grouping', () => {
+    const otherCardId = '00000000-0000-4000-8000-00000000000a';
+    const topicId = '00000000-0000-4000-8000-00000000000b';
+
+    it('topic.createFromCards adds the topic and marks every included card with its id', () => {
+      const board = reduceBoard(reduceBoard(emptyBoard, createEvent()), createEvent({ id: otherCardId, position: 'a1' }));
+      const grouped = reduceBoard(board, {
+        seq: 3,
+        type: 'topic.createFromCards',
+        payload: {
+          topic: { id: topicId, columnId, name: 'Ship it' },
+          cards: [
+            { ...(createEvent().payload as Record<string, unknown>), topicId },
+            { ...(createEvent({ id: otherCardId, position: 'a1' }).payload as Record<string, unknown>), topicId },
+          ],
+        },
+      });
+      expect(grouped.topics).toEqual([{ id: topicId, columnId, name: 'Ship it' }]);
+      expect(grouped.cards.map((c) => (c as { topicId: string | null }).topicId)).toEqual([topicId, topicId]);
+    });
+
+    it('card.addToTopic adds the topic (if new to this client) and sets the card\'s topicId', () => {
+      const board = reduceBoard(emptyBoard, createEvent());
+      const joined = reduceBoard(board, {
+        seq: 2,
+        type: 'card.addToTopic',
+        payload: {
+          topic: { id: topicId, columnId, name: 'Existing group' },
+          card: { ...(createEvent().payload as Record<string, unknown>), topicId },
+          dissolvedTopic: null,
+        },
+      });
+      expect(joined.topics).toEqual([{ id: topicId, columnId, name: 'Existing group' }]);
+      expect(joined.cards[0]).toMatchObject({ topicId });
+    });
+
+    it('card.addToTopic also dissolves the card\'s previous group when that leaves it with one member', () => {
+      const board: BoardState = {
+        ...emptyBoard,
+        topics: [{ id: topicId, columnId, name: 'Old group' }],
+        cards: [
+          { id: cardId, columnId, authorId, authorName: 'Ada', body: 'Ship it', position: 'a0', createdAt: '', updatedAt: '', topicId, hidden: false },
+          { id: otherCardId, columnId, authorId, authorName: 'Ada', body: 'Also here', position: 'a1', createdAt: '', updatedAt: '', topicId, hidden: false },
+        ],
+      };
+      const newTopicId = '00000000-0000-4000-8000-00000000000c';
+      const joined = reduceBoard(board, {
+        seq: 3,
+        type: 'card.addToTopic',
+        payload: {
+          topic: { id: newTopicId, columnId, name: 'New group' },
+          card: { id: cardId, columnId, authorId, authorName: 'Ada', body: 'Ship it', position: 'a0', createdAt: '', updatedAt: '', topicId: newTopicId, hidden: false },
+          dissolvedTopic: {
+            topicId,
+            remainingCard: {
+              id: otherCardId,
+              columnId,
+              authorId,
+              authorName: 'Ada',
+              body: 'Also here',
+              position: 'a1',
+              createdAt: '',
+              updatedAt: '',
+              topicId: null,
+              hidden: false,
+            },
+          },
+        },
+      });
+      expect(joined.topics.map((t) => t.id)).toEqual([newTopicId]);
+      expect(joined.cards.find((c) => c.id === otherCardId)).toMatchObject({ topicId: null });
+    });
+
+    it("topic.rename updates the topic's name, leaving its cards untouched", () => {
+      const board: BoardState = { ...emptyBoard, topics: [{ id: topicId, columnId, name: 'Old name' }] };
+      const renamed = reduceBoard(board, { seq: 1, type: 'topic.rename', payload: { topic: { id: topicId, columnId, name: 'New name' } } });
+      expect(renamed.topics).toEqual([{ id: topicId, columnId, name: 'New name' }]);
     });
   });
 });
