@@ -51,6 +51,14 @@ describe('reduceBoard', () => {
     expect(edited.cards[0]).toMatchObject({ body: 'Edited body', authorName: 'Ada' }); // authorName untouched
   });
 
+  it('card.move updates columnId and position on the matching card', () => {
+    const otherColumnId = '00000000-0000-4000-8000-000000000009';
+    const board = reduceBoard(emptyBoard, createEvent());
+    const event = createEvent({ columnId: otherColumnId, position: 'b0' });
+    const moved = reduceBoard(board, { ...event, type: 'card.move' });
+    expect(moved.cards[0]).toMatchObject({ columnId: otherColumnId, position: 'b0', body: 'Ship it' });
+  });
+
   it('card.delete removes the matching card', () => {
     const board = reduceBoard(emptyBoard, createEvent());
     const deleted = reduceBoard(board, { seq: 2, type: 'card.delete', payload: { id: cardId } });
@@ -95,6 +103,17 @@ describe('reduceBoard', () => {
       const withHiddenCard = reduceBoard(emptyBoard, { seq: 1, type: 'card.create', payload: hiddenPayload() });
       const afterHiddenEdit = reduceBoard(withHiddenCard, { seq: 2, type: 'card.edit', payload: hiddenPayload() });
       expect(afterHiddenEdit).toEqual(withHiddenCard);
+    });
+
+    it('a hidden card.move still updates columnId/position for a non-author — unlike edit, the move itself is visible information', () => {
+      const withHiddenCard = reduceBoard(emptyBoard, { seq: 1, type: 'card.create', payload: hiddenPayload() });
+      const otherColumnId = '00000000-0000-4000-8000-000000000009';
+      const afterHiddenMove = reduceBoard(withHiddenCard, {
+        seq: 2,
+        type: 'card.move',
+        payload: hiddenPayload({ columnId: otherColumnId, position: 'b0' }),
+      });
+      expect(afterHiddenMove.cards).toEqual([{ id: cardId, columnId: otherColumnId, authorId, position: 'b0', hidden: true }]);
     });
 
     it('cards.reveal upgrades every referenced hidden card to its full version', () => {

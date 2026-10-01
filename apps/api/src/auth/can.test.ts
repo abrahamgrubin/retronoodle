@@ -73,11 +73,13 @@ describe('can — role x action matrix (Design 3.4, reconstructed for RN-005)', 
     ['retro.revealCards', retroAsMember, false],
     ['retro.revealCards', retroNonMember, false],
 
-    // card.edit / card.delete: ownership, not a role — only the author, ever.
+    // card.edit / card.delete / card.move: ownership, not a role — only the author, ever.
     ['card.edit', ownCard, true],
     ['card.edit', othersCard, false],
     ['card.delete', ownCard, true],
     ['card.delete', othersCard, false],
+    ['card.move', ownCard, true],
+    ['card.move', othersCard, false],
   ])('%s on %o -> %s', (action, resource, expected) => {
     expect(can(user, action, resource)).toBe(expected);
   });

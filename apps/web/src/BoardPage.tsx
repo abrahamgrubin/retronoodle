@@ -1,6 +1,21 @@
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { uuidv7 } from 'uuidv7';
+import {
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from '@dnd-kit/core';
+import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { generateKeyBetween } from 'fractional-indexing';
 import {
   allowedActions,
   footerHint,
@@ -8,6 +23,8 @@ import {
   phaseDurationMinutes,
   phaseSubtitle,
   previousPhase,
+  type BoardCard,
+  type BoardColumn,
   type BoardResponse,
   type RetroPhase,
   type VisibleBoardCard,
@@ -94,11 +111,16 @@ function CardView({
   canEdit,
   onEdit,
   onDelete,
+  dragHandleProps,
 }: {
   card: VisibleBoardCard;
   canEdit: boolean;
   onEdit: (body: string) => void;
   onDelete: () => void;
+  // RN-014: spread only onto the display div below, never the editing one — dnd-kit's
+  // PointerSensor attaches its own pointerdown listener here, and putting that on the textarea's
+  // ancestor would fight with dragging-to-select text while editing a card's body.
+  dragHandleProps?: Record<string, unknown>;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(card.body);
@@ -146,7 +168,7 @@ function CardView({
   }
 
   return (
-    <div style={{ border: '1px solid #ccc', borderRadius: 6, padding: 8, marginBottom: 8 }}>
+    <div style={{ border: '1px solid #ccc', borderRadius: 6, padding: 8, marginBottom: 8 }} {...dragHandleProps}>
       <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{card.body}</p>
       <p style={{ margin: '4px 0 0', fontSize: 12, color: '#666' }}>{card.authorName}</p>
       {canEdit && (
@@ -160,6 +182,66 @@ function CardView({
         </div>
       )}
     </div>
+  );
+}
+
+/** Registers every visible card as a dnd-kit sortable item uniformly (RN-014) — `disabled` (not
+ * omission) is what stops a given viewer from dragging a given card, so dnd-kit's shift/reflow
+ * animations still run for everyone watching, not just the person allowed to drag. The node
+ * dnd-kit measures (`setNodeRef`) stays on this stable wrapper regardless of CardView's internal
+ * editing state; only the drag listeners themselves move (see CardView's dragHandleProps note). */
+function SortableCardView({
+  card,
+  canDrag,
+  canEdit,
+  onEdit,
+  onDelete,
+}: {
+  card: VisibleBoardCard;
+  canDrag: boolean;
+  canEdit: boolean;
+  onEdit: (body: string) => void;
+  onDelete: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: card.id,
+    disabled: !canDrag,
+  });
+  return (
+    <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }}>
+      <CardView
+        card={card}
+        canEdit={canEdit}
+        onEdit={onEdit}
+        onDelete={onDelete}
+        dragHandleProps={canDrag ? { ...attributes, ...listeners } : undefined}
+      />
+    </div>
+  );
+}
+
+/** The column's own droppable area (RN-014) — lets a card be dropped on empty space below the
+ * last card, not only onto another card. Disabled for Action items: "Move onto a card's center is
+ * reserved for grouping (RN-015)" is a later story, but "can't drag into Action items" is this
+ * one's own AC, so that column is excluded from collision detection entirely (dropping there
+ * resolves to no valid target, same as dropping outside any column). */
+function DroppableColumn({ column, children }: { column: BoardColumn; children: ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id: column.id, disabled: column.kind === 'action_items' });
+  return (
+    <section
+      ref={setNodeRef}
+      style={{
+        width: 260,
+        flexShrink: 0,
+        borderTop: `4px solid ${column.color}`,
+        outline: isOver ? '2px solid #3b82f6' : undefined,
+        background: '#fafafa',
+        borderRadius: 8,
+        padding: 8,
+      }}
+    >
+      {children}
+    </section>
   );
 }
 
@@ -284,6 +366,76 @@ function Board({
   function canEditColumn(columnKind: 'standard' | 'action_items'): boolean {
     const actions = allowedActions(board.phase);
     return columnKind === 'action_items' ? actions.actionItemEdit : actions.cardCrud;
+  }
+
+  // RN-014: drag scope comes from the same phase matrix as everything else (Write = own cards
+  // only, Group = all cards, everything else = none — see stateMachine.ts's cardDrag). Action
+  // items aren't part of this story's drag surface at all (only "can't drag *into*" is a
+  // documented AC) — kept conservative rather than untested, so a card already sitting in that
+  // column is never draggable either.
+  function canDragCard(card: BoardCard, columnKind: 'standard' | 'action_items'): boolean {
+    if (columnKind === 'action_items') return false;
+    const scope = allowedActions(board.phase).cardDrag;
+    if (scope === 'none') return false;
+    if (scope === 'all') return true;
+    return card.authorId === userId;
+  }
+
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const activeCard = board.cards.find((c) => c.id === activeId && !c.hidden) as VisibleBoardCard | undefined;
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  function moveCard(cardId: string, columnId: string, position: string) {
+    const mutationId = uuidv7();
+    void sendMutation({
+      mutationId,
+      // A local-only patch, same reasoning as editCard's: all a drop gives us is the new
+      // columnId/position, not a full server-shaped card.
+      optimisticReduce: (b) => ({
+        ...b,
+        cards: b.cards.map((c) => (c.id === cardId ? { ...c, columnId, position } : c)),
+      }),
+      send: () => postMutation(accessToken, retroId, { mutationId, type: 'card.move', payload: { cardId, columnId, position } }),
+    });
+  }
+
+  function handleDragStart(event: DragStartEvent) {
+    setActiveId(event.active.id as string);
+  }
+
+  // One mutation per drop (the story's own framing) — figures out the target column (a card's
+  // own columnId if dropped on a card, otherwise the column droppable's id directly for an empty-
+  // space drop), then computes a fractional position between whatever ends up as this card's new
+  // neighbors. No onDragOver handling: the drop's final state is correct either way, live cross-
+  // column reflow mid-drag is the known gap (consistent with this session's other mock-fidelity
+  // gaps, e.g. RN-009/010/012).
+  function handleDragEnd(event: DragEndEvent) {
+    setActiveId(null);
+    const { active, over } = event;
+    if (!over || over.id === active.id) return;
+
+    const cardId = active.id as string;
+    const draggedCard = board.cards.find((c) => c.id === cardId);
+    if (!draggedCard) return;
+
+    const overCard = board.cards.find((c) => c.id === over.id);
+    const targetColumnId = overCard ? overCard.columnId : (over.id as string);
+    const targetColumn = board.columns.find((c) => c.id === targetColumnId);
+    if (!targetColumn || targetColumn.kind === 'action_items') return;
+
+    const siblings = board.cards
+      .filter((c) => c.columnId === targetColumnId && c.id !== cardId)
+      .sort((a, b) => a.position.localeCompare(b.position));
+    const insertIndex = overCard ? Math.max(siblings.findIndex((c) => c.id === overCard.id), 0) : siblings.length;
+    const prevCard = insertIndex > 0 ? siblings[insertIndex - 1] : undefined;
+    const nextCard = insertIndex < siblings.length ? siblings[insertIndex] : undefined;
+    const position = generateKeyBetween(prevCard?.position ?? null, nextCard?.position ?? null);
+
+    if (targetColumnId === draggedCard.columnId && position === draggedCard.position) return;
+    moveCard(cardId, targetColumnId, position);
   }
 
   // RN-013: one resync path for every trigger — a stale seq gap, a Realtime reconnect, or
@@ -559,42 +711,52 @@ function Board({
           </button>
         </p>
       )}
-      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-        {board.columns
-          .slice()
-          .sort((a, b) => a.position - b.position)
-          .map((column) => {
-            const cards = board.cards
-              .filter((c) => c.columnId === column.id)
-              .sort((a, b) => a.position.localeCompare(b.position));
-            const canEdit = canEditColumn(column.kind);
-            return (
-              <section
-                key={column.id}
-                style={{ width: 260, flexShrink: 0, borderTop: `4px solid ${column.color}`, background: '#fafafa', borderRadius: 8, padding: 8 }}
-              >
-                <h2 style={{ fontSize: 16, margin: '0 0 4px' }}>
-                  {column.title} <span style={{ fontWeight: 'normal', color: '#666' }}>({cards.length})</span>
-                </h2>
-                {column.prompt && <p style={{ fontSize: 12, color: '#666', margin: '0 0 8px' }}>{column.prompt}</p>}
-                {cards.map((card) =>
-                  card.hidden ? (
-                    <HiddenCardPlaceholder key={card.id} columnColor={column.color} />
-                  ) : (
-                    <CardView
-                      key={card.id}
-                      card={card}
-                      canEdit={canEdit && card.authorId === userId}
-                      onEdit={(body) => editCard(card.id, body)}
-                      onDelete={() => deleteCard(card.id)}
-                    />
-                  ),
-                )}
-                {canEdit && <AddCardForm onAdd={(body) => addCard(column.id, body)} />}
-              </section>
-            );
-          })}
-      </div>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+        <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+          {board.columns
+            .slice()
+            .sort((a, b) => a.position - b.position)
+            .map((column) => {
+              const cards = board.cards
+                .filter((c) => c.columnId === column.id)
+                .sort((a, b) => a.position.localeCompare(b.position));
+              const canEdit = canEditColumn(column.kind);
+              const sortableIds = cards.filter((c) => !c.hidden).map((c) => c.id);
+              return (
+                <DroppableColumn key={column.id} column={column}>
+                  <h2 style={{ fontSize: 16, margin: '0 0 4px' }}>
+                    {column.title} <span style={{ fontWeight: 'normal', color: '#666' }}>({cards.length})</span>
+                  </h2>
+                  {column.prompt && <p style={{ fontSize: 12, color: '#666', margin: '0 0 8px' }}>{column.prompt}</p>}
+                  <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
+                    {cards.map((card) =>
+                      card.hidden ? (
+                        <HiddenCardPlaceholder key={card.id} columnColor={column.color} />
+                      ) : (
+                        <SortableCardView
+                          key={card.id}
+                          card={card}
+                          canDrag={canDragCard(card, column.kind)}
+                          canEdit={canEdit && card.authorId === userId}
+                          onEdit={(body) => editCard(card.id, body)}
+                          onDelete={() => deleteCard(card.id)}
+                        />
+                      ),
+                    )}
+                  </SortableContext>
+                  {canEdit && <AddCardForm onAdd={(body) => addCard(column.id, body)} />}
+                </DroppableColumn>
+              );
+            })}
+        </div>
+        <DragOverlay>
+          {activeCard && (
+            <div style={{ transform: 'rotate(2deg)', boxShadow: '0 4px 12px rgba(0,0,0,0.2)' }}>
+              <CardView card={activeCard} canEdit={false} onEdit={() => {}} onDelete={() => {}} />
+            </div>
+          )}
+        </DragOverlay>
+      </DndContext>
       {footerHint(board.phase) && <p style={{ marginTop: 24, color: '#666', fontSize: 13 }}>{footerHint(board.phase)}</p>}
     </main>
   );
