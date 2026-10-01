@@ -68,6 +68,9 @@ export const cardAddToTopicMutation: MutationTypeDef<CardAddToTopicPayload> = {
         createdAt: row.created_at.toISOString(),
         updatedAt: row.updated_at.toISOString(),
         topicId: payload.topicId,
+        // Placeholder (RN-016) — joining a group never touches card_reactions, and the client
+        // preserves this card's existing reactions rather than trusting this field.
+        reactions: [],
         hidden: false,
       },
       dissolvedTopic,

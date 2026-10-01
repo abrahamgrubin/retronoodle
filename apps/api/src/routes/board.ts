@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { BoardResponse, type BoardCard, type Database, type RetroPhase, type VisibleBoardCard } from '@retronoodle/shared';
+import { BoardResponse, type BoardCard, type Database, type ReactionSummary, type RetroPhase, type VisibleBoardCard } from '@retronoodle/shared';
 import { can } from '../auth/can.js';
 import { getTeamRole } from '../auth/membership.js';
 import { redactCard } from '../realtime/redact.js';
@@ -67,6 +67,34 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
       for (const author of authors ?? []) authorNameById.set(author.id, author.display_name);
     }
 
+    // RN-016: card_reactions has no retro_id of its own, so this depends on the card id list
+    // above rather than joining alongside the other tables in the Promise.all. Skipped entirely
+    // for an empty board.
+    const cardIds = cards.map((c) => c.id);
+    const reactionsByCard = new Map<string, Map<string, string[]>>();
+    if (cardIds.length > 0) {
+      const { data: reactionRows, error: reactionsError } = await supabaseAdmin
+        .from('card_reactions')
+        .select('card_id, user_id, emoji')
+        .in('card_id', cardIds);
+      if (reactionsError) {
+        request.log.error({ err: reactionsError }, 'failed to read card reactions');
+        return reply.code(500).send({ error: 'board_read_failed' });
+      }
+      for (const row of reactionRows ?? []) {
+        const byEmoji = reactionsByCard.get(row.card_id) ?? new Map<string, string[]>();
+        byEmoji.set(row.emoji, [...(byEmoji.get(row.emoji) ?? []), row.user_id]);
+        reactionsByCard.set(row.card_id, byEmoji);
+      }
+    }
+    // card_reactions.emoji is a plain `text` column, not the Emoji enum — BoardResponse.parse()
+    // below is what actually validates every value is in the quick-set; this cast just keeps the
+    // object-literal construction honest about the shape it intends to produce.
+    function reactionsFor(cardId: string): ReactionSummary[] {
+      const byEmoji = reactionsByCard.get(cardId);
+      return byEmoji ? ([...byEmoji.entries()].map(([emoji, userIds]) => ({ emoji, userIds })) as ReactionSummary[]) : [];
+    }
+
     const redactCtx = { viewerId: user.id, phase: retro.phase as RetroPhase, cardsRevealed: retro.cards_revealed };
 
     return BoardResponse.parse({
@@ -100,6 +128,7 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
           createdAt: c.created_at,
           updatedAt: c.updated_at,
           topicId: c.topic_id,
+          reactions: reactionsFor(c.id),
           hidden: false,
         };
         return redactCard(full, redactCtx);

@@ -22,6 +22,7 @@ function createEvent(overrides: Partial<Record<string, unknown>> = {}): RetroEve
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
       topicId: null,
+      reactions: [],
       hidden: false,
       ...overrides,
     },
@@ -67,8 +68,32 @@ describe('reduceBoard', () => {
       ...emptyBoard,
       topics: [{ id: topicId, columnId, name: 'A group' }],
       cards: [
-        { id: cardId, columnId, authorId, authorName: 'Ada', body: 'Ship it', position: 'a0', createdAt: '', updatedAt: '', topicId, hidden: false },
-        { id: otherCardId, columnId, authorId, authorName: 'Ada', body: 'Also here', position: 'a1', createdAt: '', updatedAt: '', topicId, hidden: false },
+        {
+          id: cardId,
+          columnId,
+          authorId,
+          authorName: 'Ada',
+          body: 'Ship it',
+          position: 'a0',
+          createdAt: '',
+          updatedAt: '',
+          topicId,
+          reactions: [],
+          hidden: false,
+        },
+        {
+          id: otherCardId,
+          columnId,
+          authorId,
+          authorName: 'Ada',
+          body: 'Also here',
+          position: 'a1',
+          createdAt: '',
+          updatedAt: '',
+          topicId,
+          reactions: [],
+          hidden: false,
+        },
       ],
     };
     const otherColumnId = '00000000-0000-4000-8000-000000000009';
@@ -224,8 +249,32 @@ describe('reduceBoard', () => {
         ...emptyBoard,
         topics: [{ id: topicId, columnId, name: 'Old group' }],
         cards: [
-          { id: cardId, columnId, authorId, authorName: 'Ada', body: 'Ship it', position: 'a0', createdAt: '', updatedAt: '', topicId, hidden: false },
-          { id: otherCardId, columnId, authorId, authorName: 'Ada', body: 'Also here', position: 'a1', createdAt: '', updatedAt: '', topicId, hidden: false },
+          {
+            id: cardId,
+            columnId,
+            authorId,
+            authorName: 'Ada',
+            body: 'Ship it',
+            position: 'a0',
+            createdAt: '',
+            updatedAt: '',
+            topicId,
+            reactions: [],
+            hidden: false,
+          },
+          {
+            id: otherCardId,
+            columnId,
+            authorId,
+            authorName: 'Ada',
+            body: 'Also here',
+            position: 'a1',
+            createdAt: '',
+            updatedAt: '',
+            topicId,
+            reactions: [],
+            hidden: false,
+          },
         ],
       };
       const newTopicId = '00000000-0000-4000-8000-00000000000c';
@@ -260,6 +309,67 @@ describe('reduceBoard', () => {
       const board: BoardState = { ...emptyBoard, topics: [{ id: topicId, columnId, name: 'Old name' }] };
       const renamed = reduceBoard(board, { seq: 1, type: 'topic.rename', payload: { topic: { id: topicId, columnId, name: 'New name' } } });
       expect(renamed.topics).toEqual([{ id: topicId, columnId, name: 'New name' }]);
+    });
+  });
+
+  describe('RN-016: reactions', () => {
+    const viewerId = '00000000-0000-4000-8000-00000000000d';
+    const otherUserId = '00000000-0000-4000-8000-00000000000e';
+
+    it('reaction.toggle with added:true adds a new reaction entry', () => {
+      const board = reduceBoard(emptyBoard, createEvent());
+      const toggled = reduceBoard(board, {
+        seq: 2,
+        type: 'reaction.toggle',
+        payload: { cardId, userId: viewerId, emoji: '👍', added: true },
+      });
+      expect(toggled.cards[0]).toMatchObject({ reactions: [{ emoji: '👍', userIds: [viewerId] }] });
+    });
+
+    it('a second person reacting with the same emoji joins the same entry, not a duplicate one', () => {
+      const board = reduceBoard(emptyBoard, createEvent({ reactions: [{ emoji: '👍', userIds: [otherUserId] }] }));
+      const toggled = reduceBoard(board, {
+        seq: 2,
+        type: 'reaction.toggle',
+        payload: { cardId, userId: viewerId, emoji: '👍', added: true },
+      });
+      expect(toggled.cards[0]).toMatchObject({ reactions: [{ emoji: '👍', userIds: [otherUserId, viewerId] }] });
+    });
+
+    it('added:true is a no-op if the user is already in that reaction (idempotent replay)', () => {
+      const board = reduceBoard(emptyBoard, createEvent({ reactions: [{ emoji: '👍', userIds: [viewerId] }] }));
+      const toggled = reduceBoard(board, {
+        seq: 2,
+        type: 'reaction.toggle',
+        payload: { cardId, userId: viewerId, emoji: '👍', added: true },
+      });
+      expect(toggled.cards[0]).toMatchObject({ reactions: [{ emoji: '👍', userIds: [viewerId] }] });
+    });
+
+    it('added:false removes just that user, leaving the entry if someone else is still in it', () => {
+      const board = reduceBoard(emptyBoard, createEvent({ reactions: [{ emoji: '👍', userIds: [viewerId, otherUserId] }] }));
+      const toggled = reduceBoard(board, {
+        seq: 2,
+        type: 'reaction.toggle',
+        payload: { cardId, userId: viewerId, emoji: '👍', added: false },
+      });
+      expect(toggled.cards[0]).toMatchObject({ reactions: [{ emoji: '👍', userIds: [otherUserId] }] });
+    });
+
+    it('added:false removes the whole entry once its last user is gone', () => {
+      const board = reduceBoard(emptyBoard, createEvent({ reactions: [{ emoji: '👍', userIds: [viewerId] }] }));
+      const toggled = reduceBoard(board, {
+        seq: 2,
+        type: 'reaction.toggle',
+        payload: { cardId, userId: viewerId, emoji: '👍', added: false },
+      });
+      expect(toggled.cards[0]).toMatchObject({ reactions: [] });
+    });
+
+    it("card.edit/card.move/grouping never wipe out a card's existing reactions, even though their own result always reports none", () => {
+      const withReaction = reduceBoard(emptyBoard, createEvent({ reactions: [{ emoji: '🔥', userIds: [viewerId] }] }));
+      const edited = reduceBoard(withReaction, createEvent({ body: 'Edited body', reactions: [] }));
+      expect(edited.cards[0]).toMatchObject({ body: 'Edited body', reactions: [{ emoji: '🔥', userIds: [viewerId] }] });
     });
   });
 });

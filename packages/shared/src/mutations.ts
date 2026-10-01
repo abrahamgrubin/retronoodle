@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { RetroPhase } from './retros.js';
 import { VisibleBoardCard } from './board.js';
 import { Topic } from './topics.js';
+import { Emoji } from './reactions.js';
 
 /** POST /retros/:id/mutations body (RN-008). Every mutation type has its own payload schema
  * below; the envelope itself only knows the type name and a client-generated mutationId used
@@ -130,6 +131,23 @@ export const TopicRenameResult = z.object({
   topic: Topic,
 });
 export type TopicRenameResult = z.infer<typeof TopicRenameResult>;
+
+/** `reaction.toggle` (RN-016): one call flips membership — adds the reaction if the caller
+ * hadn't reacted with this emoji yet, removes it if they had. `added` tells every other client
+ * which way it went; there's no separate add/remove mutation type. */
+export const ReactionTogglePayload = z.object({
+  cardId: z.string().uuid(),
+  emoji: Emoji,
+});
+export type ReactionTogglePayload = z.infer<typeof ReactionTogglePayload>;
+
+export const ReactionToggleResult = z.object({
+  cardId: z.string().uuid(),
+  userId: z.string().uuid(),
+  emoji: Emoji,
+  added: z.boolean(),
+});
+export type ReactionToggleResult = z.infer<typeof ReactionToggleResult>;
 
 /** `phase.next`, `phase.back`, `phase.skip` (RN-010): the target phase is always derived from
  * the retro's current phase server-side (via stateMachine's nextPhase/previousPhase), never

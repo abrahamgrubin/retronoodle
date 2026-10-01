@@ -56,8 +56,12 @@ export const cardEditMutation: MutationTypeDef<CardEditPayload> = {
       position: card.position,
       createdAt: card.created_at.toISOString(),
       updatedAt: updated_at.toISOString(),
-      // Editing a card's body doesn't change its group membership (RN-015).
+      // Editing a card's body doesn't change its group membership (RN-015). reactions is a
+      // placeholder, not a lie about an empty state: the client preserves whatever reactions it
+      // already has for this card rather than trusting this field (boardReducer.ts's upsertCard)
+      // — editing a card never touches card_reactions, so there's nothing real to report here.
       topicId: card.topic_id,
+      reactions: [],
       hidden: false,
     });
   },

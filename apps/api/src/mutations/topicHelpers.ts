@@ -55,6 +55,9 @@ export async function dissolveIfOrphaned(
       createdAt: row.created_at.toISOString(),
       updatedAt: row.updated_at.toISOString(),
       topicId: null,
+      // Placeholder (RN-016) — dissolving never touches card_reactions, and the client preserves
+      // this card's existing reactions rather than trusting this field.
+      reactions: [],
       hidden: false,
     },
   };

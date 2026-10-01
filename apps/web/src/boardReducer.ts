@@ -8,6 +8,8 @@ import type {
   HiddenBoardCard,
   PhaseExtendResult,
   PhaseTransitionResult,
+  ReactionSummary,
+  ReactionToggleResult,
   RetroPhase,
   Topic,
   TopicCreateFromCardsResult,
@@ -40,7 +42,28 @@ function upsertCard(board: BoardState, card: BoardCard): BoardState {
   // the author's own card (RN-011); the author's local copy (optimistic, or already patched in
   // via the private user:{id} channel) is always more authoritative for the same id.
   if (card.hidden && existing && !existing.hidden) return board;
-  return { ...board, cards: existing ? board.cards.map((c) => (c.id === card.id ? card : c)) : [...board.cards, card] };
+  // RN-016: card.create/edit/move/grouping results never carry real reaction data — a separate
+  // table none of those mutations touch (see e.g. cardEdit.ts's own comment) — so trusting
+  // whatever they report here would wipe out real reactions on every edit/move/group. Preserve
+  // this client's existing reactions for the card instead; a brand-new card (no `existing`)
+  // legitimately has none yet.
+  const next: BoardCard = !card.hidden && existing && !existing.hidden ? { ...card, reactions: existing.reactions } : card;
+  return { ...board, cards: existing ? board.cards.map((c) => (c.id === card.id ? next : c)) : [...board.cards, next] };
+}
+
+/** Applies one reaction.toggle result (RN-016) to a card's reaction list — exported so
+ * BoardPage.tsx's optimistic toggle can reuse the exact same add/remove logic instead of
+ * re-deriving it, just with a locally-guessed `added` rather than the server's confirmed one. */
+export function toggleReaction(reactions: ReactionSummary[], { emoji, userId, added }: ReactionToggleResult): ReactionSummary[] {
+  const idx = reactions.findIndex((r) => r.emoji === emoji);
+  if (added) {
+    if (idx === -1) return [...reactions, { emoji, userIds: [userId] }];
+    if (reactions[idx]!.userIds.includes(userId)) return reactions; // already applied (idempotent replay)
+    return reactions.map((r, i) => (i === idx ? { ...r, userIds: [...r.userIds, userId] } : r));
+  }
+  if (idx === -1) return reactions;
+  const userIds = reactions[idx]!.userIds.filter((id) => id !== userId);
+  return userIds.length > 0 ? reactions.map((r, i) => (i === idx ? { ...r, userIds } : r)) : reactions.filter((_, i) => i !== idx);
 }
 
 /** card.create and card.edit (RN-009, RN-011) broadcast the same VisibleBoardCard- or
@@ -116,6 +139,15 @@ export function reduceBoard(board: BoardState, event: RetroEvent): BoardState {
     case 'topic.rename': {
       const result = event.payload as TopicRenameResult;
       return upsertTopic(board, result.topic);
+    }
+    // reaction.toggle (RN-016): never redacted — reacting is impossible on a hidden card in the
+    // first place, so there's no non-author/hidden variant to fold here, unlike card.create/edit.
+    case 'reaction.toggle': {
+      const result = event.payload as ReactionToggleResult;
+      return {
+        ...board,
+        cards: board.cards.map((c) => (c.id === result.cardId && !c.hidden ? { ...c, reactions: toggleReaction(c.reactions, result) } : c)),
+      };
     }
     // phase.next and phase.skip resolve to the same target phase server-side (RN-010) — both
     // broadcast the same result shape, so both fold into board state the same way here too.
