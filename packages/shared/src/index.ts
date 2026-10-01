@@ -10,3 +10,4 @@ export * from './board.js';
 export * from './stateMachine.js';
 export * from './topics.js';
 export * from './reactions.js';
+export * from './ai.js';

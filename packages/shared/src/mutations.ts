@@ -185,3 +185,26 @@ export const PhaseExtendResult = z.object({
   phaseDeadline: z.string(),
 });
 export type PhaseExtendResult = z.infer<typeof PhaseExtendResult>;
+
+/** `suggestion.accept` (RN-017): the facilitator accepting an AI-suggested group — the resulting
+ * effect is identical to `topic.createFromCards` (same shape returned, same board-state fold),
+ * just sourced from a stored suggestion's name/cardIds instead of the caller's own payload. */
+export const SuggestionAcceptPayload = z.object({
+  suggestionId: z.string().uuid(),
+});
+export type SuggestionAcceptPayload = z.infer<typeof SuggestionAcceptPayload>;
+
+export const SuggestionAcceptResult = TopicCreateFromCardsResult;
+export type SuggestionAcceptResult = TopicCreateFromCardsResult;
+
+/** `suggestion.reject` (RN-017): facilitator only, discards one suggestion. Nothing board-wide
+ * changes, so other participants' boards have nothing to fold from this — see boardReducer.ts. */
+export const SuggestionRejectPayload = z.object({
+  suggestionId: z.string().uuid(),
+});
+export type SuggestionRejectPayload = z.infer<typeof SuggestionRejectPayload>;
+
+export const SuggestionRejectResult = z.object({
+  suggestionId: z.string().uuid(),
+});
+export type SuggestionRejectResult = z.infer<typeof SuggestionRejectResult>;

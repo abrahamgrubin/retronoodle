@@ -13,11 +13,21 @@ export interface LockedRetro {
   phase_deadline: string | null;
 }
 
+/** RN-017: the one thing a mutation's `apply()` can do outside its own DB transaction — enqueue
+ * a pg-boss job (so far, only onTransition.ts's write->group effect, for `ai.groupCards`).
+ * Undefined when the process has no database to queue against (same optionality as the worker's
+ * own `databaseUrl`-missing skip in main.ts) — AI grouping is best-effort, never required for a
+ * phase transition to succeed. */
+export interface JobSender {
+  send(queueName: string, data: object): Promise<string | null>;
+}
+
 export interface MutationContext<TPayload> {
   client: PoolClient;
   retro: LockedRetro;
   user: AuthUser;
   payload: TPayload;
+  jobs?: JobSender;
 }
 
 export interface MutationTypeDef<TPayload = unknown> {

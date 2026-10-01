@@ -29,6 +29,7 @@ import {
   type BoardColumn,
   type BoardResponse,
   type Emoji,
+  type GroupSuggestion,
   type ReactionSummary,
   type RetroPhase,
   type Topic,
@@ -128,6 +129,7 @@ function CardView({
   dragHandleProps,
   menu,
   reactionProps,
+  highlighted,
 }: {
   card: VisibleBoardCard;
   canEdit: boolean;
@@ -142,6 +144,8 @@ function CardView({
   // the Edit/Delete buttons below.
   menu?: ReactNode;
   reactionProps: ReactionBarProps;
+  // RN-017 layout spec: "Hover: hovering a suggestion outlines its cards on the board."
+  highlighted?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(card.body);
@@ -189,7 +193,17 @@ function CardView({
   }
 
   return (
-    <div style={{ border: '1px solid #ccc', borderRadius: 6, padding: 8, marginBottom: 8 }} {...dragHandleProps}>
+    <div
+      style={{
+        border: '1px solid #ccc',
+        borderRadius: 6,
+        padding: 8,
+        marginBottom: 8,
+        outline: highlighted ? '2px solid #f59e0b' : undefined,
+        outlineOffset: highlighted ? -1 : undefined,
+      }}
+      {...dragHandleProps}
+    >
       <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{card.body}</p>
       <p style={{ margin: '4px 0 0', fontSize: 12, color: '#666' }}>{card.authorName}</p>
       <ReactionBar {...reactionProps} />
@@ -391,6 +405,7 @@ function SortableCardView({
   onDelete,
   menu,
   reactionProps,
+  highlighted,
 }: {
   card: VisibleBoardCard;
   canDrag: boolean;
@@ -399,6 +414,7 @@ function SortableCardView({
   onDelete: () => void;
   menu?: ReactNode;
   reactionProps: ReactionBarProps;
+  highlighted?: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
@@ -411,6 +427,7 @@ function SortableCardView({
         canEdit={canEdit}
         onEdit={onEdit}
         onDelete={onDelete}
+        highlighted={highlighted}
         dragHandleProps={canDrag ? { ...attributes, ...listeners } : undefined}
         menu={menu}
         reactionProps={reactionProps}
@@ -436,6 +453,7 @@ function TopicGroupView({
   onDeleteCard,
   menuFor,
   reactionPropsFor,
+  isHighlighted,
 }: {
   topic: Topic;
   cards: BoardCard[];
@@ -448,6 +466,7 @@ function TopicGroupView({
   onDeleteCard: (cardId: string) => void;
   menuFor: (card: VisibleBoardCard) => ReactNode;
   reactionPropsFor: (card: VisibleBoardCard) => ReactionBarProps;
+  isHighlighted: (card: BoardCard) => boolean;
 }) {
   const [editingName, setEditingName] = useState(false);
   const [draftName, setDraftName] = useState(topic.name);
@@ -523,6 +542,7 @@ function TopicGroupView({
             onDelete={() => onDeleteCard(card.id)}
             menu={menuFor(card)}
             reactionProps={reactionPropsFor(card)}
+            highlighted={isHighlighted(card)}
           />
         ),
       )}
@@ -587,6 +607,119 @@ function DroppableColumn({ column, children }: { column: BoardColumn; children: 
     >
       {children}
     </section>
+  );
+}
+
+/** The 320px right-edge panel (RN-017 layout spec), facilitator only. Suggestions whose cards got
+ * grouped by hand elsewhere (`isStale`) are filtered out by the caller before this ever sees
+ * them — rendered rows are always still-actionable. */
+function SuggestionRow({
+  suggestion,
+  columnTitle,
+  justAccepted,
+  onAccept,
+  onReject,
+  onHover,
+}: {
+  suggestion: GroupSuggestion;
+  columnTitle: string;
+  justAccepted: boolean;
+  onAccept: () => void;
+  onReject: () => void;
+  onHover: (hovering: boolean) => void;
+}) {
+  if (justAccepted) {
+    return (
+      <div style={{ border: '1px solid #ccc', borderRadius: 6, padding: 8, marginBottom: 8, color: '#666', fontSize: 13 }}>Grouped</div>
+    );
+  }
+  return (
+    <div
+      style={{ border: '1px solid #ccc', borderRadius: 6, padding: 8, marginBottom: 8 }}
+      onMouseEnter={() => onHover(true)}
+      onMouseLeave={() => onHover(false)}
+    >
+      <p style={{ margin: '0 0 2px', fontWeight: 'bold', fontSize: 13 }}>{suggestion.name}</p>
+      <p style={{ margin: '0 0 6px', fontSize: 11, color: '#666' }}>{columnTitle}</p>
+      {suggestion.cardIds.map((cardId) => (
+        <p key={cardId} style={{ margin: '0 0 2px', fontSize: 12, color: '#444' }}>
+          • card {cardId.slice(0, 8)}
+        </p>
+      ))}
+      <div style={{ marginTop: 6, display: 'flex', gap: 4 }}>
+        <button type="button" onClick={onAccept}>
+          Accept
+        </button>
+        <button type="button" onClick={onReject} style={{ border: 'none', background: 'none', color: '#666', cursor: 'pointer' }}>
+          Reject
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SuggestionsPanel({
+  suggestions,
+  loading,
+  open,
+  onToggleOpen,
+  justAcceptedIds,
+  columnTitleById,
+  onHover,
+  onAccept,
+  onReject,
+  onAcceptAll,
+}: {
+  suggestions: GroupSuggestion[];
+  loading: boolean;
+  open: boolean;
+  onToggleOpen: () => void;
+  justAcceptedIds: Set<string>;
+  columnTitleById: Map<string, string>;
+  onHover: (suggestionId: string | null) => void;
+  onAccept: (suggestion: GroupSuggestion) => void;
+  onReject: (suggestionId: string) => void;
+  onAcceptAll: () => void;
+}) {
+  return (
+    <div style={{ width: 320, flexShrink: 0 }}>
+      <button type="button" onClick={onToggleOpen}>
+        Suggestions ({suggestions.length})
+      </button>
+      {open && (
+        <div style={{ marginTop: 8, border: '1px solid #ddd', borderRadius: 8, padding: 8 }}>
+          {loading && (
+            <>
+              <p style={{ fontSize: 13, color: '#666', margin: '0 0 8px' }}>Finding similar cards…</p>
+              {[0, 1, 2].map((i) => (
+                <div key={i} style={{ height: 48, background: '#f0f0f0', borderRadius: 6, marginBottom: 8 }} />
+              ))}
+            </>
+          )}
+          {!loading && suggestions.length === 0 && (
+            <p style={{ fontSize: 13, color: '#666', margin: 0 }}>No suggestions. Group cards by dragging.</p>
+          )}
+          {!loading && suggestions.length > 0 && (
+            <>
+              <button type="button" onClick={onAcceptAll} style={{ marginBottom: 8 }}>
+                Accept all
+              </button>
+              {suggestions.map((s) => (
+                <SuggestionRow
+                  key={s.id}
+                  suggestion={s}
+                  columnTitle={columnTitleById.get(s.columnId) ?? ''}
+                  justAccepted={justAcceptedIds.has(s.id)}
+                  onAccept={() => onAccept(s)}
+                  onReject={() => onReject(s.id)}
+                  onHover={(hovering) => onHover(hovering ? s.id : null)}
+                />
+              ))}
+            </>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -741,6 +874,62 @@ function Board({
     if (scope === 'never') return false;
     if (scope === 'after_reveal') return board.cardsRevealed;
     return true;
+  }
+
+  // RN-017: AI grouping suggestions — facilitator-only panel state. `suggestions` starts from
+  // the initial snapshot (a reload mid-Group picks up whatever was already pending) and is
+  // otherwise only ever added to by the worker's one-shot `group.suggestions` broadcast (see the
+  // user:{id} channel listener below) — never re-fetched.
+  const [suggestions, setSuggestions] = useState<GroupSuggestion[]>(initialBoard.suggestions ?? []);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [suggestionsPanelOpen, setSuggestionsPanelOpen] = useState(false);
+  const [hoveredSuggestionId, setHoveredSuggestionId] = useState<string | null>(null);
+  // "accepted (collapses to 'Grouped' for 2s, then disappears)" — tracked separately from
+  // actually removing the suggestion so the collapsed state has something to render first.
+  const [justAcceptedIds, setJustAcceptedIds] = useState<Set<string>>(new Set());
+
+  // "stale (a suggestion whose cards were already grouped by hand disappears)" — derived at
+  // render time rather than pruned from state, since the underlying cause (some other card.move/
+  // topic.createFromCards/card.addToTopic broadcast) can arrive from anywhere, not just this
+  // panel's own actions.
+  const visibleSuggestions = suggestions.filter(
+    (s) => !justAcceptedIds.has(s.id) && !s.cardIds.some((id) => board.cards.find((c) => c.id === id)?.topicId),
+  );
+  const columnTitleById = new Map(board.columns.map((c) => [c.id, c.title]));
+  const highlightedCardIds = new Set(hoveredSuggestionId ? (suggestions.find((s) => s.id === hoveredSuggestionId)?.cardIds ?? []) : []);
+
+  function acceptSuggestion(suggestion: GroupSuggestion) {
+    const mutationId = uuidv7();
+    setJustAcceptedIds((prev) => new Set(prev).add(suggestion.id));
+    setTimeout(() => {
+      setSuggestions((prev) => prev.filter((s) => s.id !== suggestion.id));
+      setJustAcceptedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(suggestion.id);
+        return next;
+      });
+    }, 2000);
+    void sendMutation({
+      mutationId,
+      // No optimistic shortcut — the real suggestion.accept broadcast (shaped exactly like
+      // topic.createFromCards) is what actually carries the new topic and its cards.
+      optimisticReduce: (b) => b,
+      send: () => postMutation(accessToken, retroId, { mutationId, type: 'suggestion.accept', payload: { suggestionId: suggestion.id } }),
+    });
+  }
+
+  function rejectSuggestion(suggestionId: string) {
+    const mutationId = uuidv7();
+    setSuggestions((prev) => prev.filter((s) => s.id !== suggestionId));
+    void sendMutation({
+      mutationId,
+      optimisticReduce: (b) => b,
+      send: () => postMutation(accessToken, retroId, { mutationId, type: 'suggestion.reject', payload: { suggestionId } }),
+    });
+  }
+
+  function acceptAllSuggestions() {
+    for (const s of visibleSuggestions) acceptSuggestion(s);
   }
 
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -993,6 +1182,15 @@ function Board({
     // it as a stale replay (see retroStore.ts's applyLocalPatch comment).
     const userChannel = client.channel(`user:${userId}`, { config: { private: true } });
     userChannel.on('broadcast', { event: '*' }, (message) => {
+      // RN-017: the worker's one-shot ai.groupCards result — not a retro_events mutation at all
+      // (no seq, nothing for reduceBoard to fold), so it's handled entirely separately from the
+      // card-echo path below.
+      if (message.event === 'group.suggestions') {
+        const { suggestions: incoming } = message.payload as { suggestions: GroupSuggestion[] };
+        setSuggestions((prev) => [...prev, ...incoming]);
+        setSuggestionsLoading(false);
+        return;
+      }
       const { result } = message.payload as { seq: number; result: unknown };
       applyLocalPatch((b) => reduceBoard(b, { seq: -1, type: message.event, payload: result }));
     });
@@ -1012,8 +1210,22 @@ function Board({
   const previousPhaseRef = useRef(board.phase);
   useEffect(() => {
     if (previousPhaseRef.current === 'write' && board.phase !== 'write') resyncRef.current(false);
+    // RN-017: "Within 5s of entering Group, the facilitator sees suggested groups" — a live
+    // transition (not a reload that happens to land already in Group — see this state's own
+    // declaration comment) starts the "Finding similar cards…" window. The fallback timeout
+    // below is what ends it if ai.groupCards never responds at all (no API key, or the call
+    // failing) — "failure shows nothing," the same empty message as zero suggestions.
+    if (previousPhaseRef.current === 'write' && board.phase === 'group' && isFacilitator) {
+      setSuggestionsLoading(true);
+    }
     previousPhaseRef.current = board.phase;
-  }, [board.phase]);
+  }, [board.phase, isFacilitator]);
+
+  useEffect(() => {
+    if (!suggestionsLoading) return;
+    const timeout = setTimeout(() => setSuggestionsLoading(false), 6000);
+    return () => clearTimeout(timeout);
+  }, [suggestionsLoading]);
 
   function addCard(columnId: string, body: string) {
     const cardId = uuidv7();
@@ -1174,103 +1386,121 @@ function Board({
           </button>
         </p>
       )}
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-          {board.columns
-            .slice()
-            .sort((a, b) => a.position - b.position)
-            .map((column) => {
-              const cards = board.cards
-                .filter((c) => c.columnId === column.id)
-                .sort((a, b) => a.position.localeCompare(b.position));
-              const canEdit = canEditColumn(column.kind);
-              const rows = buildColumnRows(cards, board.topics);
-              // Kept in sync with rendered (grouped) order, not raw position order, so dnd-kit's
-              // own notion of item order matches the DOM it's actually measuring.
-              const sortableIds = rows.flatMap((row) =>
-                row.kind === 'card' ? (row.card.hidden ? [] : [row.card.id]) : row.cards.filter((c) => !c.hidden).map((c) => c.id),
-              );
-              function menuForCard(card: VisibleBoardCard): ReactNode {
-                if (!canGroup) return undefined;
-                return (
-                  <CardMenu
-                    card={card}
-                    otherCards={cards.filter((c): c is VisibleBoardCard => !c.hidden && c.id !== card.id)}
-                    onGroupWith={(targetId) => {
-                      const target = cards.find((c) => c.id === targetId);
-                      if (target) groupCardWith(card, target);
-                    }}
-                  />
+      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+          <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flex: 1, minWidth: 0 }}>
+            {board.columns
+              .slice()
+              .sort((a, b) => a.position - b.position)
+              .map((column) => {
+                const cards = board.cards
+                  .filter((c) => c.columnId === column.id)
+                  .sort((a, b) => a.position.localeCompare(b.position));
+                const canEdit = canEditColumn(column.kind);
+                const rows = buildColumnRows(cards, board.topics);
+                // Kept in sync with rendered (grouped) order, not raw position order, so
+                // dnd-kit's own notion of item order matches the DOM it's actually measuring.
+                const sortableIds = rows.flatMap((row) =>
+                  row.kind === 'card' ? (row.card.hidden ? [] : [row.card.id]) : row.cards.filter((c) => !c.hidden).map((c) => c.id),
                 );
-              }
-              function reactionPropsFor(card: VisibleBoardCard): ReactionBarProps {
-                return {
-                  reactions: card.reactions,
-                  viewerId: userId,
-                  canReact: canReactToCard(),
-                  onToggleReaction: (emoji) => toggleCardReaction(card.id, emoji),
-                };
-              }
-              return (
-                <DroppableColumn key={column.id} column={column}>
-                  <h2 style={{ fontSize: 16, margin: '0 0 4px' }}>
-                    {column.title} <span style={{ fontWeight: 'normal', color: '#666' }}>({cards.length})</span>
-                  </h2>
-                  {column.prompt && <p style={{ fontSize: 12, color: '#666', margin: '0 0 8px' }}>{column.prompt}</p>}
-                  <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
-                    {rows.map((row) =>
-                      row.kind === 'card' ? (
-                        row.card.hidden ? (
-                          <HiddenCardPlaceholder key={row.card.id} columnColor={column.color} />
+                function menuForCard(card: VisibleBoardCard): ReactNode {
+                  if (!canGroup) return undefined;
+                  return (
+                    <CardMenu
+                      card={card}
+                      otherCards={cards.filter((c): c is VisibleBoardCard => !c.hidden && c.id !== card.id)}
+                      onGroupWith={(targetId) => {
+                        const target = cards.find((c) => c.id === targetId);
+                        if (target) groupCardWith(card, target);
+                      }}
+                    />
+                  );
+                }
+                function reactionPropsFor(card: VisibleBoardCard): ReactionBarProps {
+                  return {
+                    reactions: card.reactions,
+                    viewerId: userId,
+                    canReact: canReactToCard(),
+                    onToggleReaction: (emoji) => toggleCardReaction(card.id, emoji),
+                  };
+                }
+                return (
+                  <DroppableColumn key={column.id} column={column}>
+                    <h2 style={{ fontSize: 16, margin: '0 0 4px' }}>
+                      {column.title} <span style={{ fontWeight: 'normal', color: '#666' }}>({cards.length})</span>
+                    </h2>
+                    {column.prompt && <p style={{ fontSize: 12, color: '#666', margin: '0 0 8px' }}>{column.prompt}</p>}
+                    <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
+                      {rows.map((row) =>
+                        row.kind === 'card' ? (
+                          row.card.hidden ? (
+                            <HiddenCardPlaceholder key={row.card.id} columnColor={column.color} />
+                          ) : (
+                            <SortableCardView
+                              key={row.card.id}
+                              card={row.card}
+                              canDrag={canDragCard(row.card, column.kind)}
+                              canEdit={canEdit && row.card.authorId === userId}
+                              onEdit={(body) => editCard(row.card.id, body)}
+                              onDelete={() => deleteCard(row.card.id)}
+                              menu={menuForCard(row.card)}
+                              reactionProps={reactionPropsFor(row.card)}
+                              highlighted={highlightedCardIds.has(row.card.id)}
+                            />
+                          )
                         ) : (
-                          <SortableCardView
-                            key={row.card.id}
-                            card={row.card}
-                            canDrag={canDragCard(row.card, column.kind)}
-                            canEdit={canEdit && row.card.authorId === userId}
-                            onEdit={(body) => editCard(row.card.id, body)}
-                            onDelete={() => deleteCard(row.card.id)}
-                            menu={menuForCard(row.card)}
-                            reactionProps={reactionPropsFor(row.card)}
+                          <TopicGroupView
+                            key={row.topic.id}
+                            topic={row.topic}
+                            cards={row.cards}
+                            columnColor={column.color}
+                            canRename={canGroup}
+                            canDragCard={(c) => canDragCard(c, column.kind)}
+                            canEditCard={(c) => canEdit && c.authorId === userId}
+                            onRename={(name) => renameTopic(row.topic.id, name)}
+                            onEditCard={(id, body) => editCard(id, body)}
+                            onDeleteCard={(id) => deleteCard(id)}
+                            menuFor={menuForCard}
+                            reactionPropsFor={reactionPropsFor}
+                            isHighlighted={(c) => highlightedCardIds.has(c.id)}
                           />
-                        )
-                      ) : (
-                        <TopicGroupView
-                          key={row.topic.id}
-                          topic={row.topic}
-                          cards={row.cards}
-                          columnColor={column.color}
-                          canRename={canGroup}
-                          canDragCard={(c) => canDragCard(c, column.kind)}
-                          canEditCard={(c) => canEdit && c.authorId === userId}
-                          onRename={(name) => renameTopic(row.topic.id, name)}
-                          onEditCard={(id, body) => editCard(id, body)}
-                          onDeleteCard={(id) => deleteCard(id)}
-                          menuFor={menuForCard}
-                          reactionPropsFor={reactionPropsFor}
-                        />
-                      ),
-                    )}
-                  </SortableContext>
-                  {canEdit && <AddCardForm onAdd={(body) => addCard(column.id, body)} />}
-                </DroppableColumn>
-              );
-            })}
-        </div>
-        <DragOverlay>
-          {activeCard && (
-            <div style={{ transform: 'rotate(2deg)', boxShadow: '0 4px 12px rgba(0,0,0,0.2)' }}>
-              <CardView
-                card={activeCard}
-                canEdit={false}
-                onEdit={() => {}}
-                onDelete={() => {}}
-                reactionProps={{ reactions: activeCard.reactions, viewerId: userId, canReact: false, onToggleReaction: () => {} }}
-              />
-            </div>
-          )}
-        </DragOverlay>
-      </DndContext>
+                        ),
+                      )}
+                    </SortableContext>
+                    {canEdit && <AddCardForm onAdd={(body) => addCard(column.id, body)} />}
+                  </DroppableColumn>
+                );
+              })}
+          </div>
+          <DragOverlay>
+            {activeCard && (
+              <div style={{ transform: 'rotate(2deg)', boxShadow: '0 4px 12px rgba(0,0,0,0.2)' }}>
+                <CardView
+                  card={activeCard}
+                  canEdit={false}
+                  onEdit={() => {}}
+                  onDelete={() => {}}
+                  reactionProps={{ reactions: activeCard.reactions, viewerId: userId, canReact: false, onToggleReaction: () => {} }}
+                />
+              </div>
+            )}
+          </DragOverlay>
+        </DndContext>
+        {isFacilitator && board.phase === 'group' && (
+          <SuggestionsPanel
+            suggestions={visibleSuggestions}
+            loading={suggestionsLoading}
+            open={suggestionsPanelOpen}
+            onToggleOpen={() => setSuggestionsPanelOpen((v) => !v)}
+            justAcceptedIds={justAcceptedIds}
+            columnTitleById={columnTitleById}
+            onHover={setHoveredSuggestionId}
+            onAccept={acceptSuggestion}
+            onReject={rejectSuggestion}
+            onAcceptAll={acceptAllSuggestions}
+          />
+        )}
+      </div>
       {footerHint(board.phase) && <p style={{ marginTop: 24, color: '#666', fontSize: 13 }}>{footerHint(board.phase)}</p>}
     </main>
   );

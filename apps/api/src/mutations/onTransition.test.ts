@@ -30,10 +30,11 @@ describe('runTransitionEffect', () => {
       }); // select ... where topic_id is null
       query.mockResolvedValueOnce({ rows: [] }); // card-1's insert+update CTE
       query.mockResolvedValueOnce({ rows: [] }); // card-2's insert+update CTE
+      query.mockResolvedValueOnce({ rows: [] }); // RN-017: discard pending suggestions
 
       await runTransitionEffect({ query } as unknown as PoolClient, retro, 'group', 'vote');
 
-      expect(query).toHaveBeenCalledTimes(3);
+      expect(query).toHaveBeenCalledTimes(4);
       const lookupCall = query.mock.calls[0] as unknown[];
       expect(lookupCall[0]).toContain('topic_id is null');
       expect(lookupCall[1]).toEqual([retro.id]);
@@ -48,6 +49,7 @@ describe('runTransitionEffect', () => {
       const longBody = 'x'.repeat(80);
       query.mockResolvedValueOnce({ rows: [{ id: 'card-1', column_id: 'col-1', body: longBody }] });
       query.mockResolvedValueOnce({ rows: [] });
+      query.mockResolvedValueOnce({ rows: [] }); // RN-017: discard pending suggestions
 
       await runTransitionEffect({ query } as unknown as PoolClient, retro, 'group', 'vote');
 
@@ -57,10 +59,45 @@ describe('runTransitionEffect', () => {
       expect(name.endsWith('…')).toBe(true);
     });
 
-    it('does nothing when every card is already grouped', async () => {
-      const query = vi.fn().mockResolvedValueOnce({ rows: [] });
+    it('does nothing to cards when every card is already grouped, but still discards pending suggestions', async () => {
+      const query = vi.fn();
+      query.mockResolvedValueOnce({ rows: [] }); // no ungrouped cards
+      query.mockResolvedValueOnce({ rows: [] }); // discard pending suggestions
       await runTransitionEffect({ query } as unknown as PoolClient, retro, 'group', 'vote');
-      expect(query).toHaveBeenCalledTimes(1);
+      expect(query).toHaveBeenCalledTimes(2);
+    });
+
+    // RN-017: "Discard pending suggestions on group -> vote."
+    it('marks every still-pending suggestion rejected', async () => {
+      const query = vi.fn();
+      query.mockResolvedValueOnce({ rows: [] }); // no ungrouped cards
+      query.mockResolvedValueOnce({ rows: [] }); // discard pending suggestions
+      await runTransitionEffect({ query } as unknown as PoolClient, retro, 'group', 'vote');
+
+      const discardCall = query.mock.calls[1] as unknown[];
+      expect(discardCall[0]).toContain("status = 'rejected'");
+      expect(discardCall[0]).toContain("status = 'pending'");
+      expect(discardCall[1]).toEqual([retro.id]);
+    });
+  });
+
+  describe('write->group (RN-017: enqueue ai.groupCards)', () => {
+    it('enqueues ai.groupCards when a job sender is provided', async () => {
+      const query = vi.fn().mockResolvedValueOnce({ rows: [] }); // cards_revealed update
+      const jobs = { send: vi.fn().mockResolvedValue('job-id') };
+      await runTransitionEffect({ query } as unknown as PoolClient, retro, 'write', 'group', jobs);
+      expect(jobs.send).toHaveBeenCalledWith('ai.groupCards', { retroId: retro.id });
+    });
+
+    it('does nothing extra, and does not throw, when there is no job sender', async () => {
+      const query = vi.fn().mockResolvedValueOnce({ rows: [] });
+      await expect(runTransitionEffect({ query } as unknown as PoolClient, retro, 'write', 'group')).resolves.toBeUndefined();
+    });
+
+    it('swallows a job-send failure — AI grouping is best-effort, never blocks the transition', async () => {
+      const query = vi.fn().mockResolvedValueOnce({ rows: [] });
+      const jobs = { send: vi.fn().mockRejectedValue(new Error('queue unavailable')) };
+      await expect(runTransitionEffect({ query } as unknown as PoolClient, retro, 'write', 'group', jobs)).resolves.toBeUndefined();
     });
   });
 

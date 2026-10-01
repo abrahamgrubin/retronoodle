@@ -73,6 +73,13 @@ describe('can — role x action matrix (Design 3.4, reconstructed for RN-005)', 
     ['retro.revealCards', retroAsMember, false],
     ['retro.revealCards', retroNonMember, false],
 
+    // retro.respondToSuggestion (RN-017): facilitator only — suggestions are only ever sent to
+    // the facilitator in the first place.
+    ['retro.respondToSuggestion', retroAsFacilitator, true],
+    ['retro.respondToSuggestion', retroAsAdmin, false],
+    ['retro.respondToSuggestion', retroAsMember, false],
+    ['retro.respondToSuggestion', retroNonMember, false],
+
     // card.edit / card.delete / card.move: ownership, not a role — only the author, ever.
     ['card.edit', ownCard, true],
     ['card.edit', othersCard, false],

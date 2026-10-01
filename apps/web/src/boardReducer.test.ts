@@ -372,4 +372,31 @@ describe('reduceBoard', () => {
       expect(edited.cards[0]).toMatchObject({ body: 'Edited body', reactions: [{ emoji: '🔥', userIds: [viewerId] }] });
     });
   });
+
+  describe('RN-017: AI grouping suggestions', () => {
+    it('suggestion.accept folds exactly like topic.createFromCards (same result shape)', () => {
+      const otherCardId = '00000000-0000-4000-8000-00000000000f';
+      const topicId = '00000000-0000-4000-8000-000000000010';
+      const board = reduceBoard(reduceBoard(emptyBoard, createEvent()), createEvent({ id: otherCardId, position: 'a1' }));
+      const grouped = reduceBoard(board, {
+        seq: 3,
+        type: 'suggestion.accept',
+        payload: {
+          topic: { id: topicId, columnId, name: 'From AI' },
+          cards: [
+            { ...(createEvent().payload as Record<string, unknown>), topicId },
+            { ...(createEvent({ id: otherCardId, position: 'a1' }).payload as Record<string, unknown>), topicId },
+          ],
+        },
+      });
+      expect(grouped.topics).toEqual([{ id: topicId, columnId, name: 'From AI' }]);
+      expect(grouped.cards.map((c) => (c as { topicId: string | null }).topicId)).toEqual([topicId, topicId]);
+    });
+
+    it('suggestion.reject is a no-op on board state (nothing board-wide ever changed)', () => {
+      const board = reduceBoard(emptyBoard, createEvent());
+      const rejected = reduceBoard(board, { seq: 2, type: 'suggestion.reject', payload: { suggestionId: 'whatever' } });
+      expect(rejected).toBe(board);
+    });
+  });
 });

@@ -1,6 +1,14 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { BoardResponse, type BoardCard, type Database, type ReactionSummary, type RetroPhase, type VisibleBoardCard } from '@retronoodle/shared';
+import {
+  BoardResponse,
+  type BoardCard,
+  type Database,
+  type GroupSuggestion,
+  type ReactionSummary,
+  type RetroPhase,
+  type VisibleBoardCard,
+} from '@retronoodle/shared';
 import { can } from '../auth/can.js';
 import { getTeamRole } from '../auth/membership.js';
 import { redactCard } from '../realtime/redact.js';
@@ -95,6 +103,31 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
       return byEmoji ? ([...byEmoji.entries()].map(([emoji, userIds]) => ({ emoji, userIds })) as ReactionSummary[]) : [];
     }
 
+    // RN-017: "Participants who aren't the facilitator never receive suggestions" — true for the
+    // initial snapshot here, not just the realtime broadcast (worker side, user:{id} only).
+    // columnId isn't stored on group_suggestions itself (every member card already has one, and
+    // the mutation that created the row already guaranteed they all agree) — derived here from
+    // the cards already fetched above rather than a second join.
+    let suggestions: GroupSuggestion[] | null = null;
+    if (user.id === retro.facilitator_id) {
+      const { data: pending, error: suggestionsError } = await supabaseAdmin
+        .from('group_suggestions')
+        .select('id, name, card_ids')
+        .eq('retro_id', retroId)
+        .eq('status', 'pending');
+      if (suggestionsError) {
+        request.log.error({ err: suggestionsError }, 'failed to read group suggestions');
+        return reply.code(500).send({ error: 'board_read_failed' });
+      }
+      const cardColumnById = new Map(cards.map((c) => [c.id, c.column_id]));
+      suggestions = (pending ?? [])
+        .map((s): GroupSuggestion | null => {
+          const columnId = cardColumnById.get(s.card_ids[0] ?? '');
+          return columnId ? { id: s.id, name: s.name, columnId, cardIds: s.card_ids } : null;
+        })
+        .filter((s): s is GroupSuggestion => s !== null);
+    }
+
     const redactCtx = { viewerId: user.id, phase: retro.phase as RetroPhase, cardsRevealed: retro.cards_revealed };
 
     return BoardResponse.parse({
@@ -134,6 +167,7 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
         return redactCard(full, redactCtx);
       }),
       topics: (topicsResult.data ?? []).map((t) => ({ id: t.id, columnId: t.column_id, name: t.name })),
+      suggestions,
       seq: lastEventResult.data?.seq ?? 0,
       // RN-012: this specific response is what a late joiner's clock-offset calculation anchors
       // to, so it's set explicitly here rather than relying solely on the global serverTime hook

@@ -16,7 +16,7 @@ import { setPhase } from './phaseDeadline.js';
  */
 export const phaseNextMutation: MutationTypeDef<PhaseTransitionPayload> = {
   schema: PhaseTransitionPayload,
-  async apply({ client, retro, user }) {
+  async apply({ client, retro, user, jobs }) {
     if (!can(user, 'retro.transitionPhase', { type: 'retro', teamRole: null, facilitatorId: retro.facilitator_id })) {
       throw new MutationRejected(403, 'forbidden', 'Only the facilitator may change the phase');
     }
@@ -25,7 +25,7 @@ export const phaseNextMutation: MutationTypeDef<PhaseTransitionPayload> = {
     const to = nextPhase(from);
     if (!to) throw new MutationRejected(409, 'phase_not_allowed', `Cannot advance from ${from}`);
 
-    await runTransitionEffect(client, retro, from, to);
+    await runTransitionEffect(client, retro, from, to, jobs);
     const phaseDeadline = await setPhase(client, retro.id, to);
 
     return PhaseTransitionResult.parse({ phase: to, phaseDeadline });
