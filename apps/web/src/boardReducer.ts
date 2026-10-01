@@ -35,6 +35,17 @@ function upsertCard(board: BoardState, card: BoardCard): BoardState {
   return { ...board, cards: existing ? board.cards.map((c) => (c.id === card.id ? card : c)) : [...board.cards, card] };
 }
 
+/** card.create, card.edit and card.move (RN-009/RN-014) all broadcast the same VisibleBoardCard-
+ * or-HiddenBoardCard-shaped result and fold into board state identically — upsert by id, with
+ * upsertCard's clobber guard protecting a card already held in full. */
+function upsertFromCardEvent(board: BoardState, payload: unknown): BoardState {
+  const result = payload as VisibleBoardCard | HiddenBoardCard;
+  const card: BoardCard = isHiddenPayload(result)
+    ? { id: result.id, columnId: result.columnId, authorId: result.authorId, position: result.position, hidden: true }
+    : { ...result, hidden: false };
+  return upsertCard(board, card);
+}
+
 /** Folds one confirmed event (card create/edit/delete, a phase transition, or a reveal) into
  * board state (RN-009, extended by RN-010's phase tracking and RN-011's hidden cards). Used both
  * for events replayed from the initial snapshot's point forward and for a card the caller just
@@ -43,22 +54,13 @@ function upsertCard(board: BoardState, card: BoardCard): BoardState {
  * client-generated id. */
 export function reduceBoard(board: BoardState, event: RetroEvent): BoardState {
   switch (event.type) {
-    case 'card.create': {
-      const result = event.payload as VisibleBoardCard | HiddenBoardCard;
-      const card: BoardCard = isHiddenPayload(result)
-        ? { id: result.id, columnId: result.columnId, authorId: result.authorId, position: result.position, hidden: true }
-        : { ...result, hidden: false };
-      return upsertCard(board, card);
-    }
-    case 'card.edit': {
-      const result = event.payload as VisibleBoardCard | HiddenBoardCard;
-      // A hidden echo of an edit carries nothing a non-author didn't already know (the
-      // placeholder never showed a body) — upsertCard's clobber guard handles it the same way
-      // create's does, so this reuses the exact same path.
-      const card: BoardCard = isHiddenPayload(result)
-        ? { id: result.id, columnId: result.columnId, authorId: result.authorId, position: result.position, hidden: true }
-        : { ...result, hidden: false };
-      return upsertCard(board, card);
+    // card.move (RN-014): a hidden echo carries nothing a non-author didn't already know (the
+    // placeholder never showed a body, and its position/columnId are already in the redacted
+    // shape) — upsertFromCardEvent's clobber guard handles it the same way create/edit's does.
+    case 'card.create':
+    case 'card.edit':
+    case 'card.move': {
+      return upsertFromCardEvent(board, event.payload);
     }
     case 'card.delete': {
       const result = event.payload as CardDeleteResult;

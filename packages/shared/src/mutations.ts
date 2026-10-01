@@ -53,6 +53,23 @@ export const CardDeleteResult = z.object({
 });
 export type CardDeleteResult = z.infer<typeof CardDeleteResult>;
 
+/** `card.move` (RN-014): one mutation per drop — reordering within a column and moving across
+ * columns are the same shape, distinguished only by whether `columnId` changed. `position` is a
+ * fractional-indexing text key computed client-side (dnd-kit knows the drop target's neighbor
+ * cards; the server just stores what it's given, the same way card.create's position — appended
+ * after the last card — is server-computed because *that* story has no drop target to derive it
+ * from). Redactable like create/edit (RN-011): a hidden card's own author moving it during Write
+ * must not leak its body to everyone else on the shared channel. */
+export const CardMovePayload = z.object({
+  cardId: z.string().uuid(),
+  columnId: z.string().uuid(),
+  position: z.string().min(1),
+});
+export type CardMovePayload = z.infer<typeof CardMovePayload>;
+
+export const CardMoveResult = VisibleBoardCard;
+export type CardMoveResult = VisibleBoardCard;
+
 /** `phase.next`, `phase.back`, `phase.skip` (RN-010): the target phase is always derived from
  * the retro's current phase server-side (via stateMachine's nextPhase/previousPhase), never
  * supplied by the caller, so there's nothing to carry in the payload. */

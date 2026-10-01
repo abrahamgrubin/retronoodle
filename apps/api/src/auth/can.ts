@@ -40,7 +40,8 @@ export type Action =
   | 'retro.revealCards'
   | 'template.read'
   | 'card.edit'
-  | 'card.delete';
+  | 'card.delete'
+  | 'card.move';
 
 /**
  * The one access-check function (CLAUDE.md: "Every access check goes through
@@ -85,6 +86,11 @@ export function can(user: CanUser, action: Action, resource: Resource): boolean 
     case 'card.edit':
     case 'card.delete':
       // Ownership, not a role (RN-009): only the author may edit or delete their own card.
+      return resource?.type === 'card' && resource.authorId === user.id;
+    case 'card.move':
+      // Ownership, same as edit/delete — but RN-014's cardMove.ts only calls this when the
+      // current phase's drag scope is 'own' (Write); during 'all' (Group) it skips this check
+      // entirely, since anyone may move any card then. Not a role question either way.
       return resource?.type === 'card' && resource.authorId === user.id;
     default:
       return false;
