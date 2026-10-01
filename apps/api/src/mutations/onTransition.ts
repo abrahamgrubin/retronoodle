@@ -1,8 +1,8 @@
 import type { PoolClient } from 'pg';
 import { defaultTopicName, type RetroPhase } from '@retronoodle/shared';
-import type { LockedRetro } from './registry.js';
+import type { JobSender, LockedRetro } from './registry.js';
 
-type TransitionEffect = (ctx: { client: PoolClient; retro: LockedRetro }) => Promise<void>;
+type TransitionEffect = (ctx: { client: PoolClient; retro: LockedRetro; jobs?: JobSender }) => Promise<void>;
 
 /**
  * Transition side effects (Design 6.3), one row per `"from->to"` pair. RN-010 owns this table
@@ -26,8 +26,18 @@ const onTransition: Partial<Record<`${RetroPhase}->${RetroPhase}`, TransitionEff
   // extra round trip, well inside the "within 500ms" acceptance criterion, and far simpler than
   // the alternative. cards.reveal (the *manual* Reveal button) has no such problem: its own
   // result already broadcasts every card as the mutation's normal, single, real event.
-  'write->group': async ({ client, retro }) => {
+  'write->group': async ({ client, retro, jobs }) => {
     await client.query('update retros set cards_revealed = true where id = $1', [retro.id]);
+    // RN-017: "On write -> group, enqueue a pg-boss job ai.groupCards." Best-effort — AI grouping
+    // is optional polish, never a reason to fail the phase transition itself (no `jobs` at all is
+    // the same graceful-absence pattern as main.ts's "worker skipped: DATABASE_URL not set").
+    if (jobs) {
+      try {
+        await jobs.send('ai.groupCards', { retroId: retro.id });
+      } catch {
+        // Swallowed deliberately — see above.
+      }
+    }
   },
   // RN-015 AC: "On entering Vote, every card belongs to exactly one topic" — grouping freezes
   // once Vote starts, so any card still ungrouped when Group ends becomes its own single-card
@@ -48,10 +58,20 @@ const onTransition: Partial<Record<`${RetroPhase}->${RetroPhase}`, TransitionEff
         [retro.id, card.column_id, defaultTopicName(card.body), card.id],
       );
     }
+    // RN-017: "Discard pending suggestions on group -> vote" — grouping freezes with Vote, so
+    // anything the facilitator never acted on no longer means anything. 'rejected' rather than a
+    // new status: a discarded suggestion and a rejected one both just mean "not adopted."
+    await client.query("update group_suggestions set status = 'rejected' where retro_id = $1 and status = 'pending'", [retro.id]);
   },
 };
 
-export async function runTransitionEffect(client: PoolClient, retro: LockedRetro, from: RetroPhase, to: RetroPhase): Promise<void> {
+export async function runTransitionEffect(
+  client: PoolClient,
+  retro: LockedRetro,
+  from: RetroPhase,
+  to: RetroPhase,
+  jobs?: JobSender,
+): Promise<void> {
   const effect = onTransition[`${from}->${to}`];
-  if (effect) await effect({ client, retro });
+  if (effect) await effect({ client, retro, jobs });
 }

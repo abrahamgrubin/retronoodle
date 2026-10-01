@@ -12,7 +12,10 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.70.1",
     "@retronoodle/shared": "workspace:*",
-    "pg-boss": "^12.35.0"
+    "@supabase/supabase-js": "^2.117.2",
+    "pg-boss": "^12.35.0",
+    "zod": "^4.6.5"
   }
 }

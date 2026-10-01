@@ -10,7 +10,7 @@ import { registerTemplateRoutes } from './routes/templates.js';
 import { registerMutationRoutes } from './routes/mutations.js';
 import { registerBoardRoutes } from './routes/board.js';
 import type { RealtimeBus } from './realtime/RealtimeBus.js';
-import type { MutationRegistry } from './mutations/index.js';
+import type { MutationRegistry, JobSender } from './mutations/index.js';
 
 export interface ServerOptions {
   webOrigin: string;
@@ -21,6 +21,10 @@ export interface ServerOptions {
     realtimeBus: RealtimeBus;
     pool: Pool;
     mutationRegistry: MutationRegistry;
+    // RN-017: enqueues ai.groupCards from the write->group transition effect. Undefined when
+    // there's no queue to send to (same optionality as pool/supabaseAdmin's own "not configured"
+    // case) — see onTransition.ts's best-effort handling.
+    jobs?: JobSender;
   };
 }
 
@@ -50,7 +54,7 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
   });
 
   if (options.auth) {
-    const { verifyAccessToken, supabaseAdmin, realtimeBus, pool, mutationRegistry } = options.auth;
+    const { verifyAccessToken, supabaseAdmin, realtimeBus, pool, mutationRegistry, jobs } = options.auth;
     const requireAuth = createRequireAuth(verifyAccessToken);
 
     // First authenticated request upserts the caller's profile (RN-003). Later stories add
@@ -79,7 +83,7 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
     registerRetroRoutes(app, { supabaseAdmin, requireAuth });
     registerTemplateRoutes(app, { supabaseAdmin, requireAuth });
     registerBoardRoutes(app, { supabaseAdmin, requireAuth });
-    await registerMutationRoutes(app, { pool, registry: mutationRegistry, realtimeBus, requireAuth });
+    await registerMutationRoutes(app, { pool, registry: mutationRegistry, realtimeBus, requireAuth, jobs });
   }
 
   return app;

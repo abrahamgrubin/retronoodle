@@ -5,7 +5,7 @@ import type { AuthUser } from '../auth/index.js';
 import { can, type TeamRole } from '../auth/can.js';
 import type { RealtimeBus } from '../realtime/RealtimeBus.js';
 import { isCardCurrentlyHidden, toHiddenCard } from '../realtime/redact.js';
-import type { MutationRegistry, LockedRetro } from './registry.js';
+import type { MutationRegistry, LockedRetro, JobSender } from './registry.js';
 import { MutationRejected } from './errors.js';
 
 export interface MutationOutcome {
@@ -82,8 +82,9 @@ export async function processMutation(deps: {
   retroId: string;
   user: AuthUser;
   rawBody: unknown;
+  jobs?: JobSender;
 }): Promise<MutationOutcome> {
-  const { pool, registry, realtimeBus, retroId, user, rawBody } = deps;
+  const { pool, registry, realtimeBus, retroId, user, rawBody, jobs } = deps;
 
   const envelope = MutationEnvelope.parse(rawBody);
   const def = registry.get(envelope.type);
@@ -139,7 +140,7 @@ export async function processMutation(deps: {
       let applyResult: unknown;
       let seq: number;
       try {
-        applyResult = await def.apply({ client, retro, user, payload });
+        applyResult = await def.apply({ client, retro, user, payload, jobs });
 
         const storedPayload: StoredEventPayload = { payload, result: applyResult };
         const insertResult = await client.query<{ seq: number }>(

@@ -9,6 +9,9 @@ export interface Config {
   databaseUrl: string | undefined;
   supabaseUrl: string | undefined;
   supabaseServiceRoleKey: string | undefined;
+  // RN-017: undefined means ai.groupCards runs as a no-op ("failure shows nothing and manual
+  // grouping still works") — never required to start either role.
+  anthropicApiKey: string | undefined;
   isProduction: boolean;
 }
 
@@ -26,6 +29,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
     databaseUrl: env.DATABASE_URL || undefined,
     supabaseUrl: env.SUPABASE_URL || undefined,
     supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY || undefined,
+    anthropicApiKey: env.ANTHROPIC_API_KEY || undefined,
     isProduction: env.NODE_ENV === 'production',
   };
 }

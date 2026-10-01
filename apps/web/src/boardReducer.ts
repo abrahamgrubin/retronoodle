@@ -122,7 +122,14 @@ export function reduceBoard(board: BoardState, event: RetroEvent): BoardState {
     // topic.createFromCards (RN-015): "Dropping card A on card B's center creates a named group
     // containing both" — a new topic plus every card now in it (never redacted: grouping only
     // ever happens once cards are already revealed).
-    case 'topic.createFromCards': {
+    //
+    // suggestion.accept (RN-017) broadcasts this exact same shape (SuggestionAcceptResult is a
+    // type alias of TopicCreateFromCardsResult) — the facilitator accepting an AI suggestion has
+    // identical board-state effects to grouping those same cards by hand, so it folds the same
+    // way. Removing the now-resolved entry from the suggestions panel is a client-local concern
+    // (BoardPage.tsx), not a board-state fold.
+    case 'topic.createFromCards':
+    case 'suggestion.accept': {
       const result = event.payload as TopicCreateFromCardsResult;
       const withTopic = upsertTopic(board, result.topic);
       return result.cards.reduce((b, card) => upsertCard(b, { ...card, hidden: false }), withTopic);
@@ -161,6 +168,14 @@ export function reduceBoard(board: BoardState, event: RetroEvent): BoardState {
     case 'phase.extend': {
       const result = event.payload as PhaseExtendResult;
       return { ...board, phaseDeadline: result.phaseDeadline };
+    }
+    // suggestion.reject (RN-017): nothing board-wide changes (no card or topic is touched) —
+    // this reaches every participant's shared channel like any other mutation, but it never
+    // meant anything to anyone but the facilitator in the first place (suggestions are never
+    // sent to anyone else), so there's genuinely nothing to fold here. Listed explicitly rather
+    // than left to `default` purely so a future reader doesn't mistake the omission for a bug.
+    case 'suggestion.reject': {
+      return board;
     }
     // cards.reveal (RN-011): the facilitator's manual Reveal — every card comes back in full.
     case 'cards.reveal': {

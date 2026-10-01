@@ -1,5 +1,6 @@
 import type { PoolClient } from 'pg';
-import type { VisibleBoardCard } from '@retronoodle/shared';
+import { defaultTopicName, type TopicCreateFromCardsResult, type VisibleBoardCard } from '@retronoodle/shared';
+import { MutationRejected } from './errors.js';
 
 /**
  * Shared by card.move and card.addToTopic (RN-015): both can leave a card's *previous* topic
@@ -60,5 +61,72 @@ export async function dissolveIfOrphaned(
       reactions: [],
       hidden: false,
     },
+  };
+}
+
+/**
+ * Shared by topic.createFromCards (RN-015, a direct drop-onto-a-card's-center) and
+ * suggestion.accept (RN-017, a facilitator accepting an AI-suggested group) — both end up doing
+ * exactly this: validate a set of card ids (found, same column, none already grouped), insert the
+ * topic, and point every card at it. Only how `cardIds`/`name` are sourced differs between the
+ * two callers.
+ */
+export async function createTopicFromCardIds(
+  client: PoolClient,
+  retroId: string,
+  topicId: string,
+  cardIds: string[],
+  explicitName: string | undefined,
+): Promise<TopicCreateFromCardsResult> {
+  const lookup = await client.query<{
+    id: string;
+    column_id: string;
+    author_id: string;
+    author_name: string;
+    body: string;
+    position: string;
+    created_at: Date;
+    updated_at: Date;
+    topic_id: string | null;
+  }>(
+    `select c.id, c.column_id, c.author_id, p.display_name as author_name, c.body, c.position, c.created_at, c.updated_at, c.topic_id
+     from cards c
+     join profiles p on p.id = c.author_id
+     where c.id = any($1::uuid[]) and c.retro_id = $2`,
+    [cardIds, retroId],
+  );
+  if (lookup.rows.length !== cardIds.length) {
+    throw new MutationRejected(404, 'not_found', 'One or more cards not found');
+  }
+  if (new Set(lookup.rows.map((r) => r.column_id)).size > 1) {
+    throw new MutationRejected(400, 'different_columns', 'Cards can only be grouped within the same column');
+  }
+  if (lookup.rows.some((r) => r.topic_id !== null)) {
+    throw new MutationRejected(409, 'already_grouped', 'One or more cards already belong to a group');
+  }
+
+  const columnId = lookup.rows[0]!.column_id;
+  const name = explicitName ?? defaultTopicName(lookup.rows[0]!.body);
+
+  await client.query('insert into topics (id, retro_id, column_id, name) values ($1, $2, $3, $4)', [topicId, retroId, columnId, name]);
+  await client.query('update cards set topic_id = $1 where id = any($2::uuid[])', [topicId, cardIds]);
+
+  return {
+    topic: { id: topicId, columnId, name },
+    cards: lookup.rows.map((r) => ({
+      id: r.id,
+      columnId: r.column_id,
+      authorId: r.author_id,
+      authorName: r.author_name,
+      body: r.body,
+      position: r.position,
+      createdAt: r.created_at.toISOString(),
+      updatedAt: r.updated_at.toISOString(),
+      topicId,
+      // Placeholder (RN-016) — grouping never touches card_reactions, and the client preserves
+      // each card's existing reactions rather than trusting this field (boardReducer.ts).
+      reactions: [],
+      hidden: false,
+    })),
   };
 }

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { RetroPhase, TemplateSource } from './retros.js';
 import { Topic } from './topics.js';
 import { ReactionSummary } from './reactions.js';
+import { GroupSuggestion } from './ai.js';
 
 export const BoardColumn = z.object({
   id: z.string().uuid(),
@@ -72,6 +73,10 @@ export const BoardResponse = z.object({
   // RN-015: every topic in the retro, regardless of column — the client matches cards to topics
   // by `BoardCard.topicId`, not the other way around (see topics.ts).
   topics: z.array(Topic),
+  // RN-017: pending AI grouping suggestions, facilitator only — null for every other viewer, so
+  // "participants who aren't the facilitator never receive suggestions" holds for the initial
+  // snapshot the same way it holds for the realtime broadcast (worker side, user:{id} only).
+  suggestions: z.array(GroupSuggestion).nullable(),
   seq: z.number().int().nonnegative(),
   // RN-012: "every API response includes serverTime" — the client compares this to its own
   // clock once, at load, to get a stable offset, then counts the phase timer down locally

@@ -4,13 +4,14 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Pool } from 'pg';
 import { MutationResponse } from '@retronoodle/shared';
 import type { RealtimeBus } from '../realtime/RealtimeBus.js';
-import { MutationRegistry, MutationRejected, processMutation } from '../mutations/index.js';
+import { MutationRegistry, MutationRejected, processMutation, type JobSender } from '../mutations/index.js';
 
 export interface MutationRoutesDeps {
   pool: Pool;
   registry: MutationRegistry;
   realtimeBus: RealtimeBus;
   requireAuth: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
+  jobs?: JobSender;
 }
 
 /**
@@ -24,7 +25,7 @@ export interface MutationRoutesDeps {
  * silently falls back to per-IP limiting instead of per-user.
  */
 export async function registerMutationRoutes(app: FastifyInstance, deps: MutationRoutesDeps): Promise<void> {
-  const { pool, registry, realtimeBus, requireAuth } = deps;
+  const { pool, registry, realtimeBus, requireAuth, jobs } = deps;
 
   await app.register(async (instance) => {
     instance.addHook('preHandler', requireAuth);
@@ -47,6 +48,7 @@ export async function registerMutationRoutes(app: FastifyInstance, deps: Mutatio
           retroId: request.params.id,
           user,
           rawBody: request.body,
+          jobs,
         });
         return MutationResponse.parse(outcome);
       } catch (err) {

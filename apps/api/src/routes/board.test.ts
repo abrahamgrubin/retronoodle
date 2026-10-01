@@ -59,15 +59,23 @@ const cardRow = {
   topic_id: null,
 };
 
-function build(teamRole: 'admin' | 'member' | null) {
+const suggestionRow = {
+  id: '00000000-0000-4000-8000-0000000000f1',
+  name: 'Suggested group',
+  card_ids: [cardRow.id, '00000000-0000-4000-8000-0000000000f2'],
+};
+
+function build(teamRole: 'admin' | 'member' | null, opts: { facilitatorId?: string } = {}) {
+  const retro = opts.facilitatorId ? { ...retroRow, facilitator_id: opts.facilitatorId } : retroRow;
   const supabaseAdmin = {
     from(table: string) {
-      if (table === 'retros') return chain({ data: retroRow, error: null });
+      if (table === 'retros') return chain({ data: retro, error: null });
       if (table === 'team_members') return chain({ data: teamRole ? { role: teamRole } : null, error: null });
       if (table === 'retro_columns') return chain({ data: [columnRow], error: null });
       if (table === 'cards') return chain({ data: [cardRow], error: null });
       if (table === 'topics') return chain({ data: [], error: null });
       if (table === 'card_reactions') return chain({ data: [], error: null });
+      if (table === 'group_suggestions') return chain({ data: [suggestionRow], error: null });
       if (table === 'profiles') return chain({ data: [{ id: claims.sub, display_name: 'Ada Lovelace' }], error: null });
       if (table === 'retro_events') return chain({ data: { seq: 3 }, error: null });
       throw new Error(`unexpected table ${table}`);
@@ -105,7 +113,17 @@ describe('GET /retros/:id/board', () => {
       body: 'Ship it',
     });
     expect(body.topics).toEqual([]);
+    expect(body.suggestions).toBeNull(); // not the facilitator
     expect(body.seq).toBe(3);
+  });
+
+  it("RN-017: includes pending suggestions for the facilitator, deriving each one's columnId from its cards", async () => {
+    app = await build('member', { facilitatorId: claims.sub });
+    const res = await app.inject({ method: 'GET', url: `/retros/${retroId}/board`, headers: AUTH_HEADER });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().suggestions).toEqual([
+      { id: suggestionRow.id, name: 'Suggested group', columnId: columnRow.id, cardIds: suggestionRow.card_ids },
+    ]);
   });
 
   it('returns 403 for a non-member', async () => {

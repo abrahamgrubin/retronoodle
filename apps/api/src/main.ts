@@ -1,4 +1,4 @@
-import { startWorker } from '@retronoodle/worker';
+import { createJobSender, startWorker } from '@retronoodle/worker';
 import { loadDotEnv, readConfig } from './config.js';
 import { startProcess } from './process.js';
 import { buildServer, type ServerOptions } from './server.js';
@@ -20,15 +20,26 @@ const running = await startProcess(config.role, {
   async startApi() {
     let auth: ServerOptions['auth'];
     let pool: ReturnType<typeof createPool> | undefined;
+    let jobSender: Awaited<ReturnType<typeof createJobSender>> | undefined;
     if (config.supabaseUrl && config.supabaseServiceRoleKey && config.databaseUrl) {
       const supabaseAdmin = createSupabaseAdmin(config.supabaseUrl, config.supabaseServiceRoleKey);
       pool = createPool(config.databaseUrl);
+      // RN-017: a send-only pg-boss connection, separate from the worker's own consuming one
+      // (startWorker, below) even when ROLE=all runs both in this same process — see
+      // createJobSender's own comment for why. Best-effort: a failure here shouldn't stop the
+      // API from starting, same as "the call failing" being graceful for ai.groupCards itself.
+      try {
+        jobSender = await createJobSender(config.databaseUrl, log);
+      } catch (err) {
+        log.error(err, 'failed to start the ai.groupCards job sender; Group will work without AI suggestions');
+      }
       auth = {
         verifyAccessToken: createTokenVerifier(config.supabaseUrl),
         supabaseAdmin,
         realtimeBus: new RealtimeBus(supabaseAdmin),
         pool,
         mutationRegistry: createDefaultMutationRegistry(),
+        jobs: jobSender?.sender,
       };
     } else if (config.isProduction) {
       throw new Error('SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and DATABASE_URL are required to start the API.');
@@ -42,6 +53,7 @@ const running = await startProcess(config.role, {
       stop: async () => {
         await app.close();
         await pool?.end();
+        await jobSender?.stop();
       },
     };
   },
@@ -52,7 +64,17 @@ const running = await startProcess(config.role, {
       log.info('worker skipped: DATABASE_URL is not set (see .env.example)');
       return { stop: async () => {} };
     }
-    return startWorker({ databaseUrl: config.databaseUrl, logger: log });
+    // RN-017: ai.groupCards only registers when Supabase is ALSO configured (it needs
+    // supabaseAdmin to read cards/write suggestions and realtimeBus to notify the facilitator) —
+    // `anthropicApiKey` itself can still be unset here; the job handles that per-call (see
+    // groupCards.ts), not by skipping registration entirely, so turning on a key later doesn't
+    // need a restart-with-different-config story.
+    let ai: Parameters<typeof startWorker>[0]['ai'];
+    if (config.supabaseUrl && config.supabaseServiceRoleKey) {
+      const supabaseAdmin = createSupabaseAdmin(config.supabaseUrl, config.supabaseServiceRoleKey);
+      ai = { supabaseAdmin, realtimeBus: new RealtimeBus(supabaseAdmin), anthropicApiKey: config.anthropicApiKey };
+    }
+    return startWorker({ databaseUrl: config.databaseUrl, logger: log, ai });
   },
 });
 
