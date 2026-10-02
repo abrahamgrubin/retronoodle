@@ -164,6 +164,18 @@ export function createRetroStore<TBoard>(
     applyLocalPatch: (patch) => set((state) => ({ board: patch(state.board) })),
 
     resetBoard: (board, seq) => {
+      // Bug found live: two independent HTTP requests (the mutation's own POST and a resync's
+      // GET /board, both triggered by the same optimistic phase change — see BoardPage.tsx's
+      // write->group resync) race the database with no ordering guarantee between them. If the
+      // GET's query executes before the POST's transaction commits but its *response* happens to
+      // arrive back at the browser after the POST's already has (slower round trip, not a slower
+      // read), this runs with a snapshot that's older than what's already been confirmed —
+      // observed as a phase visibly reverting ~2s after a facilitator clicks Skip. `seq` only
+      // ever moves forward for a given retro (it's the Postgres-assigned gapless sequence this
+      // store also enforces via applyServerEvent's own "ignore anything at or below
+      // lastAppliedSeq" rule) — so a resync offering an *older* seq than what's already applied
+      // is, by definition, stale, and must be dropped rather than regressing the board.
+      if (seq < get().lastAppliedSeq) return;
       buffered.clear();
       clearGapTimer();
       let resynced = board;
