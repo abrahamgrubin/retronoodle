@@ -14,6 +14,15 @@ export const Topic = z.object({
   // structurally 0 (not merely redacted) for every topic until reveal. No separate "hidden"
   // state needed: the client only ever renders this once the phase has moved past Vote.
   voteCount: z.number().int().nonnegative(),
+  // RN-019: a fractional-indexing text key, null until vote->discuss assigns one to every topic
+  // (onTransition.ts) — "initially vote order," then reorderable via queue.reorder.
+  discussionOrder: z.string().nullable(),
+  // RN-019: "each topic change stamps started_at on the old topic [no — ends it] and started_at
+  // on the new one" — null means never discussed ("not discussed" in Wrap up). The *current*
+  // topic is simply whichever one has `startedAt` set and `endedAt` still null; there's no
+  // separate "is this the current topic" flag to keep in sync.
+  startedAt: z.string().nullable(),
+  endedAt: z.string().nullable(),
 });
 export type Topic = z.infer<typeof Topic>;
 

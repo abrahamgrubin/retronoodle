@@ -13,7 +13,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
-import { SortableContext, sortableKeyboardCoordinates, useSortable } from '@dnd-kit/sortable';
+import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { generateKeyBetween } from 'fractional-indexing';
 import {
@@ -130,6 +130,7 @@ function CardView({
   menu,
   reactionProps,
   highlighted,
+  discussCurrent,
 }: {
   card: VisibleBoardCard;
   canEdit: boolean;
@@ -146,6 +147,10 @@ function CardView({
   reactionProps: ReactionBarProps;
   // RN-017 layout spec: "Hover: hovering a suggestion outlines its cards on the board."
   highlighted?: boolean;
+  // RN-019 layout spec: "the current topic's cards get a 2px blue outline" — Group's amber
+  // `highlighted` and Discuss's blue `discussCurrent` never overlap (different phases), so there's
+  // no conflict in letting both exist as separate flags rather than one generic "outline color".
+  discussCurrent?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(card.body);
@@ -199,8 +204,8 @@ function CardView({
         borderRadius: 6,
         padding: 8,
         marginBottom: 8,
-        outline: highlighted ? '2px solid #f59e0b' : undefined,
-        outlineOffset: highlighted ? -1 : undefined,
+        outline: highlighted ? '2px solid #f59e0b' : discussCurrent ? '2px solid #2563eb' : undefined,
+        outlineOffset: highlighted || discussCurrent ? -1 : undefined,
       }}
       {...dragHandleProps}
     >
@@ -406,6 +411,8 @@ function SortableCardView({
   menu,
   reactionProps,
   highlighted,
+  discussCurrent,
+  dimmed,
 }: {
   card: VisibleBoardCard;
   canDrag: boolean;
@@ -415,19 +422,29 @@ function SortableCardView({
   menu?: ReactNode;
   reactionProps: ReactionBarProps;
   highlighted?: boolean;
+  discussCurrent?: boolean;
+  // RN-019 layout spec: "all other cards dim to 40% opacity" — only ever set alongside
+  // `discussCurrent`'s board-wide pass (Discuss phase), never together with `isDragging`'s own
+  // opacity (cards aren't draggable during Discuss — allowedActions('discuss').cardDrag is
+  // 'none' — so the two conditions below never actually compete for the same card).
+  dimmed?: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
     disabled: !canDrag,
   });
   return (
-    <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }}>
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : dimmed ? 0.4 : 1 }}
+    >
       <CardView
         card={card}
         canEdit={canEdit}
         onEdit={onEdit}
         onDelete={onDelete}
         highlighted={highlighted}
+        discussCurrent={discussCurrent}
         dragHandleProps={canDrag ? { ...attributes, ...listeners } : undefined}
         menu={menu}
         reactionProps={reactionProps}
@@ -490,6 +507,8 @@ function TopicGroupView({
   isHighlighted,
   voteControls,
   voteCountBadge,
+  discussCurrent,
+  dimmed,
 }: {
   topic: Topic;
   cards: BoardCard[];
@@ -509,6 +528,10 @@ function TopicGroupView({
   // `topic.voteCount` is structurally 0 (not yet revealed) everywhere before vote->discuss runs,
   // and rendering it unconditionally would make an honest zero look identical to "not revealed".
   voteCountBadge?: ReactNode;
+  // RN-019 layout spec: "the current topic's cards get a 2px blue outline; all other cards dim
+  // to 40% opacity" — both `undefined` outside Discuss/Wrap up, same as the vote props above.
+  discussCurrent?: boolean;
+  dimmed?: boolean;
 }) {
   const [editingName, setEditingName] = useState(false);
   const [draftName, setDraftName] = useState(topic.name);
@@ -587,6 +610,8 @@ function TopicGroupView({
             menu={menuFor(card)}
             reactionProps={reactionPropsFor(card)}
             highlighted={isHighlighted(card)}
+            discussCurrent={discussCurrent}
+            dimmed={dimmed}
           />
         ),
       )}
@@ -627,6 +652,202 @@ function buildColumnRows(cards: BoardCard[], topics: Topic[]): ColumnRow[] {
     entries.push({ row: { kind: 'group', topic, cards: sorted }, sortKey: sorted[0]!.position });
   }
   return entries.sort((a, b) => a.sortKey.localeCompare(b.sortKey)).map((e) => e.row);
+}
+
+/** One row of the Discuss queue panel's "Up next" list (RN-019 layout spec: "rank, name, vote
+ * count, drag handle for the facilitator"). The drag handle is a separate span from the row
+ * itself — same reasoning as SortableCardView's dragHandleProps — so a participant (no handle,
+ * no drag listeners) can still have the row be clickable to jump, without the two ever fighting
+ * over the same pointer events. */
+function UpNextRow({
+  topic,
+  rank,
+  canManage,
+  onJump,
+}: {
+  topic: Topic;
+  rank: number;
+  canManage: boolean;
+  onJump: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: topic.id, disabled: !canManage });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.4 : 1,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6,
+        padding: '4px 0',
+      }}
+    >
+      {canManage && (
+        <span {...attributes} {...listeners} style={{ cursor: 'grab', color: '#999' }} aria-label={`Reorder ${topic.name || 'this topic'}`}>
+          ⠿
+        </span>
+      )}
+      <span style={{ fontSize: 12, color: '#666', width: 14, flexShrink: 0 }}>{rank}</span>
+      <button
+        type="button"
+        onClick={canManage ? onJump : undefined}
+        disabled={!canManage}
+        style={{
+          flex: 1,
+          textAlign: 'left',
+          fontSize: 13,
+          border: 'none',
+          background: 'none',
+          padding: 0,
+          cursor: canManage ? 'pointer' : 'default',
+          color: 'inherit',
+        }}
+      >
+        {topic.name || 'Untitled group'}
+      </button>
+      <span style={{ fontSize: 12, color: '#666', flexShrink: 0 }}>
+        {topic.voteCount} vote{topic.voteCount === 1 ? '' : 's'}
+      </span>
+    </div>
+  );
+}
+
+/** The 320px right-edge panel (RN-019 layout spec), open for everyone (not facilitator-gated,
+ * unlike RN-017's SuggestionsPanel — "Voter sees own... Others see progress" precedent doesn't
+ * apply here, the whole queue is public once Discuss starts). Only a "Queue" tab is built — the
+ * layout spec's second "Summaries" tab belongs to RN-021 (AI topic summaries), which doesn't
+ * exist yet; same "don't build ahead" reasoning as RN-018 leaving `discussionOrder`/`startedAt`
+ * unconsumed until this story. The Discussed list's status chip is hardcoded to "Summarizing…"
+ * for the same reason — there's no `topic_summaries` row this story ever produces, so there's
+ * nothing real to distinguish "Ready" or "Unavailable" from yet.
+ */
+function DiscussQueuePanel({
+  phase,
+  topics,
+  cardCountByTopic,
+  canManage,
+  onNext,
+  onFinish,
+  onJump,
+  onReorder,
+}: {
+  phase: RetroPhase;
+  topics: Topic[];
+  cardCountByTopic: Map<string, number>;
+  canManage: boolean;
+  onNext: () => void;
+  onFinish: () => void;
+  onJump: (topicId: string) => void;
+  onReorder: (topicId: string, discussionOrder: string) => void;
+}) {
+  const current = topics.find((t) => t.startedAt && !t.endedAt) ?? null;
+  const upNext = topics
+    .filter((t) => !t.startedAt)
+    .sort((a, b) => (a.discussionOrder ?? '').localeCompare(b.discussionOrder ?? ''));
+  const discussed = topics.filter((t) => t.endedAt).sort((a, b) => (a.endedAt ?? '').localeCompare(b.endedAt ?? ''));
+  const isLastTopic = upNext.length === 0;
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  // Ordinary dnd-kit sortable reordering (unlike the board's own DndContext, this list has no
+  // competing "drop on center" gesture, so the default live-preview strategy is exactly right
+  // here rather than something to work around — see BoardPage.tsx's noSortPreview for why the
+  // board's own list disables it).
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || over.id === active.id) return;
+    const activeIndex = upNext.findIndex((t) => t.id === active.id);
+    const overIndex = upNext.findIndex((t) => t.id === over.id);
+    if (activeIndex === -1 || overIndex === -1) return;
+    const reordered = arrayMove(upNext, activeIndex, overIndex);
+    const newIndex = reordered.findIndex((t) => t.id === active.id);
+    const prev = reordered[newIndex - 1];
+    const next = reordered[newIndex + 1];
+    onReorder(active.id as string, generateKeyBetween(prev?.discussionOrder ?? null, next?.discussionOrder ?? null));
+  }
+
+  return (
+    <div style={{ width: 320, flexShrink: 0 }}>
+      <div style={{ border: '1px solid #ddd', borderRadius: 8, padding: 8 }}>
+        <p style={{ margin: '0 0 8px', fontWeight: 'bold', fontSize: 14 }}>Discuss queue</p>
+
+        {current && (
+          <div style={{ border: '2px solid #2563eb', borderRadius: 6, padding: 8, marginBottom: 12 }}>
+            <p style={{ margin: '0 0 2px', fontSize: 11, color: '#2563eb', fontWeight: 'bold' }}>Now discussing</p>
+            <p style={{ margin: '0 0 4px', fontSize: 13, fontWeight: 'bold' }}>{current.name || 'Untitled group'}</p>
+            <p style={{ margin: '0 0 8px', fontSize: 12, color: '#666' }}>
+              {current.voteCount} vote{current.voteCount === 1 ? '' : 's'} · {cardCountByTopic.get(current.id) ?? 0} card
+              {(cardCountByTopic.get(current.id) ?? 0) === 1 ? '' : 's'}
+            </p>
+            {canManage && (
+              <button type="button" onClick={isLastTopic ? onFinish : onNext}>
+                {isLastTopic ? 'Finish discussion' : 'Next topic'}
+              </button>
+            )}
+          </div>
+        )}
+
+        {phase === 'discuss' && upNext.length > 0 && (
+          <div style={{ marginBottom: 12 }}>
+            <p style={{ margin: '0 0 4px', fontWeight: 'bold', fontSize: 12, color: '#666' }}>Up next</p>
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={upNext.map((t) => t.id)} strategy={verticalListSortingStrategy}>
+                {upNext.map((t, i) => (
+                  <UpNextRow key={t.id} topic={t} rank={i + 1} canManage={canManage} onJump={() => onJump(t.id)} />
+                ))}
+              </SortableContext>
+            </DndContext>
+          </div>
+        )}
+
+        <div style={{ marginBottom: phase === 'wrap_up' ? 12 : 0 }}>
+          <p style={{ margin: '0 0 4px', fontWeight: 'bold', fontSize: 12, color: '#666' }}>Discussed</p>
+          {discussed.length === 0 && <p style={{ margin: 0, fontSize: 12, color: '#666' }}>Nothing discussed yet.</p>}
+          {discussed.map((t) => (
+            <div
+              key={t.id}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0', cursor: canManage ? 'pointer' : undefined }}
+              role={canManage ? 'button' : undefined}
+              tabIndex={canManage ? 0 : undefined}
+              onClick={canManage ? () => onJump(t.id) : undefined}
+              onKeyDown={(e) => {
+                if (canManage && (e.key === 'Enter' || e.key === ' ')) {
+                  e.preventDefault();
+                  onJump(t.id);
+                }
+              }}
+            >
+              <span aria-hidden="true">✓</span>
+              <span style={{ flex: 1, fontSize: 13 }}>{t.name || 'Untitled group'}</span>
+              <span style={{ fontSize: 11, color: '#666', border: '1px solid #ddd', borderRadius: 999, padding: '1px 6px' }}>
+                Summarizing…
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* "Undiscussed topics are labeled 'not discussed' in Wrap up" — during Discuss itself
+            the exact same topics already render above as "Up next"; this section only exists
+            once that list stops being meaningful (reordering/jumping both end with Discuss). */}
+        {phase === 'wrap_up' && upNext.length > 0 && (
+          <div>
+            <p style={{ margin: '0 0 4px', fontWeight: 'bold', fontSize: 12, color: '#666' }}>Not discussed</p>
+            {upNext.map((t) => (
+              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0', color: '#999' }}>
+                <span style={{ flex: 1, fontSize: 13 }}>{t.name || 'Untitled group'}</span>
+                <span style={{ fontSize: 11 }}>Not discussed</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 /** The column's own droppable area (RN-014) — lets a card be dropped on empty space below the
@@ -935,6 +1156,19 @@ function Board({
   // indistinguishable from "not revealed yet" during Vote itself.
   const votesRevealed = board.phase !== 'review' && board.phase !== 'write' && board.phase !== 'group' && board.phase !== 'vote';
 
+  // RN-019: the current topic is simply whichever one has `startedAt` set and `endedAt` still
+  // null (topics.ts's own comment) — never more than one, since topic.next/topic.setCurrent
+  // always end the old one before starting a new one.
+  const currentDiscussTopic = board.topics.find((t) => t.startedAt && !t.endedAt) ?? null;
+  // "Board: the current topic's cards get a 2px blue outline; all other cards dim to 40%
+  // opacity" — both only apply once there's an actual current topic to contrast against
+  // (Discuss, and whatever's left of it carried into Wrap up).
+  const discussDimmingActive = currentDiscussTopic !== null;
+  const cardCountByTopic = new Map<string, number>();
+  for (const card of board.cards) {
+    if (card.topicId) cardCountByTopic.set(card.topicId, (cardCountByTopic.get(card.topicId) ?? 0) + 1);
+  }
+
   // RN-017: AI grouping suggestions — facilitator-only panel state. `suggestions` starts from
   // the initial snapshot (a reload mid-Group picks up whatever was already pending) and is
   // otherwise only ever added to by the worker's one-shot `group.suggestions` broadcast (see the
@@ -1029,6 +1263,9 @@ function Board({
           columnId: first.columnId,
           name: !first.hidden ? defaultTopicName(first.body) : 'New group',
           voteCount: 0,
+          discussionOrder: null,
+          startedAt: null,
+          endedAt: null,
         };
         return {
           ...b,
@@ -1118,6 +1355,46 @@ function Board({
         return { ...b, myVotes };
       },
       send: () => postMutation(accessToken, retroId, { mutationId, type: 'vote.remove', payload: { topicId } }),
+    });
+  }
+
+  // RN-019: no optimistic shortcut — the real result (a full {endedTopic, startedTopic} pair) is
+  // what actually carries the ended/started topics' timestamps, and "which topic is next" isn't
+  // something this client can reliably guess without the server's own queue-order knowledge
+  // (same reasoning as acceptSuggestion's own "no optimistic shortcut").
+  function topicNext() {
+    const mutationId = uuidv7();
+    void sendMutation({
+      mutationId,
+      optimisticReduce: (b) => b,
+      send: () => postMutation(accessToken, retroId, { mutationId, type: 'topic.next', payload: {} }),
+    });
+  }
+
+  // "Finish discussion" (RN-019 layout spec, last topic's button): ends the last topic via the
+  // same topic.next the rest of the queue uses, then also advances the retro's own phase —
+  // topics and phase are different concerns with their own mutations elsewhere in this file too,
+  // so this is two calls fired from one button rather than teaching topic.next about phases.
+  function finishDiscussion() {
+    topicNext();
+    changePhase('skip');
+  }
+
+  function jumpToTopic(topicId: string) {
+    const mutationId = uuidv7();
+    void sendMutation({
+      mutationId,
+      optimisticReduce: (b) => b,
+      send: () => postMutation(accessToken, retroId, { mutationId, type: 'topic.setCurrent', payload: { topicId } }),
+    });
+  }
+
+  function reorderQueueTopic(topicId: string, discussionOrder: string) {
+    const mutationId = uuidv7();
+    void sendMutation({
+      mutationId,
+      optimisticReduce: (b) => ({ ...b, topics: b.topics.map((t) => (t.id === topicId ? { ...t, discussionOrder } : t)) }),
+      send: () => postMutation(accessToken, retroId, { mutationId, type: 'queue.reorder', payload: { topicId, discussionOrder } }),
     });
   }
 
@@ -1579,6 +1856,8 @@ function Board({
                               menu={menuForCard(row.card)}
                               reactionProps={reactionPropsFor(row.card)}
                               highlighted={highlightedCardIds.has(row.card.id)}
+                              discussCurrent={false}
+                              dimmed={discussDimmingActive}
                             />
                           )
                         ) : (
@@ -1596,6 +1875,8 @@ function Board({
                             menuFor={menuForCard}
                             reactionPropsFor={reactionPropsFor}
                             isHighlighted={(c) => highlightedCardIds.has(c.id)}
+                            discussCurrent={discussDimmingActive && row.topic.id === currentDiscussTopic?.id}
+                            dimmed={discussDimmingActive && row.topic.id !== currentDiscussTopic?.id}
                             voteControls={
                               canVote ? (
                                 <VoteControls
@@ -1649,6 +1930,18 @@ function Board({
             onAccept={acceptSuggestion}
             onReject={rejectSuggestion}
             onAcceptAll={acceptAllSuggestions}
+          />
+        )}
+        {(board.phase === 'discuss' || board.phase === 'wrap_up') && (
+          <DiscussQueuePanel
+            phase={board.phase}
+            topics={board.topics}
+            cardCountByTopic={cardCountByTopic}
+            canManage={isFacilitator}
+            onNext={topicNext}
+            onFinish={finishDiscussion}
+            onJump={jumpToTopic}
+            onReorder={reorderQueueTopic}
           />
         )}
       </div>

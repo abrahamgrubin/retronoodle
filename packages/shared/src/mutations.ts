@@ -208,3 +208,38 @@ export const SuggestionRejectResult = z.object({
   suggestionId: z.string().uuid(),
 });
 export type SuggestionRejectResult = z.infer<typeof SuggestionRejectResult>;
+
+/** `topic.next` / `topic.setCurrent` (RN-019): both end whichever topic is currently current (if
+ * any — `null` when nothing was) and start a new one (`null` when there's nothing left to start,
+ * i.e. "Finish discussion"). "Next" advances to the first never-discussed topic in queue order;
+ * "jump" (setCurrent) goes to whichever topic the facilitator picked, possibly one already
+ * discussed — same result shape either way. */
+export const TopicQueueResult = z.object({
+  endedTopic: Topic.nullable(),
+  startedTopic: Topic.nullable(),
+});
+export type TopicQueueResult = z.infer<typeof TopicQueueResult>;
+
+export const TopicNextPayload = z.object({}).strict();
+export type TopicNextPayload = z.infer<typeof TopicNextPayload>;
+
+export const TopicSetCurrentPayload = z.object({
+  topicId: z.string().uuid(),
+});
+export type TopicSetCurrentPayload = z.infer<typeof TopicSetCurrentPayload>;
+
+/** `queue.reorder` (RN-019): "text sort keys" — the facilitator drags a not-yet-discussed topic
+ * to a new spot in the Up next list; the client computes the fractional key the same way
+ * card.move computes `position`, and this just writes it (same division of labor as
+ * cardMove.ts). Rejected for a topic that's already started (current or already discussed) —
+ * reordering only ever applies to what's still ahead. */
+export const QueueReorderPayload = z.object({
+  topicId: z.string().uuid(),
+  discussionOrder: z.string().min(1),
+});
+export type QueueReorderPayload = z.infer<typeof QueueReorderPayload>;
+
+export const QueueReorderResult = z.object({
+  topic: Topic,
+});
+export type QueueReorderResult = z.infer<typeof QueueReorderResult>;

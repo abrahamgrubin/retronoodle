@@ -13,7 +13,9 @@ import type {
   RetroPhase,
   Topic,
   TopicCreateFromCardsResult,
+  TopicQueueResult,
   TopicRenameResult,
+  QueueReorderResult,
   VisibleBoardCard,
   VoteAddResult,
   VoteRemoveResult,
@@ -207,6 +209,26 @@ export function reduceBoard(board: BoardState, event: RetroEvent): BoardState {
         return { ...board, myVotes, votingProgress: result.progress };
       }
       return { ...board, votingProgress: result };
+    }
+    // topic.next / topic.setCurrent (RN-019): both end whichever topic was current (if any) and
+    // start a new one (or nothing — "Finish discussion"). Full `Topic`s either way (never
+    // redacted — nothing about a topic is hidden once Discuss starts), so this just upserts
+    // whichever of the two sides is non-null; no separate "current topic" field to keep in sync
+    // anywhere else in this state (see topics.ts's own comment — it's derived from startedAt/
+    // endedAt on the topic itself).
+    case 'topic.next':
+    case 'topic.setCurrent': {
+      const result = event.payload as TopicQueueResult;
+      let next = board;
+      if (result.endedTopic) next = upsertTopic(next, result.endedTopic);
+      if (result.startedTopic) next = upsertTopic(next, result.startedTopic);
+      return next;
+    }
+    // queue.reorder (RN-019): only `discussionOrder` changed — still the full topic, folded the
+    // same way as topic.rename.
+    case 'queue.reorder': {
+      const result = event.payload as QueueReorderResult;
+      return upsertTopic(board, result.topic);
     }
     // suggestion.reject (RN-017): nothing board-wide changes (no card or topic is touched) —
     // this reaches every participant's shared channel like any other mutation, but it never

@@ -25,8 +25,19 @@ export const topicRenameMutation: MutationTypeDef<TopicRenamePayload> = {
 
     await client.query('update topics set name = $1 where id = $2', [payload.name, payload.topicId]);
 
+    // Renaming is Group-phase only (see the cardGroup gate above), and RN-019's discuss-queue
+    // fields are only ever set starting at the vote->discuss transition — long after Group ends
+    // — so they're always null here, same reasoning as topicHelpers.ts's createTopicFromCardIds.
     return TopicRenameResult.parse({
-      topic: { id: payload.topicId, columnId: topic.column_id, name: payload.name, voteCount: topic.vote_count },
+      topic: {
+        id: payload.topicId,
+        columnId: topic.column_id,
+        name: payload.name,
+        voteCount: topic.vote_count,
+        discussionOrder: null,
+        startedAt: null,
+        endedAt: null,
+      },
     });
   },
 };
