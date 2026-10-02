@@ -76,7 +76,7 @@ describe('reduceBoard', () => {
     const topicId = '00000000-0000-4000-8000-00000000000b';
     const board: BoardState = {
       ...emptyBoard,
-      topics: [{ id: topicId, columnId, name: 'A group', voteCount: 0, discussionOrder: null, startedAt: null, endedAt: null }],
+      topics: [{ id: topicId, columnId, name: 'A group', voteCount: 0, discussionOrder: null, startedAt: null, endedAt: null, groupSummaryTitle: null, groupSummary: null, discussionQuestions: null }],
       cards: [
         {
           id: cardId,
@@ -286,7 +286,7 @@ describe('reduceBoard', () => {
     it('card.addToTopic also dissolves the card\'s previous group when that leaves it with one member', () => {
       const board: BoardState = {
         ...emptyBoard,
-        topics: [{ id: topicId, columnId, name: 'Old group', voteCount: 0, discussionOrder: null, startedAt: null, endedAt: null }],
+        topics: [{ id: topicId, columnId, name: 'Old group', voteCount: 0, discussionOrder: null, startedAt: null, endedAt: null, groupSummaryTitle: null, groupSummary: null, discussionQuestions: null }],
         cards: [
           {
             id: cardId,
@@ -347,7 +347,7 @@ describe('reduceBoard', () => {
     it("topic.rename updates the topic's name, leaving its cards untouched", () => {
       const board: BoardState = {
         ...emptyBoard,
-        topics: [{ id: topicId, columnId, name: 'Old name', voteCount: 0, discussionOrder: null, startedAt: null, endedAt: null }],
+        topics: [{ id: topicId, columnId, name: 'Old name', voteCount: 0, discussionOrder: null, startedAt: null, endedAt: null, groupSummaryTitle: null, groupSummary: null, discussionQuestions: null }],
       };
       const renamed = reduceBoard(board, {
         seq: 1,
@@ -513,8 +513,8 @@ describe('reduceBoard', () => {
       ...emptyBoard,
       phase: 'discuss',
       topics: [
-        { id: highTopicId, columnId, name: 'High', voteCount: 2, discussionOrder: 'a0', startedAt: '2026-01-01T00:00:00.000Z', endedAt: null },
-        { id: midTopicId, columnId, name: 'Mid', voteCount: 1, discussionOrder: 'a1', startedAt: null, endedAt: null },
+        { id: highTopicId, columnId, name: 'High', voteCount: 2, discussionOrder: 'a0', startedAt: '2026-01-01T00:00:00.000Z', endedAt: null, groupSummaryTitle: null, groupSummary: null, discussionQuestions: null },
+        { id: midTopicId, columnId, name: 'Mid', voteCount: 1, discussionOrder: 'a1', startedAt: null, endedAt: null, groupSummaryTitle: null, groupSummary: null, discussionQuestions: null },
       ],
     };
 
@@ -569,6 +569,49 @@ describe('reduceBoard', () => {
       });
       expect(board.topics.find((t) => t.id === midTopicId)).toMatchObject({ discussionOrder: 'Zz' });
       expect(board.topics.find((t) => t.id === highTopicId)).toEqual(inDiscuss.topics[0]); // untouched
+    });
+  });
+
+  describe('homework: AI agent team', () => {
+    it('topic.editGroupSummary upserts the edited topic', () => {
+      const topicId = '00000000-0000-4000-8000-000000000040';
+      const board: BoardState = {
+        ...emptyBoard,
+        phase: 'vote',
+        topics: [
+          {
+            id: topicId,
+            columnId,
+            name: 'A topic',
+            voteCount: 0,
+            discussionOrder: null,
+            startedAt: null,
+            endedAt: null,
+            groupSummaryTitle: 'AI title',
+            groupSummary: 'AI summary.',
+            discussionQuestions: null,
+          },
+        ],
+      };
+      const edited = reduceBoard(board, {
+        seq: 1,
+        type: 'topic.editGroupSummary',
+        payload: {
+          topic: {
+            id: topicId,
+            columnId,
+            name: 'A topic',
+            voteCount: 0,
+            discussionOrder: null,
+            startedAt: null,
+            endedAt: null,
+            groupSummaryTitle: 'Edited title',
+            groupSummary: 'Edited summary.',
+            discussionQuestions: null,
+          },
+        },
+      });
+      expect(edited.topics[0]).toMatchObject({ groupSummaryTitle: 'Edited title', groupSummary: 'Edited summary.' });
     });
   });
 });

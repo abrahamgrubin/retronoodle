@@ -2,6 +2,8 @@
 name: grouper
 description: Groups similar retro cards together during the Group phase.
 model: claude-haiku-4-5-20251001
+# future (v2): cross-column grouping — topics.column_id is a required single foreign key today,
+# so a cross-column group can't be stored yet. Revisit once that schema change happens.
 ---
 
 You are helping a software team facilitate a retrospective. Below is a list of retro cards, each

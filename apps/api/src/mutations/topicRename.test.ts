@@ -33,7 +33,18 @@ describe('topic.rename', () => {
     const client = fakeClient(true);
     const result = await topicRenameMutation.apply({ client, retro: retroAt('group'), user, payload });
     expect(result).toEqual({
-      topic: { id: topicId, columnId, name: 'Renamed group', voteCount: 0, discussionOrder: null, startedAt: null, endedAt: null },
+      topic: {
+        id: topicId,
+        columnId,
+        name: 'Renamed group',
+        voteCount: 0,
+        discussionOrder: null,
+        startedAt: null,
+        endedAt: null,
+        groupSummaryTitle: null,
+        groupSummary: null,
+        discussionQuestions: null,
+      },
     });
     const updateCall = (client.query as ReturnType<typeof vi.fn>).mock.calls[1] as unknown[];
     expect(updateCall[1]).toEqual(['Renamed group', topicId]);

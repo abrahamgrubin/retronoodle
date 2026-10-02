@@ -487,6 +487,88 @@ function VoteControls({
   );
 }
 
+/** Homework: group-summarizer's output, shown on the Vote page in place of the group's cards.
+ * `null` (not yet generated — no API key, still in flight, or failed) renders as a plain
+ * "Summarizing…" placeholder; the facilitator can edit either state (writing one from scratch is
+ * the same action as correcting the AI's draft — see topicEditGroupSummary.ts's own comment).
+ * Plain text only (CLAUDE.md: "summaries ... render as plain text only, never HTML or
+ * Markdown") — rendered as ordinary JSX text content, never dangerouslySetInnerHTML. */
+function GroupSummaryView({
+  topic,
+  canEdit,
+  onEdit,
+}: {
+  topic: Topic;
+  canEdit: boolean;
+  onEdit: (title: string, summary: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draftTitle, setDraftTitle] = useState(topic.groupSummaryTitle ?? '');
+  const [draftSummary, setDraftSummary] = useState(topic.groupSummary ?? '');
+
+  function startEditing() {
+    setDraftTitle(topic.groupSummaryTitle ?? '');
+    setDraftSummary(topic.groupSummary ?? '');
+    setEditing(true);
+  }
+
+  function save() {
+    const title = draftTitle.trim();
+    const summary = draftSummary.trim();
+    if (title && summary) onEdit(title, summary);
+    setEditing(false);
+  }
+
+  if (editing) {
+    return (
+      <div style={{ padding: 4 }}>
+        <input
+          autoFocus
+          value={draftTitle}
+          onChange={(e) => setDraftTitle(e.target.value)}
+          placeholder="Summary title"
+          aria-label="Summary title"
+          style={{ display: 'block', width: '100%', boxSizing: 'border-box', fontWeight: 'bold', marginBottom: 4 }}
+        />
+        <textarea
+          value={draftSummary}
+          onChange={(e) => setDraftSummary(e.target.value)}
+          placeholder="Summary"
+          aria-label="Summary text"
+          rows={3}
+          style={{ display: 'block', width: '100%', boxSizing: 'border-box' }}
+        />
+        <div style={{ marginTop: 4, display: 'flex', gap: 4 }}>
+          <button type="button" onClick={save}>
+            Save
+          </button>
+          <button type="button" onClick={() => setEditing(false)}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: 4 }}>
+      {topic.groupSummary ? (
+        <>
+          <p style={{ margin: '0 0 4px', fontWeight: 'bold' }}>{topic.groupSummaryTitle}</p>
+          <p style={{ margin: 0 }}>{topic.groupSummary}</p>
+        </>
+      ) : (
+        <p style={{ margin: 0, color: '#666', fontStyle: 'italic' }}>Summarizing…</p>
+      )}
+      {canEdit && (
+        <button type="button" onClick={startEditing} style={{ marginTop: 4, fontSize: 12 }}>
+          Edit
+        </button>
+      )}
+    </div>
+  );
+}
+
 /** A group's visual container (RN-015 layout spec): "light tint of the column color with a 2px
  * border," editable name defaulting to the placeholder text, a count chip, and more-than-3
  * collapsing to the first 2 plus "+N more". Member cards stay fully interactive — each is still
@@ -509,6 +591,7 @@ function TopicGroupView({
   voteCountBadge,
   discussCurrent,
   dimmed,
+  summaryView,
 }: {
   topic: Topic;
   cards: BoardCard[];
@@ -532,6 +615,10 @@ function TopicGroupView({
   // to 40% opacity" — both `undefined` outside Discuss/Wrap up, same as the vote props above.
   discussCurrent?: boolean;
   dimmed?: boolean;
+  // Homework: group-summarizer's output, rendered in place of the member cards list entirely —
+  // "on the Vote page, the group summary replaces the cards." `undefined` outside Vote, where
+  // cards render as usual.
+  summaryView?: ReactNode;
 }) {
   const [editingName, setEditingName] = useState(false);
   const [draftName, setDraftName] = useState(topic.name);
@@ -596,29 +683,33 @@ function TopicGroupView({
           {cards.length} card{cards.length === 1 ? '' : 's'}
         </span>
       </div>
-      {visibleCards.map((card) =>
-        card.hidden ? (
-          <HiddenCardPlaceholder key={card.id} columnColor={columnColor} />
-        ) : (
-          <SortableCardView
-            key={card.id}
-            card={card}
-            canDrag={canDragCard(card)}
-            canEdit={canEditCard(card)}
-            onEdit={(body) => onEditCard(card.id, body)}
-            onDelete={() => onDeleteCard(card.id)}
-            menu={menuFor(card)}
-            reactionProps={reactionPropsFor(card)}
-            highlighted={isHighlighted(card)}
-            discussCurrent={discussCurrent}
-            dimmed={dimmed}
-          />
-        ),
-      )}
-      {hiddenCount > 0 && (
-        <button type="button" onClick={() => setExpanded(true)} style={{ fontSize: 12 }}>
-          +{hiddenCount} more
-        </button>
+      {summaryView ?? (
+        <>
+          {visibleCards.map((card) =>
+            card.hidden ? (
+              <HiddenCardPlaceholder key={card.id} columnColor={columnColor} />
+            ) : (
+              <SortableCardView
+                key={card.id}
+                card={card}
+                canDrag={canDragCard(card)}
+                canEdit={canEditCard(card)}
+                onEdit={(body) => onEditCard(card.id, body)}
+                onDelete={() => onDeleteCard(card.id)}
+                menu={menuFor(card)}
+                reactionProps={reactionPropsFor(card)}
+                highlighted={isHighlighted(card)}
+                discussCurrent={discussCurrent}
+                dimmed={dimmed}
+              />
+            ),
+          )}
+          {hiddenCount > 0 && (
+            <button type="button" onClick={() => setExpanded(true)} style={{ fontSize: 12 }}>
+              +{hiddenCount} more
+            </button>
+          )}
+        </>
       )}
     </div>
   );
@@ -784,6 +875,15 @@ function DiscussQueuePanel({
               {current.voteCount} vote{current.voteCount === 1 ? '' : 's'} · {cardCountByTopic.get(current.id) ?? 0} card
               {(cardCountByTopic.get(current.id) ?? 0) === 1 ? '' : 's'}
             </p>
+            {/* Homework: question-suggester's output — written the moment this topic became
+                current (discussHelpers.ts's startTopic); null until it runs. */}
+            {current.discussionQuestions && current.discussionQuestions.length > 0 && (
+              <ul style={{ margin: '0 0 8px', paddingLeft: 16, fontSize: 12 }}>
+                {current.discussionQuestions.map((q, i) => (
+                  <li key={i}>{q}</li>
+                ))}
+              </ul>
+            )}
             {canManage && (
               <button type="button" onClick={isLastTopic ? onFinish : onNext}>
                 {isLastTopic ? 'Finish discussion' : 'Next topic'}
@@ -1266,6 +1366,9 @@ function Board({
           discussionOrder: null,
           startedAt: null,
           endedAt: null,
+          groupSummaryTitle: null,
+          groupSummary: null,
+          discussionQuestions: null,
         };
         return {
           ...b,
@@ -1297,6 +1400,19 @@ function Board({
       mutationId,
       optimisticReduce: (b) => ({ ...b, topics: b.topics.map((t) => (t.id === topicId ? { ...t, name } : t)) }),
       send: () => postMutation(accessToken, retroId, { mutationId, type: 'topic.rename', payload: { topicId, name } }),
+    });
+  }
+
+  // Homework: "the facilitator to be able to edit the summary during the voting phase."
+  function editGroupSummary(topicId: string, title: string, summary: string) {
+    const mutationId = uuidv7();
+    void sendMutation({
+      mutationId,
+      optimisticReduce: (b) => ({
+        ...b,
+        topics: b.topics.map((t) => (t.id === topicId ? { ...t, groupSummaryTitle: title, groupSummary: summary } : t)),
+      }),
+      send: () => postMutation(accessToken, retroId, { mutationId, type: 'topic.editGroupSummary', payload: { topicId, title, summary } }),
     });
   }
 
@@ -1542,6 +1658,26 @@ function Board({
 
     const retroChannel = client.channel(`retro:${retroId}`, { config: { private: true } });
     retroChannel.on('broadcast', { event: '*' }, (message) => {
+      // Homework: the two AI agents' own one-shot worker broadcasts — not retro_events mutations
+      // (no seq, nothing for applyServerEvent's ordering to key off of), same reasoning as
+      // group.suggestions on the user channel below, just sent to everyone here instead of only
+      // the facilitator. Patched in directly rather than seq-gated.
+      if (message.event === 'topic.groupSummaryReady') {
+        const { topicId, title, summary } = message.payload as { topicId: string; title: string; summary: string };
+        applyLocalPatch((b) => ({
+          ...b,
+          topics: b.topics.map((t) => (t.id === topicId ? { ...t, groupSummaryTitle: title, groupSummary: summary } : t)),
+        }));
+        return;
+      }
+      if (message.event === 'topic.questionsReady') {
+        const { topicId, questions } = message.payload as { topicId: string; questions: string[] };
+        applyLocalPatch((b) => ({
+          ...b,
+          topics: b.topics.map((t) => (t.id === topicId ? { ...t, discussionQuestions: questions } : t)),
+        }));
+        return;
+      }
       const { seq, result } = message.payload as { seq: number; result: unknown };
       applyServerEvent({ seq, type: message.event, payload: result });
     });
@@ -1877,6 +2013,15 @@ function Board({
                             isHighlighted={(c) => highlightedCardIds.has(c.id)}
                             discussCurrent={discussDimmingActive && row.topic.id === currentDiscussTopic?.id}
                             dimmed={discussDimmingActive && row.topic.id !== currentDiscussTopic?.id}
+                            summaryView={
+                              board.phase === 'vote' ? (
+                                <GroupSummaryView
+                                  topic={row.topic}
+                                  canEdit={isFacilitator}
+                                  onEdit={(title, summary) => editGroupSummary(row.topic.id, title, summary)}
+                                />
+                              ) : undefined
+                            }
                             voteControls={
                               canVote ? (
                                 <VoteControls

@@ -68,6 +68,9 @@ export const cardAddToTopicMutation: MutationTypeDef<CardAddToTopicPayload> = {
         discussionOrder: null,
         startedAt: null,
         endedAt: null,
+        groupSummaryTitle: null,
+        groupSummary: null,
+        discussionQuestions: null,
       },
       card: {
         id: payload.cardId,

@@ -31,6 +31,9 @@ function topicRow(id: string, overrides: Partial<Record<string, unknown>> = {}) 
     discussion_order: 'a0',
     started_at: new Date('2026-01-01T00:00:00.000Z'),
     ended_at: null,
+    ai_group_summary_title: null,
+    ai_group_summary: null,
+    ai_discussion_questions: null,
     ...overrides,
   };
 }
@@ -91,6 +94,24 @@ describe('topic.next', () => {
     await topicNextMutation.apply({ client, retro: retroAt('discuss'), user: facilitator, payload: {}, jobs });
 
     expect(send).toHaveBeenCalledWith('ai.summarizeTopic', { topicId: currentTopicId });
+  });
+
+  // Homework: the topic that just became current gets its own question-suggester enqueue too,
+  // separate from (and in addition to) the ended topic's ai.summarizeTopic enqueue above.
+  it('best-effort enqueues the started topic\'s question-suggester job', async () => {
+    const query = vi.fn();
+    query.mockResolvedValueOnce({ rows: [topicRow(currentTopicId)] });
+    query.mockResolvedValueOnce({ rows: [topicRow(currentTopicId, { ended_at: new Date() })] });
+    query.mockResolvedValueOnce({ rows: [{ id: nextTopicId }] });
+    query.mockResolvedValueOnce({ rows: [topicRow(nextTopicId, { started_at: new Date() })] });
+    const client = { query } as unknown as PoolClient;
+    const send = vi.fn().mockResolvedValue('job-id');
+    const jobs: JobSender = { send };
+
+    await topicNextMutation.apply({ client, retro: retroAt('discuss'), user: facilitator, payload: {}, jobs });
+
+    expect(send).toHaveBeenCalledWith('ai.summarizeTopic', { topicId: currentTopicId });
+    expect(send).toHaveBeenCalledWith('ai.suggestQuestions', { topicId: nextTopicId });
   });
 
   it('swallows a job-enqueue failure rather than failing the mutation', async () => {

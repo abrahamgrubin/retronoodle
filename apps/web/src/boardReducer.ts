@@ -16,6 +16,7 @@ import type {
   TopicQueueResult,
   TopicRenameResult,
   QueueReorderResult,
+  TopicEditGroupSummaryResult,
   VisibleBoardCard,
   VoteAddResult,
   VoteRemoveResult,
@@ -228,6 +229,15 @@ export function reduceBoard(board: BoardState, event: RetroEvent): BoardState {
     // same way as topic.rename.
     case 'queue.reorder': {
       const result = event.payload as QueueReorderResult;
+      return upsertTopic(board, result.topic);
+    }
+    // topic.editGroupSummary (homework): the facilitator's edit — a normal mutation (real seq,
+    // goes through the shared retro channel like any other), unlike the two AI agents' own
+    // one-shot worker broadcasts below, which never go through this reducer at all (see
+    // BoardPage.tsx's retro-channel listener — they're applied as local patches instead, since
+    // they carry no real seq to fold here).
+    case 'topic.editGroupSummary': {
+      const result = event.payload as TopicEditGroupSummaryResult;
       return upsertTopic(board, result.topic);
     }
     // suggestion.reject (RN-017): nothing board-wide changes (no card or topic is touched) —

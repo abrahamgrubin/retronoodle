@@ -37,6 +37,9 @@ export const topicRenameMutation: MutationTypeDef<TopicRenamePayload> = {
         discussionOrder: null,
         startedAt: null,
         endedAt: null,
+        groupSummaryTitle: null,
+        groupSummary: null,
+        discussionQuestions: null,
       },
     });
   },

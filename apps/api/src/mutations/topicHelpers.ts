@@ -114,8 +114,20 @@ export async function createTopicFromCardIds(
   return {
     // A freshly created topic has no votes yet — voting hasn't started (Group phase only), and
     // RN-019's discuss-queue fields are always null this early (they're only ever set starting
-    // at the vote->discuss transition, long after grouping is done).
-    topic: { id: topicId, columnId, name, voteCount: 0, discussionOrder: null, startedAt: null, endedAt: null },
+    // at the vote->discuss transition, long after grouping is done). Same for the homework AI
+    // fields — group-summarizer/question-suggester only ever run starting at group->vote onward.
+    topic: {
+      id: topicId,
+      columnId,
+      name,
+      voteCount: 0,
+      discussionOrder: null,
+      startedAt: null,
+      endedAt: null,
+      groupSummaryTitle: null,
+      groupSummary: null,
+      discussionQuestions: null,
+    },
     cards: lookup.rows.map((r) => ({
       id: r.id,
       columnId: r.column_id,

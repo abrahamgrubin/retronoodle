@@ -40,4 +40,19 @@ touch every `.md` file.
 4. Enqueue it from wherever it belongs (a mutation's `apply()`, or a transition effect in
    `onTransition.ts` — see `write->group`'s `ai.groupCards` for the existing pattern).
 
-`grouper.md` + `groupCards.ts` is the one fully wired example — copy its shape.
+Three agents are fully wired so far, each a slightly different shape worth copying from:
+
+- **grouper** (`groupCards.ts`) — one call for the whole board, facilitator-only output
+  (`broadcastUser`), its own `group_suggestions` table.
+- **group-summarizer** (`summarizeGroup.ts`) — one call per topic, enqueued in a loop from
+  `onTransition.ts`'s `group->vote`, output visible to everyone (`broadcastRetro`), stored
+  directly on `topics` and editable afterward via its own mutation (`topicEditGroupSummary.ts`).
+- **question-suggester** (`suggestQuestions.ts`) — one call per topic, enqueued the moment a
+  topic *becomes current* rather than at a phase transition (`discussHelpers.ts`'s `startTopic`,
+  plus `vote->discuss`'s own top-ranked-topic case), consuming another agent's output
+  (group-summarizer's summary) as its own input.
+
+A one-shot worker broadcast like `broadcastRetro` here never goes through the normal mutation
+pipeline (no `retro_events` row, no real `seq`) — the client has to special-case its event name
+and apply it as a local patch instead of folding it through the seq-ordered reducer path (see
+BoardPage.tsx's retro-channel listener, `'topic.groupSummaryReady'`/`'topic.questionsReady'`).
