@@ -15,6 +15,9 @@ import type {
   TopicCreateFromCardsResult,
   TopicRenameResult,
   VisibleBoardCard,
+  VoteAddResult,
+  VoteRemoveResult,
+  VotingProgress,
 } from '@retronoodle/shared';
 import type { RetroEvent } from './retroStore';
 
@@ -29,6 +32,14 @@ export interface BoardState {
   // RN-015: topics the retro has so far. A card's membership lives on the card (`topicId`), not
   // here — see topics.ts's own comment on why a topic doesn't carry its own card list.
   topics: Topic[];
+  // RN-018: "set by the facilitator before Vote".
+  voteBudget: number;
+  // RN-018: the viewer's own dot counts only, keyed by topicId — "Hidden card text and votes
+  // never leave the server" applies to votes too, so there is no equivalent map for anyone
+  // else's votes anywhere in this state. A topic with 0 votes from this viewer is simply absent.
+  myVotes: Record<string, number>;
+  // RN-018: "5 of 8 done voting" — null outside Vote, where the concept doesn't apply at all.
+  votingProgress: VotingProgress | null;
 }
 
 function isHiddenPayload(payload: unknown): payload is HiddenBoardCard {
@@ -162,12 +173,40 @@ export function reduceBoard(board: BoardState, event: RetroEvent): BoardState {
     case 'phase.skip':
     case 'phase.back': {
       const result = event.payload as PhaseTransitionResult;
-      return { ...board, phase: result.phase, phaseDeadline: result.phaseDeadline };
+      // RN-018: "Going back Vote→Group refunds all votes" — the server deletes every vote row on
+      // this one backward transition (onTransition.ts's 'vote->group'); this is the client half of
+      // that, since nothing else tells this viewer their own votes are now gone. votingProgress is
+      // null outside Vote regardless of direction — the concept doesn't apply anywhere else.
+      const refunded = event.type === 'phase.back' && board.phase === 'vote' && result.phase === 'group';
+      return {
+        ...board,
+        phase: result.phase,
+        phaseDeadline: result.phaseDeadline,
+        myVotes: refunded ? {} : board.myVotes,
+        votingProgress: result.phase === 'vote' ? board.votingProgress : null,
+      };
     }
     // phase.extend (RN-012): only the deadline changes, not the phase itself.
     case 'phase.extend': {
       const result = event.payload as PhaseExtendResult;
       return { ...board, phaseDeadline: result.phaseDeadline };
+    }
+    // vote.add / vote.remove (RN-018): two different shapes arrive here depending on who's
+    // receiving it (pipeline.ts's actorPrivateResult) — the voter's own private echo is the full
+    // VoteAddResult/VoteRemoveResult ({topicId, myCount, remaining, progress}), while everyone
+    // else's shared-channel copy is already reduced to just `progress` (VotingProgress) before
+    // it ever reaches here. `'topicId' in result` tells them apart; only the full shape has
+    // anything to say about a specific topic, so only it touches `myVotes`.
+    case 'vote.add':
+    case 'vote.remove': {
+      const result = event.payload as (VoteAddResult | VoteRemoveResult) | VotingProgress;
+      if ('topicId' in result) {
+        const myVotes = { ...board.myVotes };
+        if (result.myCount > 0) myVotes[result.topicId] = result.myCount;
+        else delete myVotes[result.topicId];
+        return { ...board, myVotes, votingProgress: result.progress };
+      }
+      return { ...board, votingProgress: result };
     }
     // suggestion.reject (RN-017): nothing board-wide changes (no card or topic is touched) —
     // this reaches every participant's shared channel like any other mutation, but it never

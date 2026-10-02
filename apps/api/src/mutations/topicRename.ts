@@ -16,15 +16,17 @@ export const topicRenameMutation: MutationTypeDef<TopicRenamePayload> = {
       throw new MutationRejected(409, 'phase_not_allowed', `topic.rename is not allowed during ${phase}`);
     }
 
-    const existing = await client.query<{ column_id: string }>('select column_id from topics where id = $1 and retro_id = $2', [
-      payload.topicId,
-      retro.id,
-    ]);
+    const existing = await client.query<{ column_id: string; vote_count: number }>(
+      'select column_id, vote_count from topics where id = $1 and retro_id = $2',
+      [payload.topicId, retro.id],
+    );
     const topic = existing.rows[0];
     if (!topic) throw new MutationRejected(404, 'not_found', 'Topic not found');
 
     await client.query('update topics set name = $1 where id = $2', [payload.name, payload.topicId]);
 
-    return TopicRenameResult.parse({ topic: { id: payload.topicId, columnId: topic.column_id, name: payload.name } });
+    return TopicRenameResult.parse({
+      topic: { id: payload.topicId, columnId: topic.column_id, name: payload.name, voteCount: topic.vote_count },
+    });
   },
 };

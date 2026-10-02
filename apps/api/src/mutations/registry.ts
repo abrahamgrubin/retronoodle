@@ -11,6 +11,8 @@ export interface LockedRetro {
   phase: string;
   cards_revealed: boolean;
   phase_deadline: string | null;
+  // RN-018: "set by the facilitator before Vote" — read by vote.add/vote.remove to enforce it.
+  vote_budget: number;
 }
 
 /** RN-017: the one thing a mutation's `apply()` can do outside its own DB transaction — enqueue
@@ -50,6 +52,13 @@ export interface MutationTypeDef<TPayload = unknown> {
    * them. Omitted (card.create/card.edit) means "the whole result IS the card." */
   extractCardForRedaction?: (result: unknown) => VisibleBoardCard;
   withRedactedCard?: (result: unknown, card: VisibleBoardCard | HiddenBoardCard) => unknown;
+  /** RN-018: when present, the shared `retro:{retroId}` channel gets this transformed (reduced)
+   * payload instead of the plain full result, while the full result still goes to the *acting*
+   * user's own `user:{id}` channel (not necessarily the facilitator — whoever sent the mutation).
+   * For `vote.add`/`vote.remove`, whose full result names the topic and the voter's own count —
+   * "no browser receives another person's votes" — this reduces it to the aggregate progress
+   * ("5 of 8 done voting") everyone else is allowed to see instead. */
+  actorPrivateResult?: (result: unknown) => unknown;
 }
 
 /**

@@ -8,6 +8,7 @@ import {
   type ReactionSummary,
   type RetroPhase,
   type VisibleBoardCard,
+  type VotingProgress,
 } from '@retronoodle/shared';
 import { can } from '../auth/can.js';
 import { getTeamRole } from '../auth/membership.js';
@@ -128,6 +129,43 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
         .filter((s): s is GroupSuggestion => s !== null);
     }
 
+    // RN-018: the viewer's own dot counts — "Hidden card text and votes never leave the server"
+    // applies to votes too, so this is always scoped to `user.id`, never any other participant's.
+    const { data: myVoteRows, error: myVotesError } = await supabaseAdmin
+      .from('votes')
+      .select('topic_id')
+      .eq('retro_id', retroId)
+      .eq('user_id', user.id);
+    if (myVotesError) {
+      request.log.error({ err: myVotesError }, 'failed to read own votes');
+      return reply.code(500).send({ error: 'board_read_failed' });
+    }
+    const myVotesByTopic = new Map<string, number>();
+    for (const row of myVoteRows ?? []) myVotesByTopic.set(row.topic_id, (myVotesByTopic.get(row.topic_id) ?? 0) + 1);
+    const myVotes = [...myVotesByTopic.entries()].map(([topicId, count]) => ({ topicId, count }));
+
+    // RN-018: "5 of 8 done voting" — the only cross-participant voting info anyone but the
+    // facilitator-equivalent (nobody, here — every participant sees this) ever gets; only
+    // meaningful while Vote is in progress, so null everywhere else. Deliberately not shared
+    // with voteAdd.ts/voteRemove.ts's own computeVotingProgress (mutations/voteHelpers.ts) —
+    // those run over the raw `pg` pool inside a locked transaction, this runs over
+    // supabase-js/PostgREST outside one, so the two have nothing to usefully share.
+    let votingProgress: VotingProgress | null = null;
+    if (retro.phase === 'vote') {
+      const [{ data: participantRows, error: participantsError }, { data: voteRows, error: votesError }] = await Promise.all([
+        supabaseAdmin.from('retro_participants').select('user_id').eq('retro_id', retroId),
+        supabaseAdmin.from('votes').select('user_id').eq('retro_id', retroId),
+      ]);
+      if (participantsError || votesError) {
+        request.log.error({ participants: participantsError, votes: votesError }, 'failed to read voting progress');
+        return reply.code(500).send({ error: 'board_read_failed' });
+      }
+      const countByUser = new Map<string, number>();
+      for (const row of voteRows ?? []) countByUser.set(row.user_id, (countByUser.get(row.user_id) ?? 0) + 1);
+      const done = [...countByUser.values()].filter((count) => count >= retro.vote_budget).length;
+      votingProgress = { done, total: (participantRows ?? []).length };
+    }
+
     const redactCtx = { viewerId: user.id, phase: retro.phase as RetroPhase, cardsRevealed: retro.cards_revealed };
 
     return BoardResponse.parse({
@@ -141,6 +179,7 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
         templateSource: retro.template_source,
         cardsRevealed: retro.cards_revealed,
         phaseDeadline: retro.phase_deadline,
+        voteBudget: retro.vote_budget,
       },
       columns: (columnsResult.data ?? []).map((c) => ({
         id: c.id,
@@ -166,8 +205,10 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
         };
         return redactCard(full, redactCtx);
       }),
-      topics: (topicsResult.data ?? []).map((t) => ({ id: t.id, columnId: t.column_id, name: t.name })),
+      topics: (topicsResult.data ?? []).map((t) => ({ id: t.id, columnId: t.column_id, name: t.name, voteCount: t.vote_count })),
       suggestions,
+      myVotes,
+      votingProgress,
       seq: lastEventResult.data?.seq ?? 0,
       // RN-012: this specific response is what a late joiner's clock-offset calculation anchors
       // to, so it's set explicitly here rather than relying solely on the global serverTime hook

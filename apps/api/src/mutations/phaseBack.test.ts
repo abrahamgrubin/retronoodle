@@ -9,7 +9,7 @@ const participant = { id: '00000000-0000-4000-8000-000000000004', email: 'p@exam
 const retroId = '00000000-0000-4000-8000-000000000001';
 
 function retroAt(phase: string): LockedRetro {
-  return { id: retroId, team_id: '00000000-0000-4000-8000-000000000002', facilitator_id: facilitatorId, phase, cards_revealed: false, phase_deadline: '2026-01-01T00:05:00.000Z' };
+  return { id: retroId, team_id: '00000000-0000-4000-8000-000000000002', facilitator_id: facilitatorId, phase, cards_revealed: false, phase_deadline: '2026-01-01T00:05:00.000Z', vote_budget: 3 };
 }
 
 const newDeadline = new Date('2026-01-01T00:10:00.000Z');

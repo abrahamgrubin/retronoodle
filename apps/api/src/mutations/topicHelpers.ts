@@ -112,7 +112,8 @@ export async function createTopicFromCardIds(
   await client.query('update cards set topic_id = $1 where id = any($2::uuid[])', [topicId, cardIds]);
 
   return {
-    topic: { id: topicId, columnId, name },
+    // A freshly created topic has no votes yet — voting hasn't started (Group phase only).
+    topic: { id: topicId, columnId, name, voteCount: 0 },
     cards: lookup.rows.map((r) => ({
       id: r.id,
       columnId: r.column_id,

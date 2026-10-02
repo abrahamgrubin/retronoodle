@@ -436,6 +436,40 @@ function SortableCardView({
   );
 }
 
+/** RN-018: "+" adds one of your votes (disabled once you have none left); "−" appears only once
+ * you have at least one vote on this topic, with your own count rendered between the two. No
+ * mock for this story (per CLAUDE.md's "no features from later stories" / layout-spec precedent
+ * elsewhere in this file) — rendered uniformly on a group's header for both single- and
+ * multi-card topics, rather than special-casing a single-card topic to show the controls "on the
+ * card" per the story's literal wording (documented simplification, noted in the PR). */
+function VoteControls({
+  topicName,
+  myCount,
+  remaining,
+  onAdd,
+  onRemove,
+}: {
+  topicName: string;
+  myCount: number;
+  remaining: number;
+  onAdd: () => void;
+  onRemove: () => void;
+}) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
+      <button type="button" onClick={onAdd} disabled={remaining <= 0} aria-label={`Add vote to ${topicName || 'this group'}`}>
+        +
+      </button>
+      <span>{myCount}</span>
+      {myCount > 0 && (
+        <button type="button" onClick={onRemove} aria-label={`Remove vote from ${topicName || 'this group'}`}>
+          −
+        </button>
+      )}
+    </span>
+  );
+}
+
 /** A group's visual container (RN-015 layout spec): "light tint of the column color with a 2px
  * border," editable name defaulting to the placeholder text, a count chip, and more-than-3
  * collapsing to the first 2 plus "+N more". Member cards stay fully interactive — each is still
@@ -454,6 +488,8 @@ function TopicGroupView({
   menuFor,
   reactionPropsFor,
   isHighlighted,
+  voteControls,
+  voteCountBadge,
 }: {
   topic: Topic;
   cards: BoardCard[];
@@ -467,6 +503,12 @@ function TopicGroupView({
   menuFor: (card: VisibleBoardCard) => ReactNode;
   reactionPropsFor: (card: VisibleBoardCard) => ReactionBarProps;
   isHighlighted: (card: BoardCard) => boolean;
+  // RN-018: `undefined` outside Vote — there's nothing to show on this header otherwise.
+  voteControls?: ReactNode;
+  // RN-018: "After Vote, topics display vote counts" — `undefined` until then, since
+  // `topic.voteCount` is structurally 0 (not yet revealed) everywhere before vote->discuss runs,
+  // and rendering it unconditionally would make an honest zero look identical to "not revealed".
+  voteCountBadge?: ReactNode;
 }) {
   const [editingName, setEditingName] = useState(false);
   const [draftName, setDraftName] = useState(topic.name);
@@ -525,6 +567,8 @@ function TopicGroupView({
             {topic.name || 'Name this group'}
           </strong>
         )}
+        {voteControls}
+        {voteCountBadge}
         <span style={{ fontSize: 12, color: '#666', flexShrink: 0 }}>
           {cards.length} card{cards.length === 1 ? '' : 's'}
         </span>
@@ -816,6 +860,9 @@ function Board({
         columns: initialBoard.columns,
         cards: initialBoard.cards,
         topics: initialBoard.topics,
+        voteBudget: initialBoard.retro.voteBudget,
+        myVotes: Object.fromEntries(initialBoard.myVotes.map((v) => [v.topicId, v.count])),
+        votingProgress: initialBoard.votingProgress,
       },
       initialSeq: initialBoard.seq,
       reduce: reduceBoard,
@@ -875,6 +922,18 @@ function Board({
     if (scope === 'after_reveal') return board.cardsRevealed;
     return true;
   }
+
+  // RN-018: "Vote" row of the matrix — Vote phase only, no ownership check (everyone spends their
+  // own budget on anyone's topic).
+  const canVote = allowedActions(board.phase).vote;
+  // "N votes remaining", computed client-side from the viewer's own dot counts — never guessed
+  // from votingProgress, which only ever carries aggregate done/total, never per-topic detail.
+  const votesRemaining = board.voteBudget - Object.values(board.myVotes).reduce((sum, n) => sum + n, 0);
+  // "After Vote, topics display vote counts" — vote_count is structurally 0 everywhere until the
+  // vote->discuss transition actually reveals it (topics.ts), so gating on phase here (rather than
+  // just checking voteCount > 0) is what keeps a topic that genuinely got zero votes from looking
+  // indistinguishable from "not revealed yet" during Vote itself.
+  const votesRevealed = board.phase !== 'review' && board.phase !== 'write' && board.phase !== 'group' && board.phase !== 'vote';
 
   // RN-017: AI grouping suggestions — facilitator-only panel state. `suggestions` starts from
   // the initial snapshot (a reload mid-Group picks up whatever was already pending) and is
@@ -965,7 +1024,12 @@ function Board({
       optimisticReduce: (b) => {
         const first = b.cards.find((c) => c.id === cardIdA) ?? b.cards.find((c) => c.id === cardIdB);
         if (!first) return b;
-        const topic: Topic = { id: topicId, columnId: first.columnId, name: !first.hidden ? defaultTopicName(first.body) : 'New group' };
+        const topic: Topic = {
+          id: topicId,
+          columnId: first.columnId,
+          name: !first.hidden ? defaultTopicName(first.body) : 'New group',
+          voteCount: 0,
+        };
         return {
           ...b,
           topics: [...b.topics, topic],
@@ -1024,6 +1088,36 @@ function Board({
         }),
       }),
       send: () => postMutation(accessToken, retroId, { mutationId, type: 'reaction.toggle', payload: { cardId, emoji } }),
+    });
+  }
+
+  // RN-018: optimistically bumps only this viewer's own dot count — `votingProgress` (how many
+  // *other* people are done) depends on everyone else's state, which there's no reliable way to
+  // guess locally, so it's deliberately left untouched here and only ever updated from a
+  // confirmed broadcast (same precedent as elsewhere in this file: no optimistic shortcut for
+  // anything that depends on other participants).
+  function addVote(topicId: string) {
+    const mutationId = uuidv7();
+    void sendMutation({
+      mutationId,
+      optimisticReduce: (b) => ({ ...b, myVotes: { ...b.myVotes, [topicId]: (b.myVotes[topicId] ?? 0) + 1 } }),
+      send: () => postMutation(accessToken, retroId, { mutationId, type: 'vote.add', payload: { topicId } }),
+    });
+  }
+
+  function removeVote(topicId: string) {
+    const mutationId = uuidv7();
+    void sendMutation({
+      mutationId,
+      optimisticReduce: (b) => {
+        const current = b.myVotes[topicId] ?? 0;
+        if (current <= 0) return b;
+        const myVotes = { ...b.myVotes };
+        if (current <= 1) delete myVotes[topicId];
+        else myVotes[topicId] = current - 1;
+        return { ...b, myVotes };
+      },
+      send: () => postMutation(accessToken, retroId, { mutationId, type: 'vote.remove', payload: { topicId } }),
     });
   }
 
@@ -1121,6 +1215,9 @@ function Board({
               columns: fresh.columns,
               cards: fresh.cards,
               topics: fresh.topics,
+              voteBudget: fresh.retro.voteBudget,
+              myVotes: Object.fromEntries(fresh.myVotes.map((v) => [v.topicId, v.count])),
+              votingProgress: fresh.votingProgress,
             },
             fresh.seq,
           );
@@ -1353,6 +1450,12 @@ function Board({
         <PhaseTimer phaseDeadline={board.phaseDeadline} clockOffsetMs={clockOffsetMs} />
       </div>
       <p style={{ margin: '0 0 8px', color: '#666' }}>{phaseSubtitle(board.phase)}</p>
+      {board.phase === 'vote' && (
+        <p style={{ margin: '0 0 8px', fontSize: 13 }}>
+          {votesRemaining} vote{votesRemaining === 1 ? '' : 's'} remaining
+          {board.votingProgress && ` · ${board.votingProgress.done} of ${board.votingProgress.total} done voting`}
+        </p>
+      )}
       {isFacilitator && (
         <p style={{ margin: '0 0 16px' }}>
           {previousPhase(board.phase) && (
@@ -1398,9 +1501,19 @@ function Board({
                   .sort((a, b) => a.position.localeCompare(b.position));
                 const canEdit = canEditColumn(column.kind);
                 const rows = buildColumnRows(cards, board.topics);
+                // RN-018 AC: "After Vote, topics display vote counts and sort descending, ties by
+                // creation time." `Array.prototype.sort` is stable, so ties keep `rows`' own
+                // position-derived order — a reasonable stand-in for creation time, since cards
+                // are added in roughly that order and nothing before this story needed anything
+                // truer than that. A bare (ungrouped) card can't appear once vote counts are
+                // revealed — group->vote (onTransition.ts) gives every card a topic before Vote
+                // ever starts — but sorts as 0 rather than crashing if one somehow did.
+                const displayRows = votesRevealed
+                  ? [...rows].sort((a, b) => (b.kind === 'group' ? b.topic.voteCount : 0) - (a.kind === 'group' ? a.topic.voteCount : 0))
+                  : rows;
                 // Kept in sync with rendered (grouped) order, not raw position order, so
                 // dnd-kit's own notion of item order matches the DOM it's actually measuring.
-                const sortableIds = rows.flatMap((row) =>
+                const sortableIds = displayRows.flatMap((row) =>
                   row.kind === 'card' ? (row.card.hidden ? [] : [row.card.id]) : row.cards.filter((c) => !c.hidden).map((c) => c.id),
                 );
                 function menuForCard(card: VisibleBoardCard): ReactNode {
@@ -1431,7 +1544,7 @@ function Board({
                     </h2>
                     {column.prompt && <p style={{ fontSize: 12, color: '#666', margin: '0 0 8px' }}>{column.prompt}</p>}
                     <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
-                      {rows.map((row) =>
+                      {displayRows.map((row) =>
                         row.kind === 'card' ? (
                           row.card.hidden ? (
                             <HiddenCardPlaceholder key={row.card.id} columnColor={column.color} />
@@ -1463,6 +1576,24 @@ function Board({
                             menuFor={menuForCard}
                             reactionPropsFor={reactionPropsFor}
                             isHighlighted={(c) => highlightedCardIds.has(c.id)}
+                            voteControls={
+                              canVote ? (
+                                <VoteControls
+                                  topicName={row.topic.name}
+                                  myCount={board.myVotes[row.topic.id] ?? 0}
+                                  remaining={votesRemaining}
+                                  onAdd={() => addVote(row.topic.id)}
+                                  onRemove={() => removeVote(row.topic.id)}
+                                />
+                              ) : undefined
+                            }
+                            voteCountBadge={
+                              votesRevealed ? (
+                                <span style={{ fontSize: 12, color: '#666' }}>
+                                  {row.topic.voteCount} vote{row.topic.voteCount === 1 ? '' : 's'}
+                                </span>
+                              ) : undefined
+                            }
                           />
                         ),
                       )}

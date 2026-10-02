@@ -25,6 +25,7 @@ interface LockAndCheckRow {
   phase: string;
   cards_revealed: boolean;
   phase_deadline: Date | null;
+  vote_budget: number;
   team_role: TeamRole | null;
   existing_seq: number | null;
   existing_payload: StoredEventPayload | null;
@@ -99,7 +100,7 @@ export async function processMutation(deps: {
     try {
       const lockResult = await client.query<LockAndCheckRow>(
         `with locked as (
-           select id, team_id, facilitator_id, phase, cards_revealed, phase_deadline
+           select id, team_id, facilitator_id, phase, cards_revealed, phase_deadline, vote_budget
            from retros
            where id = $1
            for update
@@ -132,6 +133,7 @@ export async function processMutation(deps: {
         cards_revealed: row.cards_revealed,
         // node-postgres parses timestamptz into a Date, not a string (same note as cardCreate.ts).
         phase_deadline: row.phase_deadline ? row.phase_deadline.toISOString() : null,
+        vote_budget: row.vote_budget,
       };
       if (!can(user, 'retro.mutate', { type: 'retro', teamRole: row.team_role, facilitatorId: retro.facilitator_id })) {
         throw new MutationRejected(403, 'forbidden', 'Not allowed to mutate this retro');
@@ -186,6 +188,13 @@ export async function processMutation(deps: {
         const hiddenCard = toHiddenCard(card);
         const hiddenResult = def.withRedactedCard ? def.withRedactedCard(applyResult, hiddenCard) : hiddenCard;
         await realtimeBus.broadcastRetro(retroId, { type: envelope.type, payload: { seq, result: hiddenResult } });
+        await realtimeBus.broadcastUser(user.id, { type: envelope.type, payload: { seq, result: applyResult } });
+      } else if (def.actorPrivateResult) {
+        // RN-018: the full result (e.g. vote.add's {topicId, myCount, ...}) is private to
+        // whoever just sent this mutation — everyone else's board only ever gets the reduced
+        // shared payload (e.g. the aggregate voting progress).
+        const sharedResult = def.actorPrivateResult(applyResult);
+        await realtimeBus.broadcastRetro(retroId, { type: envelope.type, payload: { seq, result: sharedResult } });
         await realtimeBus.broadcastUser(user.id, { type: envelope.type, payload: { seq, result: applyResult } });
       } else {
         await realtimeBus.broadcastRetro(retroId, { type: envelope.type, payload: { seq, result: applyResult } });

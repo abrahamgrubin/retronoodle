@@ -29,16 +29,17 @@ export const cardAddToTopicMutation: MutationTypeDef<CardAddToTopicPayload> = {
       old_topic_id: string | null;
       topic_column_id: string | null;
       topic_name: string | null;
+      topic_vote_count: number | null;
     }>(
       `with card as (
          select column_id, author_id, body, position, created_at, updated_at, topic_id from cards where id = $1 and retro_id = $3
        ),
        topic as (
-         select column_id, name from topics where id = $2 and retro_id = $3
+         select column_id, name, vote_count from topics where id = $2 and retro_id = $3
        )
        select card.column_id as card_column_id, p.display_name as author_name, card.author_id, card.body, card.position,
               card.created_at, card.updated_at, card.topic_id as old_topic_id,
-              topic.column_id as topic_column_id, topic.name as topic_name
+              topic.column_id as topic_column_id, topic.name as topic_name, topic.vote_count as topic_vote_count
        from card
        left join topic on true
        join profiles p on p.id = card.author_id`,
@@ -57,7 +58,7 @@ export const cardAddToTopicMutation: MutationTypeDef<CardAddToTopicPayload> = {
       row.old_topic_id && row.old_topic_id !== payload.topicId ? await dissolveIfOrphaned(client, row.old_topic_id) : null;
 
     return CardAddToTopicResult.parse({
-      topic: { id: payload.topicId, columnId: row.topic_column_id, name: row.topic_name },
+      topic: { id: payload.topicId, columnId: row.topic_column_id, name: row.topic_name, voteCount: row.topic_vote_count ?? 0 },
       card: {
         id: payload.cardId,
         columnId: row.card_column_id,

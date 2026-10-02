@@ -3,6 +3,7 @@ import { RetroPhase, TemplateSource } from './retros.js';
 import { Topic } from './topics.js';
 import { ReactionSummary } from './reactions.js';
 import { GroupSuggestion } from './ai.js';
+import { VotingProgress } from './votes.js';
 
 export const BoardColumn = z.object({
   id: z.string().uuid(),
@@ -67,6 +68,9 @@ export const BoardResponse = z.object({
     // RN-012: when the current phase's countdown ends; null for a phase with no timer (setup,
     // closed). Broadcast fresh on every phase transition and on phase.extend.
     phaseDeadline: z.string().nullable(),
+    // RN-018: "set by the facilitator before Vote" — read here by every viewer so each can
+    // compute their own remaining count locally (voteBudget - sum of myVotes).
+    voteBudget: z.number().int().positive(),
   }),
   columns: z.array(BoardColumn),
   cards: z.array(BoardCard),
@@ -77,6 +81,12 @@ export const BoardResponse = z.object({
   // "participants who aren't the facilitator never receive suggestions" holds for the initial
   // snapshot the same way it holds for the realtime broadcast (worker side, user:{id} only).
   suggestions: z.array(GroupSuggestion).nullable(),
+  // RN-018: the requesting viewer's own dot counts only — never anyone else's (CLAUDE.md:
+  // "Hidden card text and votes never leave the server"). A topic with 0 votes from this viewer
+  // is simply absent rather than listed with count 0.
+  myVotes: z.array(z.object({ topicId: z.string().uuid(), count: z.number().int().positive() })),
+  // RN-018: "5 of 8 done voting" — only meaningful during Vote; null every other phase.
+  votingProgress: VotingProgress.nullable(),
   seq: z.number().int().nonnegative(),
   // RN-012: "every API response includes serverTime" — the client compares this to its own
   // clock once, at load, to get a stable offset, then counts the phase timer down locally

@@ -1,4 +1,5 @@
 import type { PoolClient } from 'pg';
+import { generateKeyBetween } from 'fractional-indexing';
 import { defaultTopicName, type RetroPhase } from '@retronoodle/shared';
 import type { JobSender, LockedRetro } from './registry.js';
 
@@ -62,6 +63,34 @@ const onTransition: Partial<Record<`${RetroPhase}->${RetroPhase}`, TransitionEff
     // anything the facilitator never acted on no longer means anything. 'rejected' rather than a
     // new status: a discarded suggestion and a rejected one both just mean "not adopted."
     await client.query("update group_suggestions set status = 'rejected' where retro_id = $1 and status = 'pending'", [retro.id]);
+  },
+  // RN-018: "reveal counts, set topics.vote_count, order by votes then creation time, first
+  // topic becomes current." `vote_count` is never live-updated while voting is in progress
+  // (see voteHelpers.ts's own comment) — this is the one place it's actually written, which is
+  // also what makes it "revealed": before this runs, every topic's count is still its
+  // just-created default of 0. `discussion_order`/`started_at` are consumed by RN-019's own
+  // discuss-queue UI, not built out here — this just leaves them set.
+  'vote->discuss': async ({ client, retro }) => {
+    const ranked = await client.query<{ id: string; vote_count: number }>(
+      `select t.id, count(v.id)::int as vote_count
+       from topics t
+       left join votes v on v.topic_id = t.id
+       where t.retro_id = $1
+       group by t.id
+       order by count(v.id) desc, t.created_at asc`,
+      [retro.id],
+    );
+    let previousOrder: string | null = null;
+    for (const [index, topic] of ranked.rows.entries()) {
+      const order = generateKeyBetween(previousOrder, null);
+      await client.query('update topics set vote_count = $1, discussion_order = $2, started_at = $3 where id = $4', [
+        topic.vote_count,
+        order,
+        index === 0 ? new Date() : null,
+        topic.id,
+      ]);
+      previousOrder = order;
+    }
   },
 };
 

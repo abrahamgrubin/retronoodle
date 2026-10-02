@@ -71,6 +71,7 @@ describe('processMutation — duplicate mutationId under true concurrency (RN-01
           phase: 'write',
           cards_revealed: false,
           phase_deadline: null,
+          vote_budget: 3,
           team_role: 'member',
           existing_seq: null,
           existing_payload: null,
@@ -114,5 +115,60 @@ describe('processMutation — duplicate mutationId under true concurrency (RN-01
     // ROLLBACK ran (undoing this request's own apply() side effects), not COMMIT.
     expect(query.mock.calls.some((c) => c[0] === 'ROLLBACK')).toBe(true);
     expect(query.mock.calls.some((c) => c[0] === 'COMMIT')).toBe(false);
+  });
+});
+
+describe('processMutation — actorPrivateResult (RN-018)', () => {
+  it("broadcasts the mutation type's own actor the full result, and everyone else the reduced one", async () => {
+    const retroId = '00000000-0000-4000-8000-000000000002';
+    const actorId = '00000000-0000-4000-8000-000000000006';
+    const fullResult = { topicId: '00000000-0000-4000-8000-000000000007', myCount: 2, remaining: 1, progress: { done: 1, total: 3 } };
+
+    const query = vi.fn();
+    query.mockResolvedValueOnce({ rows: [] }); // BEGIN
+    query.mockResolvedValueOnce({
+      rows: [
+        {
+          id: retroId,
+          team_id: '00000000-0000-4000-8000-000000000004',
+          facilitator_id: '00000000-0000-4000-8000-000000000005',
+          phase: 'vote',
+          cards_revealed: true,
+          phase_deadline: null,
+          vote_budget: 3,
+          team_role: 'member',
+          existing_seq: null,
+          existing_payload: null,
+        },
+      ],
+    });
+    query.mockResolvedValueOnce({ rows: [{ seq: 1 }] }); // retro_events insert
+    query.mockResolvedValueOnce({ rows: [] }); // COMMIT
+
+    const client = { query, release: vi.fn() } as unknown as PoolClient;
+    const pool = { connect: async () => client } as unknown as Pool;
+    const broadcastRetro = vi.fn();
+    const broadcastUser = vi.fn();
+    const realtimeBus = { broadcastRetro, broadcastUser } as unknown as RealtimeBus;
+
+    const registry = new MutationRegistry();
+    registry.register('test.vote', {
+      schema: z.object({}),
+      apply: async () => fullResult,
+      actorPrivateResult: (result) => (result as typeof fullResult).progress,
+    });
+
+    const outcome = await processMutation({
+      pool,
+      registry,
+      realtimeBus,
+      retroId,
+      user: { id: actorId, email: 'a@example.com', displayName: 'A', avatarUrl: null },
+      rawBody: { mutationId: '00000000-0000-4000-8000-000000000003', type: 'test.vote', payload: {} },
+    });
+
+    expect(outcome).toEqual({ seq: 1, result: fullResult });
+    expect(broadcastRetro).toHaveBeenCalledWith(retroId, { type: 'test.vote', payload: { seq: 1, result: fullResult.progress } });
+    expect(broadcastUser).toHaveBeenCalledWith(actorId, { type: 'test.vote', payload: { seq: 1, result: fullResult } });
   });
 });
