@@ -243,3 +243,18 @@ export const QueueReorderResult = z.object({
   topic: Topic,
 });
 export type QueueReorderResult = z.infer<typeof QueueReorderResult>;
+
+/** `topic.editGroupSummary` (homework): facilitator-only, Vote phase only — overwrites
+ * group-summarizer's output with the facilitator's own text, whether the agent already ran or
+ * not (there's no special-case for "writing one from scratch" vs. "editing the AI's draft"). */
+export const TopicEditGroupSummaryPayload = z.object({
+  topicId: z.string().uuid(),
+  title: z.string().trim().min(1).max(200),
+  summary: z.string().trim().min(1).max(1000),
+});
+export type TopicEditGroupSummaryPayload = z.infer<typeof TopicEditGroupSummaryPayload>;
+
+export const TopicEditGroupSummaryResult = z.object({
+  topic: Topic,
+});
+export type TopicEditGroupSummaryResult = z.infer<typeof TopicEditGroupSummaryResult>;

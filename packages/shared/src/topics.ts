@@ -23,6 +23,14 @@ export const Topic = z.object({
   // separate "is this the current topic" flag to keep in sync.
   startedAt: z.string().nullable(),
   endedAt: z.string().nullable(),
+  // Homework: AI agent team. group-summarizer writes both once grouping locks in (group->vote) —
+  // null until it runs, or if the facilitator writes their own before it finishes. Shown on the
+  // Vote page in place of the group's cards; editable by the facilitator while voting is open.
+  groupSummaryTitle: z.string().nullable(),
+  groupSummary: z.string().nullable(),
+  // Homework: question-suggester writes this the moment a topic becomes current in Discuss —
+  // null until then. Shown in the Discuss queue's "Now discussing" card.
+  discussionQuestions: z.array(z.string()).nullable(),
 });
 export type Topic = z.infer<typeof Topic>;
 

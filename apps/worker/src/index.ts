@@ -2,11 +2,25 @@ import { PgBoss } from 'pg-boss';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@retronoodle/shared';
 import type { WorkerLogger } from './logger.js';
-import { runGroupCardsJob, type RealtimeBusLike } from './jobs/groupCards.js';
+import { runGroupCardsJob } from './jobs/groupCards.js';
+import { runSummarizeGroupJob } from './jobs/summarizeGroup.js';
+import { runSuggestQuestionsJob } from './jobs/suggestQuestions.js';
 
 export type { WorkerLogger } from './logger.js';
 
 export const AI_GROUP_CARDS_QUEUE = 'ai.groupCards';
+// Homework: AI agent team.
+export const AI_SUMMARIZE_GROUP_QUEUE = 'ai.summarizeGroup';
+export const AI_SUGGEST_QUESTIONS_QUEUE = 'ai.suggestQuestions';
+
+/** The union of every job's own (narrower) RealtimeBusLike requirement — groupCards.ts only ever
+ * needs broadcastUser, summarizeGroup.ts/suggestQuestions.ts only ever need broadcastRetro, but
+ * whatever the caller actually passes in (the real RealtimeBus) has both, and this is the one
+ * place that wires all three jobs to the same instance. */
+export interface RealtimeBusLike {
+  broadcastUser(userId: string, event: { type: string; payload: unknown }): Promise<void>;
+  broadcastRetro(retroId: string, event: { type: string; payload: unknown }): Promise<void>;
+}
 
 export interface JobQueue {
   start(): Promise<unknown>;
@@ -62,6 +76,21 @@ export async function startWorker(options: StartWorkerOptions): Promise<RunningW
         await runGroupCardsJob(job.data, { supabaseAdmin, realtimeBus, anthropicApiKey, logger: options.logger });
       }
     });
+
+    // Homework: AI agent team.
+    await queue.createQueue(AI_SUMMARIZE_GROUP_QUEUE);
+    await queue.work<{ topicId: string }>(AI_SUMMARIZE_GROUP_QUEUE, async (jobs) => {
+      for (const job of jobs) {
+        await runSummarizeGroupJob(job.data, { supabaseAdmin, realtimeBus, anthropicApiKey, logger: options.logger });
+      }
+    });
+
+    await queue.createQueue(AI_SUGGEST_QUESTIONS_QUEUE);
+    await queue.work<{ topicId: string }>(AI_SUGGEST_QUESTIONS_QUEUE, async (jobs) => {
+      for (const job of jobs) {
+        await runSuggestQuestionsJob(job.data, { supabaseAdmin, realtimeBus, anthropicApiKey, logger: options.logger });
+      }
+    });
   }
 
   options.logger.info('worker started');
@@ -88,6 +117,8 @@ export async function createJobSender(databaseUrl: string, logger: WorkerLogger)
   boss.on('error', (err) => logger.error(err, 'pg-boss error (job sender)'));
   await boss.start();
   await boss.createQueue(AI_GROUP_CARDS_QUEUE);
+  await boss.createQueue(AI_SUMMARIZE_GROUP_QUEUE);
+  await boss.createQueue(AI_SUGGEST_QUESTIONS_QUEUE);
   return {
     sender: { send: (queueName, data) => boss.send(queueName, data) },
     async stop() {

@@ -87,6 +87,13 @@ describe('can — role x action matrix (Design 3.4, reconstructed for RN-005)', 
     ['retro.manageDiscussQueue', retroAsMember, false],
     ['retro.manageDiscussQueue', retroNonMember, false],
 
+    // retro.editAiSummary (homework): facilitator only — "the facilitator to be able to edit the
+    // [group] summary" — topic.editGroupSummary gates on this.
+    ['retro.editAiSummary', retroAsFacilitator, true],
+    ['retro.editAiSummary', retroAsAdmin, false],
+    ['retro.editAiSummary', retroAsMember, false],
+    ['retro.editAiSummary', retroNonMember, false],
+
     // card.edit / card.delete / card.move: ownership, not a role — only the author, ever.
     ['card.edit', ownCard, true],
     ['card.edit', othersCard, false],

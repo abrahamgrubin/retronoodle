@@ -20,7 +20,9 @@ RetroNoodle is a real-time retrospective app (retronoodle.com). The backlog in
 - `apps/api`: Fastify. Entry reads `ROLE` = `api` | `worker` | `all`.
 - `apps/worker`: pg-boss jobs (AI, exports, email, retention).
 - `packages/shared`: state machine, Zod schemas, DB types, event types. Imported as TS source.
-- `supabase/`: migrations, seed, RLS policies. `prompts/`: versioned prompts and eval sets.
+- `supabase/`: migrations, seed, RLS policies. `.claude/agents/`: one `<name>.md` file per AI
+  agent the app calls at runtime (frontmatter + prompt body) — loaded by
+  `apps/worker/src/agents/loadAgent.ts`.
 - Tests: Vitest (unit, integration), Playwright (end to end).
 
 ## Rules every story follows

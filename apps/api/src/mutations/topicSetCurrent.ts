@@ -33,7 +33,7 @@ export const topicSetCurrentMutation: MutationTypeDef<TopicSetCurrentPayload> = 
     }
 
     const endedTopic = await endCurrentTopic(client, retro.id, jobs);
-    const startedTopic = await startTopic(client, payload.topicId);
+    const startedTopic = await startTopic(client, payload.topicId, jobs);
 
     return TopicQueueResult.parse({ endedTopic, startedTopic });
   },

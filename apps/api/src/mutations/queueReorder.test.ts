@@ -28,14 +28,38 @@ describe('queue.reorder', () => {
     const query = vi.fn();
     query.mockResolvedValueOnce({ rows: [{ started_at: null }] }); // lookup
     query.mockResolvedValueOnce({
-      rows: [{ id: topicId, column_id: columnId, name: 'A topic', vote_count: 1, discussion_order: 'a1V', started_at: null, ended_at: null }],
+      rows: [
+        {
+          id: topicId,
+          column_id: columnId,
+          name: 'A topic',
+          vote_count: 1,
+          discussion_order: 'a1V',
+          started_at: null,
+          ended_at: null,
+          ai_group_summary_title: null,
+          ai_group_summary: null,
+          ai_discussion_questions: null,
+        },
+      ],
     }); // update
     const client = { query } as unknown as PoolClient;
 
     const result = await queueReorderMutation.apply({ client, retro: retroAt('discuss'), user: facilitator, payload });
 
     expect(result).toEqual({
-      topic: { id: topicId, columnId, name: 'A topic', voteCount: 1, discussionOrder: 'a1V', startedAt: null, endedAt: null },
+      topic: {
+        id: topicId,
+        columnId,
+        name: 'A topic',
+        voteCount: 1,
+        discussionOrder: 'a1V',
+        startedAt: null,
+        endedAt: null,
+        groupSummaryTitle: null,
+        groupSummary: null,
+        discussionQuestions: null,
+      },
     });
   });
 

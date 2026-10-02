@@ -80,6 +80,40 @@ describe('runTransitionEffect', () => {
       expect(discardCall[0]).toContain("status = 'pending'");
       expect(discardCall[1]).toEqual([retro.id]);
     });
+
+    // Homework: grouping locks in the moment Vote starts.
+    it('enqueues ai.summarizeGroup for every topic when a job sender is provided', async () => {
+      const query = vi.fn();
+      query.mockResolvedValueOnce({ rows: [] }); // no ungrouped cards
+      query.mockResolvedValueOnce({ rows: [] }); // discard pending suggestions
+      query.mockResolvedValueOnce({ rows: [{ id: 'topic-a' }, { id: 'topic-b' }] }); // select topics
+      const jobs = { send: vi.fn().mockResolvedValue('job-id') };
+
+      await runTransitionEffect({ query } as unknown as PoolClient, retro, 'group', 'vote', jobs);
+
+      expect(jobs.send).toHaveBeenCalledWith('ai.summarizeGroup', { topicId: 'topic-a' });
+      expect(jobs.send).toHaveBeenCalledWith('ai.summarizeGroup', { topicId: 'topic-b' });
+    });
+
+    it('does not query topics at all when there is no job sender', async () => {
+      const query = vi.fn();
+      query.mockResolvedValueOnce({ rows: [] });
+      query.mockResolvedValueOnce({ rows: [] });
+      await runTransitionEffect({ query } as unknown as PoolClient, retro, 'group', 'vote');
+      expect(query).toHaveBeenCalledTimes(2);
+    });
+
+    it('swallows a job-send failure for one topic and still enqueues the rest', async () => {
+      const query = vi.fn();
+      query.mockResolvedValueOnce({ rows: [] });
+      query.mockResolvedValueOnce({ rows: [] });
+      query.mockResolvedValueOnce({ rows: [{ id: 'topic-a' }, { id: 'topic-b' }] });
+      const send = vi.fn().mockRejectedValueOnce(new Error('queue unavailable')).mockResolvedValueOnce('job-id');
+      await expect(
+        runTransitionEffect({ query } as unknown as PoolClient, retro, 'group', 'vote', { send }),
+      ).resolves.toBeUndefined();
+      expect(send).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe('write->group (RN-017: enqueue ai.groupCards)', () => {
@@ -148,6 +182,34 @@ describe('runTransitionEffect', () => {
       const query = vi.fn().mockResolvedValueOnce({ rows: [] });
       await runTransitionEffect({ query } as unknown as PoolClient, retro, 'vote', 'discuss');
       expect(query).toHaveBeenCalledTimes(1);
+    });
+
+    // Homework: the top-ranked topic becomes current the moment Discuss starts.
+    it('enqueues ai.suggestQuestions for the top-ranked topic only, when a job sender is provided', async () => {
+      const query = vi.fn();
+      query.mockResolvedValueOnce({ rows: [{ id: 'topic-most-votes', vote_count: 5 }, { id: 'topic-fewer-votes', vote_count: 2 }] });
+      query.mockResolvedValueOnce({ rows: [] });
+      query.mockResolvedValueOnce({ rows: [] });
+      const jobs = { send: vi.fn().mockResolvedValue('job-id') };
+
+      await runTransitionEffect({ query } as unknown as PoolClient, retro, 'vote', 'discuss', jobs);
+
+      expect(jobs.send).toHaveBeenCalledTimes(1);
+      expect(jobs.send).toHaveBeenCalledWith('ai.suggestQuestions', { topicId: 'topic-most-votes' });
+    });
+
+    it('does nothing extra, and does not throw, when there is no job sender', async () => {
+      const query = vi.fn();
+      query.mockResolvedValueOnce({ rows: [{ id: 'topic-a', vote_count: 1 }] });
+      query.mockResolvedValueOnce({ rows: [] });
+      await expect(runTransitionEffect({ query } as unknown as PoolClient, retro, 'vote', 'discuss')).resolves.toBeUndefined();
+    });
+
+    it('does not enqueue anything when there are no topics, even with a job sender', async () => {
+      const query = vi.fn().mockResolvedValueOnce({ rows: [] });
+      const jobs = { send: vi.fn() };
+      await runTransitionEffect({ query } as unknown as PoolClient, retro, 'vote', 'discuss', jobs);
+      expect(jobs.send).not.toHaveBeenCalled();
     });
   });
 });

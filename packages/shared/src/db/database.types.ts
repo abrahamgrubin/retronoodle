@@ -214,6 +214,9 @@ export interface Database {
           started_at: string | null;
           ended_at: string | null;
           created_at: string;
+          ai_group_summary_title: string | null;
+          ai_group_summary: string | null;
+          ai_discussion_questions: string[] | null;
         };
         Insert: {
           id: string;
@@ -225,6 +228,9 @@ export interface Database {
           started_at?: string | null;
           ended_at?: string | null;
           created_at?: string;
+          ai_group_summary_title?: string | null;
+          ai_group_summary?: string | null;
+          ai_discussion_questions?: string[] | null;
         };
         Update: {
           id?: string;
@@ -236,6 +242,9 @@ export interface Database {
           started_at?: string | null;
           ended_at?: string | null;
           created_at?: string;
+          ai_group_summary_title?: string | null;
+          ai_group_summary?: string | null;
+          ai_discussion_questions?: string[] | null;
         };
         Relationships: [];
       };

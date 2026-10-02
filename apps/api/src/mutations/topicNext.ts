@@ -31,7 +31,7 @@ export const topicNextMutation: MutationTypeDef<TopicNextPayload> = {
       [retro.id],
     );
     const nextRow = upNext.rows[0];
-    const startedTopic = nextRow ? await startTopic(client, nextRow.id) : null;
+    const startedTopic = nextRow ? await startTopic(client, nextRow.id, jobs) : null;
 
     return TopicQueueResult.parse({ endedTopic, startedTopic });
   },

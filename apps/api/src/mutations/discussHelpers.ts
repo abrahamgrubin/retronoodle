@@ -10,9 +10,14 @@ export interface TopicRow {
   discussion_order: string | null;
   started_at: Date | null;
   ended_at: Date | null;
+  ai_group_summary_title: string | null;
+  ai_group_summary: string | null;
+  ai_discussion_questions: string[] | null;
 }
 
-const TOPIC_COLUMNS = 'id, column_id, name, vote_count, discussion_order, started_at, ended_at';
+const TOPIC_COLUMNS =
+  'id, column_id, name, vote_count, discussion_order, started_at, ended_at, ' +
+  'ai_group_summary_title, ai_group_summary, ai_discussion_questions';
 
 export function toTopic(row: TopicRow): Topic {
   return {
@@ -23,6 +28,9 @@ export function toTopic(row: TopicRow): Topic {
     discussionOrder: row.discussion_order,
     startedAt: row.started_at ? row.started_at.toISOString() : null,
     endedAt: row.ended_at ? row.ended_at.toISOString() : null,
+    groupSummaryTitle: row.ai_group_summary_title,
+    groupSummary: row.ai_group_summary,
+    discussionQuestions: row.ai_discussion_questions,
   };
 }
 
@@ -58,13 +66,24 @@ export async function endCurrentTopic(client: PoolClient, retroId: string, jobs?
 /**
  * (Re)starts a specific topic. "Jump when needed" (the story's own framing) has no stated limit
  * to never-discussed topics — revisiting one already discussed simply reopens it by clearing
- * `ended_at` again.
+ * `ended_at` again. Homework: also best-effort enqueues question-suggester, which writes its
+ * questions the moment a topic becomes current — same "never block on AI" precedent as
+ * endCurrentTopic's own ai.summarizeTopic enqueue above.
  */
-export async function startTopic(client: PoolClient, topicId: string): Promise<Topic> {
+export async function startTopic(client: PoolClient, topicId: string, jobs?: JobSender): Promise<Topic> {
   const started = await client.query<TopicRow>(
     `update topics set started_at = now(), ended_at = null where id = $1 returning ${TOPIC_COLUMNS}`,
     [topicId],
   );
+
+  if (jobs) {
+    try {
+      await jobs.send('ai.suggestQuestions', { topicId });
+    } catch {
+      // Swallowed deliberately — see above.
+    }
+  }
+
   return toTopic(started.rows[0]!);
 }
 

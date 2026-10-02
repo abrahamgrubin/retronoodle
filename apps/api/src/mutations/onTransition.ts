@@ -45,7 +45,7 @@ const onTransition: Partial<Record<`${RetroPhase}->${RetroPhase}`, TransitionEff
   // topic; already-grouped cards are untouched. One topic id per card, server-generated directly
   // in SQL (`gen_random_uuid()`) since there's no client round trip for a transition side effect
   // (same reasoning as retro_columns' own "server-generated" copy-at-start).
-  'group->vote': async ({ client, retro }) => {
+  'group->vote': async ({ client, retro, jobs }) => {
     const ungrouped = await client.query<{ id: string; column_id: string; body: string }>(
       'select id, column_id, body from cards where retro_id = $1 and topic_id is null',
       [retro.id],
@@ -63,6 +63,21 @@ const onTransition: Partial<Record<`${RetroPhase}->${RetroPhase}`, TransitionEff
     // anything the facilitator never acted on no longer means anything. 'rejected' rather than a
     // new status: a discarded suggestion and a rejected one both just mean "not adopted."
     await client.query("update group_suggestions set status = 'rejected' where retro_id = $1 and status = 'pending'", [retro.id]);
+
+    // Homework: grouping is locked in the moment Vote starts — every topic (pre-existing groups
+    // and the just-created single-card ones above) gets its own ai.summarizeGroup job, best-effort
+    // same as write->group's ai.groupCards. One job per topic (not one job for the whole retro)
+    // since group-summarizer.md's own prompt is scoped to "one group of retro cards at a time."
+    if (jobs) {
+      const topics = await client.query<{ id: string }>('select id from topics where retro_id = $1', [retro.id]);
+      for (const topic of topics.rows) {
+        try {
+          await jobs.send('ai.summarizeGroup', { topicId: topic.id });
+        } catch {
+          // Swallowed deliberately — see above.
+        }
+      }
+    }
   },
   // RN-018: "reveal counts, set topics.vote_count, order by votes then creation time, first
   // topic becomes current." `vote_count` is never live-updated while voting is in progress
@@ -70,7 +85,7 @@ const onTransition: Partial<Record<`${RetroPhase}->${RetroPhase}`, TransitionEff
   // also what makes it "revealed": before this runs, every topic's count is still its
   // just-created default of 0. `discussion_order`/`started_at` are consumed by RN-019's own
   // discuss-queue UI, not built out here — this just leaves them set.
-  'vote->discuss': async ({ client, retro }) => {
+  'vote->discuss': async ({ client, retro, jobs }) => {
     const ranked = await client.query<{ id: string; vote_count: number }>(
       `select t.id, count(v.id)::int as vote_count
        from topics t
@@ -90,6 +105,19 @@ const onTransition: Partial<Record<`${RetroPhase}->${RetroPhase}`, TransitionEff
         topic.id,
       ]);
       previousOrder = order;
+    }
+
+    // Homework: the top-ranked topic just became current the same way startTopic() makes any
+    // other topic current — this transition does its own raw `update` above instead of calling
+    // that helper (it's stamping every topic's rank in one loop, not just one), so the
+    // question-suggester enqueue has to be repeated here rather than shared.
+    const first = ranked.rows[0];
+    if (jobs && first) {
+      try {
+        await jobs.send('ai.suggestQuestions', { topicId: first.id });
+      } catch {
+        // Swallowed deliberately — see above.
+      }
     }
   },
 };

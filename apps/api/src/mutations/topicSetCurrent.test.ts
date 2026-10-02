@@ -31,6 +31,9 @@ function topicRow(id: string, overrides: Partial<Record<string, unknown>> = {}) 
     discussion_order: 'a0',
     started_at: null,
     ended_at: null,
+    ai_group_summary_title: null,
+    ai_group_summary: null,
+    ai_discussion_questions: null,
     ...overrides,
   };
 }
@@ -72,6 +75,27 @@ describe('topic.setCurrent', () => {
     });
 
     expect(result).toMatchObject({ startedTopic: { id: targetTopicId, endedAt: null } });
+  });
+
+  // Homework: jumping also starts a topic, so it enqueues question-suggester the same way
+  // topic.next does.
+  it('best-effort enqueues question-suggester for the newly-started topic', async () => {
+    const query = vi.fn();
+    query.mockResolvedValueOnce({ rows: [{ started_at: null, ended_at: null }] });
+    query.mockResolvedValueOnce({ rows: [] }); // nothing currently current
+    query.mockResolvedValueOnce({ rows: [topicRow(targetTopicId, { started_at: new Date() })] });
+    const client = { query } as unknown as PoolClient;
+    const send = vi.fn().mockResolvedValue('job-id');
+
+    await topicSetCurrentMutation.apply({
+      client,
+      retro: retroAt('discuss'),
+      user: facilitator,
+      payload: { topicId: targetTopicId },
+      jobs: { send },
+    });
+
+    expect(send).toHaveBeenCalledWith('ai.suggestQuestions', { topicId: targetTopicId });
   });
 
   it('jumping to the topic that is already current is a no-op', async () => {
