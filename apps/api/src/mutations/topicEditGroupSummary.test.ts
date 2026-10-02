@@ -35,6 +35,7 @@ function updatedRow() {
     ai_group_summary_title: payload.title,
     ai_group_summary: payload.summary,
     ai_discussion_questions: null,
+    notes: '',
   };
 }
 

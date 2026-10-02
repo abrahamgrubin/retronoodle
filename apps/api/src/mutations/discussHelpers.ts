@@ -13,11 +13,31 @@ export interface TopicRow {
   ai_group_summary_title: string | null;
   ai_group_summary: string | null;
   ai_discussion_questions: string[] | null;
+  notes: string;
 }
 
-const TOPIC_COLUMNS =
+const TOPIC_RETURNING_COLUMNS =
   'id, column_id, name, vote_count, discussion_order, started_at, ended_at, ' +
   'ai_group_summary_title, ai_group_summary, ai_discussion_questions';
+
+/**
+ * Wraps an `update topics set ... where ...` statement (no `returning` clause of its own) so the
+ * result also carries the topic's real, current notes — RN-020's `topic_notes` is a separate
+ * table, one row per topic, not a column on `topics` itself. Without this, a mutation that
+ * updates some other part of a topic (ending it, reordering it, editing its AI summary) would
+ * have nothing to say about notes at all, and hardcoding `notes: ''` into its result would
+ * silently wipe out a facilitator's typed notes from every other client's view the moment that
+ * unrelated mutation broadcasts (`upsertTopic` on the client replaces the whole topic object).
+ * One atomic query via a CTE, not a second round-trip that could race the first.
+ */
+export function updateTopicReturningFull(updateSql: string): string {
+  return `with updated as (
+      ${updateSql} returning ${TOPIC_RETURNING_COLUMNS}
+    )
+    select updated.*, coalesce(tn.body, '') as notes
+    from updated
+    left join topic_notes tn on tn.topic_id = updated.id`;
+}
 
 export function toTopic(row: TopicRow): Topic {
   return {
@@ -31,6 +51,7 @@ export function toTopic(row: TopicRow): Topic {
     groupSummaryTitle: row.ai_group_summary_title,
     groupSummary: row.ai_group_summary,
     discussionQuestions: row.ai_discussion_questions,
+    notes: row.notes,
   };
 }
 
@@ -44,13 +65,18 @@ export function toTopic(row: TopicRow): Topic {
  */
 export async function endCurrentTopic(client: PoolClient, retroId: string, jobs?: JobSender): Promise<Topic | null> {
   const current = await client.query<TopicRow>(
-    `select ${TOPIC_COLUMNS} from topics where retro_id = $1 and started_at is not null and ended_at is null`,
+    `select t.id, t.column_id, t.name, t.vote_count, t.discussion_order, t.started_at, t.ended_at,
+            t.ai_group_summary_title, t.ai_group_summary, t.ai_discussion_questions,
+            coalesce(tn.body, '') as notes
+     from topics t
+     left join topic_notes tn on tn.topic_id = t.id
+     where t.retro_id = $1 and t.started_at is not null and t.ended_at is null`,
     [retroId],
   );
   const row = current.rows[0];
   if (!row) return null;
 
-  const ended = await client.query<TopicRow>(`update topics set ended_at = now() where id = $1 returning ${TOPIC_COLUMNS}`, [row.id]);
+  const ended = await client.query<TopicRow>(updateTopicReturningFull('update topics set ended_at = now() where id = $1'), [row.id]);
 
   if (jobs) {
     try {
@@ -72,7 +98,7 @@ export async function endCurrentTopic(client: PoolClient, retroId: string, jobs?
  */
 export async function startTopic(client: PoolClient, topicId: string, jobs?: JobSender): Promise<Topic> {
   const started = await client.query<TopicRow>(
-    `update topics set started_at = now(), ended_at = null where id = $1 returning ${TOPIC_COLUMNS}`,
+    updateTopicReturningFull('update topics set started_at = now(), ended_at = null where id = $1'),
     [topicId],
   );
 
@@ -86,5 +112,3 @@ export async function startTopic(client: PoolClient, topicId: string, jobs?: Job
 
   return toTopic(started.rows[0]!);
 }
-
-export { TOPIC_COLUMNS };

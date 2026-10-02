@@ -104,6 +104,20 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
       return byEmoji ? ([...byEmoji.entries()].map(([emoji, userIds]) => ({ emoji, userIds })) as ReactionSummary[]) : [];
     }
 
+    // RN-020: topic_notes has no retro_id of its own either (one row per topic, keyed by
+    // topic_id) — same reasoning as card_reactions above, depends on the topic id list rather
+    // than joining in the initial Promise.all.
+    const topicIds = (topicsResult.data ?? []).map((t) => t.id);
+    const notesByTopic = new Map<string, string>();
+    if (topicIds.length > 0) {
+      const { data: noteRows, error: notesError } = await supabaseAdmin.from('topic_notes').select('topic_id, body').in('topic_id', topicIds);
+      if (notesError) {
+        request.log.error({ err: notesError }, 'failed to read topic notes');
+        return reply.code(500).send({ error: 'board_read_failed' });
+      }
+      for (const row of noteRows ?? []) notesByTopic.set(row.topic_id, row.body);
+    }
+
     // RN-017: "Participants who aren't the facilitator never receive suggestions" — true for the
     // initial snapshot here, not just the realtime broadcast (worker side, user:{id} only).
     // columnId isn't stored on group_suggestions itself (every member card already has one, and
@@ -216,6 +230,7 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
         groupSummaryTitle: t.ai_group_summary_title,
         groupSummary: t.ai_group_summary,
         discussionQuestions: t.ai_discussion_questions,
+        notes: notesByTopic.get(t.id) ?? '',
       })),
       suggestions,
       myVotes,

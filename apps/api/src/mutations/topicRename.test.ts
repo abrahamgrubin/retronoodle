@@ -44,6 +44,7 @@ describe('topic.rename', () => {
         groupSummaryTitle: null,
         groupSummary: null,
         discussionQuestions: null,
+        notes: '',
       },
     });
     const updateCall = (client.query as ReturnType<typeof vi.fn>).mock.calls[1] as unknown[];

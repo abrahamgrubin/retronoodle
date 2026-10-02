@@ -31,6 +31,10 @@ export const Topic = z.object({
   // Homework: question-suggester writes this the moment a topic becomes current in Discuss —
   // null until then. Shown in the Discuss queue's "Now discussing" card.
   discussionQuestions: z.array(z.string()).nullable(),
+  // RN-020: the facilitator's typed notes on the current topic — "so the summary captures what
+  // was said even without audio." Never null (topic_notes.body defaults to '' in the DB); a
+  // topic nobody has typed notes on yet is simply empty, not "unset."
+  notes: z.string(),
 });
 export type Topic = z.infer<typeof Topic>;
 

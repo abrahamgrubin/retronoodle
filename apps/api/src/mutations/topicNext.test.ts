@@ -34,6 +34,7 @@ function topicRow(id: string, overrides: Partial<Record<string, unknown>> = {}) 
     ai_group_summary_title: null,
     ai_group_summary: null,
     ai_discussion_questions: null,
+    notes: '',
     ...overrides,
   };
 }

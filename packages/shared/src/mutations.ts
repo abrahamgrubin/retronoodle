@@ -258,3 +258,18 @@ export const TopicEditGroupSummaryResult = z.object({
   topic: Topic,
 });
 export type TopicEditGroupSummaryResult = z.infer<typeof TopicEditGroupSummaryResult>;
+
+/** `note.upsert` (RN-020): "type quick notes on the current topic... debounced 800ms" — the
+ * debounce itself is client-side (BoardPage.tsx); this is just the write. No ownership/role
+ * check beyond the phase gate (Discuss/Wrap up) — unlike RN-019's queue mutations, this story's
+ * own technical notes never say "facilitator-only," same "anyone" default as topic.rename. */
+export const NoteUpsertPayload = z.object({
+  topicId: z.string().uuid(),
+  body: z.string().max(4000),
+});
+export type NoteUpsertPayload = z.infer<typeof NoteUpsertPayload>;
+
+export const NoteUpsertResult = z.object({
+  topic: Topic,
+});
+export type NoteUpsertResult = z.infer<typeof NoteUpsertResult>;

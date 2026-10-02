@@ -805,6 +805,51 @@ function UpNextRow({
   );
 }
 
+/** RN-020 layout spec: "the notes box from RN-020" lives in the "Now discussing" card. Debounces
+ * 800ms of inactivity before actually sending — every keystroke updates local state instantly,
+ * nothing is sent until typing pauses. `key={topicId}` at the call site forces a fresh mount (and
+ * therefore fresh local state) whenever the current topic changes, rather than this component
+ * trying to detect "that's a different topic now" itself. */
+function NotesEditor({
+  topicId,
+  initialBody,
+  canEdit,
+  onSave,
+}: {
+  topicId: string;
+  initialBody: string;
+  canEdit: boolean;
+  onSave: (topicId: string, body: string) => void;
+}) {
+  const [draft, setDraft] = useState(initialBody);
+  const lastSavedRef = useRef(initialBody);
+
+  useEffect(() => {
+    if (draft === lastSavedRef.current) return;
+    const timeout = setTimeout(() => {
+      lastSavedRef.current = draft;
+      onSave(topicId, draft);
+    }, 800);
+    return () => clearTimeout(timeout);
+  }, [draft, topicId, onSave]);
+
+  if (!canEdit) {
+    return draft ? <p style={{ margin: 0, fontSize: 12, whiteSpace: 'pre-wrap' }}>{draft}</p> : null;
+  }
+
+  return (
+    <textarea
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      placeholder="Type notes…"
+      aria-label="Topic notes"
+      rows={3}
+      maxLength={4000}
+      style={{ width: '100%', boxSizing: 'border-box', fontSize: 12 }}
+    />
+  );
+}
+
 /** The 320px right-edge panel (RN-019 layout spec), open for everyone (not facilitator-gated,
  * unlike RN-017's SuggestionsPanel — "Voter sees own... Others see progress" precedent doesn't
  * apply here, the whole queue is public once Discuss starts). Only a "Queue" tab is built — the
@@ -823,6 +868,8 @@ function DiscussQueuePanel({
   onFinish,
   onJump,
   onReorder,
+  canEditNotes,
+  onNotesChange,
 }: {
   phase: RetroPhase;
   topics: Topic[];
@@ -832,6 +879,10 @@ function DiscussQueuePanel({
   onFinish: () => void;
   onJump: (topicId: string) => void;
   onReorder: (topicId: string, discussionOrder: string) => void;
+  // RN-020: "editable only in Discuss and Wrap up" — no ownership check beyond that (unlike
+  // `canManage`'s facilitator-only queue controls above), so this is its own separate flag.
+  canEditNotes: boolean;
+  onNotesChange: (topicId: string, body: string) => void;
 }) {
   const current = topics.find((t) => t.startedAt && !t.endedAt) ?? null;
   const upNext = topics
@@ -884,6 +935,15 @@ function DiscussQueuePanel({
                 ))}
               </ul>
             )}
+            <div style={{ marginBottom: 8 }}>
+              <NotesEditor
+                key={current.id}
+                topicId={current.id}
+                initialBody={current.notes}
+                canEdit={canEditNotes}
+                onSave={onNotesChange}
+              />
+            </div>
             {canManage && (
               <button type="button" onClick={isLastTopic ? onFinish : onNext}>
                 {isLastTopic ? 'Finish discussion' : 'Next topic'}
@@ -1268,6 +1328,9 @@ function Board({
   for (const card of board.cards) {
     if (card.topicId) cardCountByTopic.set(card.topicId, (cardCountByTopic.get(card.topicId) ?? 0) + 1);
   }
+  // RN-020: "editable only in Discuss and Wrap up" — matrix's own `summaryEdit` cell, no
+  // ownership check (the story never says "facilitator-only").
+  const canEditNotes = allowedActions(board.phase).summaryEdit;
 
   // RN-017: AI grouping suggestions — facilitator-only panel state. `suggestions` starts from
   // the initial snapshot (a reload mid-Group picks up whatever was already pending) and is
@@ -1369,6 +1432,7 @@ function Board({
           groupSummaryTitle: null,
           groupSummary: null,
           discussionQuestions: null,
+          notes: '',
         };
         return {
           ...b,
@@ -1413,6 +1477,17 @@ function Board({
         topics: b.topics.map((t) => (t.id === topicId ? { ...t, groupSummaryTitle: title, groupSummary: summary } : t)),
       }),
       send: () => postMutation(accessToken, retroId, { mutationId, type: 'topic.editGroupSummary', payload: { topicId, title, summary } }),
+    });
+  }
+
+  // RN-020: "notes save automatically" — called by NotesEditor's own 800ms debounce, not on
+  // every keystroke.
+  function updateNotes(topicId: string, body: string) {
+    const mutationId = uuidv7();
+    void sendMutation({
+      mutationId,
+      optimisticReduce: (b) => ({ ...b, topics: b.topics.map((t) => (t.id === topicId ? { ...t, notes: body } : t)) }),
+      send: () => postMutation(accessToken, retroId, { mutationId, type: 'note.upsert', payload: { topicId, body } }),
     });
   }
 
@@ -2087,6 +2162,8 @@ function Board({
             onFinish={finishDiscussion}
             onJump={jumpToTopic}
             onReorder={reorderQueueTopic}
+            canEditNotes={canEditNotes}
+            onNotesChange={updateNotes}
           />
         )}
       </div>

@@ -2,7 +2,7 @@ import { TopicEditGroupSummaryPayload, TopicEditGroupSummaryResult, type RetroPh
 import { can } from '../auth/can.js';
 import type { MutationTypeDef } from './registry.js';
 import { MutationRejected } from './errors.js';
-import { toTopic, TOPIC_COLUMNS, type TopicRow } from './discussHelpers.js';
+import { toTopic, updateTopicReturningFull, type TopicRow } from './discussHelpers.js';
 
 /**
  * topic.editGroupSummary (homework): "the facilitator to be able to edit the summary during the
@@ -27,7 +27,7 @@ export const topicEditGroupSummaryMutation: MutationTypeDef<TopicEditGroupSummar
     if (existing.rows.length === 0) throw new MutationRejected(404, 'not_found', 'Topic not found');
 
     const updated = await client.query<TopicRow>(
-      `update topics set ai_group_summary_title = $1, ai_group_summary = $2 where id = $3 returning ${TOPIC_COLUMNS}`,
+      updateTopicReturningFull('update topics set ai_group_summary_title = $1, ai_group_summary = $2 where id = $3'),
       [payload.title, payload.summary, payload.topicId],
     );
 
