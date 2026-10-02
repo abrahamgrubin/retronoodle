@@ -1993,7 +1993,14 @@ function Board({
                               reactionProps={reactionPropsFor(row.card)}
                               highlighted={highlightedCardIds.has(row.card.id)}
                               discussCurrent={false}
-                              dimmed={discussDimmingActive}
+                              // Bug: action items are a persistent list, not part of any
+                              // "current topic" — group->vote's auto-topic-wrap never touches
+                              // that column, so its cards always render as bare 'card' rows here,
+                              // and dimming them (even just visually — the Edit/Delete buttons
+                              // were never actually disabled) made them look uneditable during
+                              // Discuss/Wrap up, when they're exactly the phases action items are
+                              // meant to be worked on.
+                              dimmed={column.kind === 'standard' && discussDimmingActive}
                             />
                           )
                         ) : (
