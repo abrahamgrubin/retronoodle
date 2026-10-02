@@ -15,12 +15,13 @@ function retroAt(phase: string): LockedRetro {
     phase,
     cards_revealed: true,
     phase_deadline: null,
+    vote_budget: 3,
   };
 }
 
 function fakeClient(exists: boolean) {
   const query = vi.fn();
-  query.mockResolvedValueOnce({ rows: exists ? [{ column_id: columnId }] : [] }); // lookup
+  query.mockResolvedValueOnce({ rows: exists ? [{ column_id: columnId, vote_count: 0 }] : [] }); // lookup
   query.mockResolvedValueOnce({ rows: [] }); // update
   return { query } as unknown as PoolClient;
 }
@@ -31,7 +32,7 @@ describe('topic.rename', () => {
   it("lets anyone rename a group — no ownership check, just the Group-phase gate", async () => {
     const client = fakeClient(true);
     const result = await topicRenameMutation.apply({ client, retro: retroAt('group'), user, payload });
-    expect(result).toEqual({ topic: { id: topicId, columnId, name: 'Renamed group' } });
+    expect(result).toEqual({ topic: { id: topicId, columnId, name: 'Renamed group', voteCount: 0 } });
     const updateCall = (client.query as ReturnType<typeof vi.fn>).mock.calls[1] as unknown[];
     expect(updateCall[1]).toEqual(['Renamed group', topicId]);
   });

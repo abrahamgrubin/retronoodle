@@ -6,7 +6,17 @@ const columnId = '00000000-0000-4000-8000-000000000001';
 const cardId = '00000000-0000-4000-8000-000000000002';
 const authorId = '00000000-0000-4000-8000-000000000003';
 
-const emptyBoard: BoardState = { phase: 'write', cardsRevealed: false, phaseDeadline: null, columns: [], cards: [], topics: [] };
+const emptyBoard: BoardState = {
+  phase: 'write',
+  cardsRevealed: false,
+  phaseDeadline: null,
+  columns: [],
+  cards: [],
+  topics: [],
+  voteBudget: 3,
+  myVotes: {},
+  votingProgress: null,
+};
 
 function createEvent(overrides: Partial<Record<string, unknown>> = {}): RetroEvent {
   return {
@@ -66,7 +76,7 @@ describe('reduceBoard', () => {
     const topicId = '00000000-0000-4000-8000-00000000000b';
     const board: BoardState = {
       ...emptyBoard,
-      topics: [{ id: topicId, columnId, name: 'A group' }],
+      topics: [{ id: topicId, columnId, name: 'A group', voteCount: 0 }],
       cards: [
         {
           id: cardId,
@@ -148,6 +158,35 @@ describe('reduceBoard', () => {
     const board = reduceBoard(emptyBoard, { seq: 1, type: 'phase.extend', payload: { phaseDeadline: '2026-01-01T00:07:00.000Z' } });
     expect(board.phase).toBe('write');
     expect(board.phaseDeadline).toBe('2026-01-01T00:07:00.000Z');
+  });
+
+  it('votingProgress resets to null on any transition away from Vote', () => {
+    const inVote: BoardState = { ...emptyBoard, phase: 'vote', votingProgress: { done: 1, total: 4 } };
+    const board = reduceBoard(inVote, { seq: 1, type: 'phase.next', payload: { phase: 'discuss', phaseDeadline: null } });
+    expect(board.votingProgress).toBeNull();
+  });
+
+  it('votingProgress survives a transition that lands on Vote (phase.back landing elsewhere wouldn’t apply)', () => {
+    const board = reduceBoard(emptyBoard, { seq: 1, type: 'phase.next', payload: { phase: 'vote', phaseDeadline: null } });
+    expect(board.votingProgress).toBe(emptyBoard.votingProgress); // still null, but untouched (identity-preserved)
+  });
+
+  it('phase.back from Vote to Group refunds all of this viewer’s own votes (RN-018 AC)', () => {
+    const inVote: BoardState = {
+      ...emptyBoard,
+      phase: 'vote',
+      myVotes: { 'topic-1': 2, 'topic-2': 1 },
+      votingProgress: { done: 2, total: 4 },
+    };
+    const board = reduceBoard(inVote, { seq: 1, type: 'phase.back', payload: { phase: 'group', phaseDeadline: null } });
+    expect(board.myVotes).toEqual({});
+    expect(board.votingProgress).toBeNull();
+  });
+
+  it('phase.back that doesn’t leave Vote (none currently exist, but guards the logic) never refunds votes', () => {
+    // phase.next away from write, e.g., must not be mistaken for the vote->group refund case.
+    const board = reduceBoard({ ...emptyBoard, myVotes: { 'topic-1': 1 } }, { seq: 1, type: 'phase.next', payload: { phase: 'group', phaseDeadline: null } });
+    expect(board.myVotes).toEqual({ 'topic-1': 1 });
   });
 
   describe('RN-011: hidden cards', () => {
@@ -247,7 +286,7 @@ describe('reduceBoard', () => {
     it('card.addToTopic also dissolves the card\'s previous group when that leaves it with one member', () => {
       const board: BoardState = {
         ...emptyBoard,
-        topics: [{ id: topicId, columnId, name: 'Old group' }],
+        topics: [{ id: topicId, columnId, name: 'Old group', voteCount: 0 }],
         cards: [
           {
             id: cardId,
@@ -306,9 +345,13 @@ describe('reduceBoard', () => {
     });
 
     it("topic.rename updates the topic's name, leaving its cards untouched", () => {
-      const board: BoardState = { ...emptyBoard, topics: [{ id: topicId, columnId, name: 'Old name' }] };
-      const renamed = reduceBoard(board, { seq: 1, type: 'topic.rename', payload: { topic: { id: topicId, columnId, name: 'New name' } } });
-      expect(renamed.topics).toEqual([{ id: topicId, columnId, name: 'New name' }]);
+      const board: BoardState = { ...emptyBoard, topics: [{ id: topicId, columnId, name: 'Old name', voteCount: 0 }] };
+      const renamed = reduceBoard(board, {
+        seq: 1,
+        type: 'topic.rename',
+        payload: { topic: { id: topicId, columnId, name: 'New name', voteCount: 0 } },
+      });
+      expect(renamed.topics).toEqual([{ id: topicId, columnId, name: 'New name', voteCount: 0 }]);
     });
   });
 
@@ -397,6 +440,64 @@ describe('reduceBoard', () => {
       const board = reduceBoard(emptyBoard, createEvent());
       const rejected = reduceBoard(board, { seq: 2, type: 'suggestion.reject', payload: { suggestionId: 'whatever' } });
       expect(rejected).toBe(board);
+    });
+  });
+
+  describe('RN-018: dot voting with hidden votes', () => {
+    const topicId = '00000000-0000-4000-8000-000000000020';
+    const inVote: BoardState = { ...emptyBoard, phase: 'vote' };
+
+    it('vote.add — the full private shape (actor’s own echo) sets myVotes and votingProgress', () => {
+      const board = reduceBoard(inVote, {
+        seq: 1,
+        type: 'vote.add',
+        payload: { topicId, myCount: 1, remaining: 2, progress: { done: 0, total: 4 } },
+      });
+      expect(board.myVotes).toEqual({ [topicId]: 1 });
+      expect(board.votingProgress).toEqual({ done: 0, total: 4 });
+    });
+
+    it('vote.add — the reduced shared shape (everyone else’s copy) only touches votingProgress', () => {
+      const board = reduceBoard(inVote, { seq: 1, type: 'vote.add', payload: { done: 1, total: 4 } });
+      expect(board.myVotes).toEqual({});
+      expect(board.votingProgress).toEqual({ done: 1, total: 4 });
+    });
+
+    it('vote.add on a topic already carrying one of this viewer’s votes bumps myCount rather than replacing the map', () => {
+      const withOneVote: BoardState = { ...inVote, myVotes: { [topicId]: 1 } };
+      const board = reduceBoard(withOneVote, {
+        seq: 1,
+        type: 'vote.add',
+        payload: { topicId, myCount: 2, remaining: 1, progress: { done: 0, total: 4 } },
+      });
+      expect(board.myVotes).toEqual({ [topicId]: 2 });
+    });
+
+    it('vote.remove — the full private shape drops the topic from myVotes once myCount reaches 0', () => {
+      const withOneVote: BoardState = { ...inVote, myVotes: { [topicId]: 1 } };
+      const board = reduceBoard(withOneVote, {
+        seq: 1,
+        type: 'vote.remove',
+        payload: { topicId, myCount: 0, remaining: 3, progress: { done: 0, total: 4 } },
+      });
+      expect(board.myVotes).toEqual({});
+    });
+
+    it('vote.remove — the full private shape keeps the topic in myVotes at its new, lower count if still > 0', () => {
+      const withTwoVotes: BoardState = { ...inVote, myVotes: { [topicId]: 2 } };
+      const board = reduceBoard(withTwoVotes, {
+        seq: 1,
+        type: 'vote.remove',
+        payload: { topicId, myCount: 1, remaining: 2, progress: { done: 0, total: 4 } },
+      });
+      expect(board.myVotes).toEqual({ [topicId]: 1 });
+    });
+
+    it('vote.remove — the reduced shared shape only touches votingProgress, same as vote.add', () => {
+      const withOneVote: BoardState = { ...inVote, myVotes: { [topicId]: 1 } };
+      const board = reduceBoard(withOneVote, { seq: 1, type: 'vote.remove', payload: { done: 2, total: 4 } });
+      expect(board.myVotes).toEqual({ [topicId]: 1 });
+      expect(board.votingProgress).toEqual({ done: 2, total: 4 });
     });
   });
 });

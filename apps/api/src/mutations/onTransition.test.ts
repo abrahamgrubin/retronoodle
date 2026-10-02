@@ -10,6 +10,7 @@ const retro: LockedRetro = {
   phase: 'group',
   cards_revealed: true,
   phase_deadline: null,
+  vote_budget: 3,
 };
 
 describe('runTransitionEffect', () => {
@@ -107,6 +108,46 @@ describe('runTransitionEffect', () => {
       await runTransitionEffect({ query } as unknown as PoolClient, retro, 'vote', 'group');
       expect(query).toHaveBeenCalledTimes(1);
       expect((query.mock.calls[0] as unknown[])[0]).toContain('delete from votes');
+    });
+  });
+
+  describe('vote->discuss (RN-018: "reveal counts ... first topic becomes current")', () => {
+    it('writes vote_count for every topic, ranked by votes desc then creation time, and starts only the first', async () => {
+      const query = vi.fn();
+      query.mockResolvedValueOnce({
+        rows: [
+          { id: 'topic-most-votes', vote_count: 5 },
+          { id: 'topic-fewer-votes', vote_count: 2 },
+          { id: 'topic-no-votes', vote_count: 0 },
+        ],
+      }); // the ranking select (already ORDER BY vote_count desc, created_at asc in SQL)
+      query.mockResolvedValueOnce({ rows: [] });
+      query.mockResolvedValueOnce({ rows: [] });
+      query.mockResolvedValueOnce({ rows: [] });
+
+      await runTransitionEffect({ query } as unknown as PoolClient, retro, 'vote', 'discuss');
+
+      expect(query).toHaveBeenCalledTimes(4);
+      const rankingCall = query.mock.calls[0] as unknown[];
+      expect(rankingCall[0]).toContain('order by count(v.id) desc, t.created_at asc');
+
+      const firstUpdate = query.mock.calls[1] as unknown[];
+      expect(firstUpdate[1]).toEqual([5, expect.any(String), expect.any(Date), 'topic-most-votes']);
+      const secondUpdate = query.mock.calls[2] as unknown[];
+      expect(secondUpdate[1]).toEqual([2, expect.any(String), null, 'topic-fewer-votes']);
+      const thirdUpdate = query.mock.calls[3] as unknown[];
+      expect(thirdUpdate[1]).toEqual([0, expect.any(String), null, 'topic-no-votes']);
+
+      // discussion_order keys sort in rank order.
+      const firstOrder = (firstUpdate[1] as unknown[])[1] as string;
+      const secondOrder = (secondUpdate[1] as unknown[])[1] as string;
+      expect(firstOrder < secondOrder).toBe(true);
+    });
+
+    it('does nothing when there are no topics', async () => {
+      const query = vi.fn().mockResolvedValueOnce({ rows: [] });
+      await runTransitionEffect({ query } as unknown as PoolClient, retro, 'vote', 'discuss');
+      expect(query).toHaveBeenCalledTimes(1);
     });
   });
 });

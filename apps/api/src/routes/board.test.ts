@@ -36,6 +36,7 @@ const retroRow = {
   phase: 'write',
   cards_revealed: false,
   phase_deadline: '2026-01-01T00:05:00.000Z',
+  vote_budget: 3,
   created_at: new Date().toISOString(),
 };
 
@@ -76,6 +77,8 @@ function build(teamRole: 'admin' | 'member' | null, opts: { facilitatorId?: stri
       if (table === 'topics') return chain({ data: [], error: null });
       if (table === 'card_reactions') return chain({ data: [], error: null });
       if (table === 'group_suggestions') return chain({ data: [suggestionRow], error: null });
+      if (table === 'votes') return chain({ data: [], error: null });
+      if (table === 'retro_participants') return chain({ data: [], error: null });
       if (table === 'profiles') return chain({ data: [{ id: claims.sub, display_name: 'Ada Lovelace' }], error: null });
       if (table === 'retro_events') return chain({ data: { seq: 3 }, error: null });
       throw new Error(`unexpected table ${table}`);
@@ -100,6 +103,7 @@ describe('GET /retros/:id/board', () => {
       phase: 'write',
       cardsRevealed: false,
       phaseDeadline: '2026-01-01T00:05:00.000Z',
+      voteBudget: 3,
     });
     expect(typeof body.serverTime).toBe('string');
     expect(body.columns).toEqual([
@@ -114,6 +118,8 @@ describe('GET /retros/:id/board', () => {
     });
     expect(body.topics).toEqual([]);
     expect(body.suggestions).toBeNull(); // not the facilitator
+    expect(body.myVotes).toEqual([]);
+    expect(body.votingProgress).toBeNull(); // not in Vote phase
     expect(body.seq).toBe(3);
   });
 

@@ -18,6 +18,7 @@ function retroAt(phase: string): LockedRetro {
     phase,
     cards_revealed: true,
     phase_deadline: null,
+    vote_budget: 3,
   };
 }
 

@@ -9,6 +9,11 @@ export const Topic = z.object({
   id: z.string().uuid(),
   columnId: z.string().uuid(),
   name: z.string(),
+  // RN-018: "no browser receives ... topic totals" during Vote — this is never live-updated as
+  // votes come in (see voteHelpers.ts), only set once at the vote->discuss transition, so it's
+  // structurally 0 (not merely redacted) for every topic until reveal. No separate "hidden"
+  // state needed: the client only ever renders this once the phase has moved past Vote.
+  voteCount: z.number().int().nonnegative(),
 });
 export type Topic = z.infer<typeof Topic>;
 

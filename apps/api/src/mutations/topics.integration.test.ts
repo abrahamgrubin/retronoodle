@@ -137,7 +137,7 @@ describe.skipIf(!hasLiveEnv)('drag-to-group and topics against a live Supabase p
     for (const cardId of cardIds) {
       expect(cards.find((c) => c.id === cardId)).toMatchObject({ topicId });
     }
-    expect(board.json().topics).toEqual([{ id: topicId, columnId: expect.any(String), name: 'Card 0' }]);
+    expect(board.json().topics).toEqual([{ id: topicId, columnId: expect.any(String), name: 'Card 0', voteCount: 0 }]);
   });
 
   it('dissolves a group when a drag-out leaves it with one card, and the remaining card is reported as ungrouped', async () => {
@@ -169,7 +169,7 @@ describe.skipIf(!hasLiveEnv)('drag-to-group and topics against a live Supabase p
     expect(rename.statusCode).toBe(200);
 
     const board = await app!.inject({ method: 'GET', url: `/retros/${retroId}/board`, headers: { authorization: `Bearer ${token}` } });
-    expect(board.json().topics).toEqual([{ id: topicId, columnId: expect.any(String), name: 'Renamed group' }]);
+    expect(board.json().topics).toEqual([{ id: topicId, columnId: expect.any(String), name: 'Renamed group', voteCount: 0 }]);
   });
 
   it('rejects grouping once past Group (Vote locks it)', async () => {

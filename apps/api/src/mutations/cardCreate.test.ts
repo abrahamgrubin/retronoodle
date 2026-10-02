@@ -15,6 +15,7 @@ function retroAt(phase: string): LockedRetro {
     phase,
     cards_revealed: true,
     phase_deadline: '2026-01-01T00:05:00.000Z',
+    vote_budget: 3,
   };
 }
 
