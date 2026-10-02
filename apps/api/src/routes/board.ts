@@ -205,7 +205,15 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
         };
         return redactCard(full, redactCtx);
       }),
-      topics: (topicsResult.data ?? []).map((t) => ({ id: t.id, columnId: t.column_id, name: t.name, voteCount: t.vote_count })),
+      topics: (topicsResult.data ?? []).map((t) => ({
+        id: t.id,
+        columnId: t.column_id,
+        name: t.name,
+        voteCount: t.vote_count,
+        discussionOrder: t.discussion_order,
+        startedAt: t.started_at,
+        endedAt: t.ended_at,
+      })),
       suggestions,
       myVotes,
       votingProgress,

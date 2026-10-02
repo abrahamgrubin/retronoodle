@@ -76,7 +76,7 @@ describe('reduceBoard', () => {
     const topicId = '00000000-0000-4000-8000-00000000000b';
     const board: BoardState = {
       ...emptyBoard,
-      topics: [{ id: topicId, columnId, name: 'A group', voteCount: 0 }],
+      topics: [{ id: topicId, columnId, name: 'A group', voteCount: 0, discussionOrder: null, startedAt: null, endedAt: null }],
       cards: [
         {
           id: cardId,
@@ -286,7 +286,7 @@ describe('reduceBoard', () => {
     it('card.addToTopic also dissolves the card\'s previous group when that leaves it with one member', () => {
       const board: BoardState = {
         ...emptyBoard,
-        topics: [{ id: topicId, columnId, name: 'Old group', voteCount: 0 }],
+        topics: [{ id: topicId, columnId, name: 'Old group', voteCount: 0, discussionOrder: null, startedAt: null, endedAt: null }],
         cards: [
           {
             id: cardId,
@@ -345,13 +345,18 @@ describe('reduceBoard', () => {
     });
 
     it("topic.rename updates the topic's name, leaving its cards untouched", () => {
-      const board: BoardState = { ...emptyBoard, topics: [{ id: topicId, columnId, name: 'Old name', voteCount: 0 }] };
+      const board: BoardState = {
+        ...emptyBoard,
+        topics: [{ id: topicId, columnId, name: 'Old name', voteCount: 0, discussionOrder: null, startedAt: null, endedAt: null }],
+      };
       const renamed = reduceBoard(board, {
         seq: 1,
         type: 'topic.rename',
-        payload: { topic: { id: topicId, columnId, name: 'New name', voteCount: 0 } },
+        payload: { topic: { id: topicId, columnId, name: 'New name', voteCount: 0, discussionOrder: null, startedAt: null, endedAt: null } },
       });
-      expect(renamed.topics).toEqual([{ id: topicId, columnId, name: 'New name', voteCount: 0 }]);
+      expect(renamed.topics).toEqual([
+        { id: topicId, columnId, name: 'New name', voteCount: 0, discussionOrder: null, startedAt: null, endedAt: null },
+      ]);
     });
   });
 
@@ -498,6 +503,72 @@ describe('reduceBoard', () => {
       const board = reduceBoard(withOneVote, { seq: 1, type: 'vote.remove', payload: { done: 2, total: 4 } });
       expect(board.myVotes).toEqual({ [topicId]: 1 });
       expect(board.votingProgress).toEqual({ done: 2, total: 4 });
+    });
+  });
+
+  describe('RN-019: discuss queue', () => {
+    const highTopicId = '00000000-0000-4000-8000-000000000030';
+    const midTopicId = '00000000-0000-4000-8000-000000000031';
+    const inDiscuss: BoardState = {
+      ...emptyBoard,
+      phase: 'discuss',
+      topics: [
+        { id: highTopicId, columnId, name: 'High', voteCount: 2, discussionOrder: 'a0', startedAt: '2026-01-01T00:00:00.000Z', endedAt: null },
+        { id: midTopicId, columnId, name: 'Mid', voteCount: 1, discussionOrder: 'a1', startedAt: null, endedAt: null },
+      ],
+    };
+
+    it('topic.next upserts both the ended topic and the started one', () => {
+      const board = reduceBoard(inDiscuss, {
+        seq: 1,
+        type: 'topic.next',
+        payload: {
+          endedTopic: { id: highTopicId, columnId, name: 'High', voteCount: 2, discussionOrder: 'a0', startedAt: '2026-01-01T00:00:00.000Z', endedAt: '2026-01-01T00:05:00.000Z' },
+          startedTopic: { id: midTopicId, columnId, name: 'Mid', voteCount: 1, discussionOrder: 'a1', startedAt: '2026-01-01T00:05:00.000Z', endedAt: null },
+        },
+      });
+      expect(board.topics.find((t) => t.id === highTopicId)).toMatchObject({ endedAt: '2026-01-01T00:05:00.000Z' });
+      expect(board.topics.find((t) => t.id === midTopicId)).toMatchObject({ startedAt: '2026-01-01T00:05:00.000Z' });
+    });
+
+    it('topic.next with nothing left to start ("Finish discussion") only upserts the ended topic', () => {
+      const board = reduceBoard(inDiscuss, {
+        seq: 1,
+        type: 'topic.next',
+        payload: {
+          endedTopic: { id: highTopicId, columnId, name: 'High', voteCount: 2, discussionOrder: 'a0', startedAt: '2026-01-01T00:00:00.000Z', endedAt: '2026-01-01T00:05:00.000Z' },
+          startedTopic: null,
+        },
+      });
+      expect(board.topics.find((t) => t.id === highTopicId)).toMatchObject({ endedAt: '2026-01-01T00:05:00.000Z' });
+      expect(board.topics.find((t) => t.id === midTopicId)).toMatchObject({ startedAt: null }); // untouched
+    });
+
+    it('topic.setCurrent folds the exact same way as topic.next (same result shape)', () => {
+      const board = reduceBoard(inDiscuss, {
+        seq: 1,
+        type: 'topic.setCurrent',
+        payload: {
+          endedTopic: { id: highTopicId, columnId, name: 'High', voteCount: 2, discussionOrder: 'a0', startedAt: '2026-01-01T00:00:00.000Z', endedAt: '2026-01-01T00:05:00.000Z' },
+          startedTopic: { id: midTopicId, columnId, name: 'Mid', voteCount: 1, discussionOrder: 'a1', startedAt: '2026-01-01T00:05:00.000Z', endedAt: null },
+        },
+      });
+      expect(board.topics.find((t) => t.id === midTopicId)).toMatchObject({ startedAt: '2026-01-01T00:05:00.000Z' });
+    });
+
+    it('topic.setCurrent jumping to the already-current topic is a no-op (both sides null)', () => {
+      const board = reduceBoard(inDiscuss, { seq: 1, type: 'topic.setCurrent', payload: { endedTopic: null, startedTopic: null } });
+      expect(board).toEqual(inDiscuss);
+    });
+
+    it('queue.reorder upserts just the reordered topic', () => {
+      const board = reduceBoard(inDiscuss, {
+        seq: 1,
+        type: 'queue.reorder',
+        payload: { topic: { id: midTopicId, columnId, name: 'Mid', voteCount: 1, discussionOrder: 'Zz', startedAt: null, endedAt: null } },
+      });
+      expect(board.topics.find((t) => t.id === midTopicId)).toMatchObject({ discussionOrder: 'Zz' });
+      expect(board.topics.find((t) => t.id === highTopicId)).toEqual(inDiscuss.topics[0]); // untouched
     });
   });
 });

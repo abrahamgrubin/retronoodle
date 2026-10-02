@@ -80,6 +80,13 @@ describe('can — role x action matrix (Design 3.4, reconstructed for RN-005)', 
     ['retro.respondToSuggestion', retroAsMember, false],
     ['retro.respondToSuggestion', retroNonMember, false],
 
+    // retro.manageDiscussQueue (RN-019): facilitator only — "As a facilitator, I want to walk
+    // through topics..." — topic.next/topic.setCurrent/queue.reorder all gate on this.
+    ['retro.manageDiscussQueue', retroAsFacilitator, true],
+    ['retro.manageDiscussQueue', retroAsAdmin, false],
+    ['retro.manageDiscussQueue', retroAsMember, false],
+    ['retro.manageDiscussQueue', retroNonMember, false],
+
     // card.edit / card.delete / card.move: ownership, not a role — only the author, ever.
     ['card.edit', ownCard, true],
     ['card.edit', othersCard, false],

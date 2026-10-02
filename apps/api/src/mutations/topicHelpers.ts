@@ -112,8 +112,10 @@ export async function createTopicFromCardIds(
   await client.query('update cards set topic_id = $1 where id = any($2::uuid[])', [topicId, cardIds]);
 
   return {
-    // A freshly created topic has no votes yet — voting hasn't started (Group phase only).
-    topic: { id: topicId, columnId, name, voteCount: 0 },
+    // A freshly created topic has no votes yet — voting hasn't started (Group phase only), and
+    // RN-019's discuss-queue fields are always null this early (they're only ever set starting
+    // at the vote->discuss transition, long after grouping is done).
+    topic: { id: topicId, columnId, name, voteCount: 0, discussionOrder: null, startedAt: null, endedAt: null },
     cards: lookup.rows.map((r) => ({
       id: r.id,
       columnId: r.column_id,

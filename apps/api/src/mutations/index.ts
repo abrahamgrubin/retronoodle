@@ -19,6 +19,9 @@ import { suggestionAcceptMutation } from './suggestionAccept.js';
 import { suggestionRejectMutation } from './suggestionReject.js';
 import { voteAddMutation } from './voteAdd.js';
 import { voteRemoveMutation } from './voteRemove.js';
+import { topicNextMutation } from './topicNext.js';
+import { topicSetCurrentMutation } from './topicSetCurrent.js';
+import { queueReorderMutation } from './queueReorder.js';
 
 export function createDefaultMutationRegistry(): MutationRegistry {
   const registry = new MutationRegistry();
@@ -34,6 +37,9 @@ export function createDefaultMutationRegistry(): MutationRegistry {
   registry.register('suggestion.reject', suggestionRejectMutation);
   registry.register('vote.add', voteAddMutation);
   registry.register('vote.remove', voteRemoveMutation);
+  registry.register('topic.next', topicNextMutation);
+  registry.register('topic.setCurrent', topicSetCurrentMutation);
+  registry.register('queue.reorder', queueReorderMutation);
   registry.register('phase.next', phaseNextMutation);
   // phase.skip resolves to the same target as phase.next (see phaseNext.ts's own comment) — the
   // timer's Skip button (RN-012) sends this instead, so it's registered under its own type name.

@@ -39,6 +39,7 @@ export type Action =
   | 'retro.transitionPhase'
   | 'retro.revealCards'
   | 'retro.respondToSuggestion'
+  | 'retro.manageDiscussQueue'
   | 'template.read'
   | 'card.edit'
   | 'card.delete'
@@ -81,10 +82,12 @@ export function can(user: CanUser, action: Action, resource: Resource): boolean 
     case 'retro.transitionPhase':
     case 'retro.revealCards':
     case 'retro.respondToSuggestion':
+    case 'retro.manageDiscussQueue':
       // Facilitator-only (RN-006 join link; RN-010 phase.next/back/skip; RN-011 cards.reveal —
       // "the facilitator clicks Reveal"; RN-017 — suggestions are only ever sent to the
-      // facilitator in the first place, so only they can act on one). Facilitator isn't a stored
-      // role (see RetroResource) — it's just facilitatorId === user.id.
+      // facilitator in the first place, so only they can act on one; RN-019 — "As a facilitator,
+      // I want to walk through topics..."). Facilitator isn't a stored role (see RetroResource)
+      // — it's just facilitatorId === user.id.
       return resource?.type === 'retro' && resource.facilitatorId === user.id;
     case 'card.edit':
     case 'card.delete':

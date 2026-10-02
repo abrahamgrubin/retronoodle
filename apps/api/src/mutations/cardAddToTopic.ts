@@ -58,7 +58,17 @@ export const cardAddToTopicMutation: MutationTypeDef<CardAddToTopicPayload> = {
       row.old_topic_id && row.old_topic_id !== payload.topicId ? await dissolveIfOrphaned(client, row.old_topic_id) : null;
 
     return CardAddToTopicResult.parse({
-      topic: { id: payload.topicId, columnId: row.topic_column_id, name: row.topic_name, voteCount: row.topic_vote_count ?? 0 },
+      // Group-phase only (cardGroup gate above) — RN-019's discuss-queue fields are always null
+      // this early, same reasoning as topicHelpers.ts's createTopicFromCardIds.
+      topic: {
+        id: payload.topicId,
+        columnId: row.topic_column_id,
+        name: row.topic_name,
+        voteCount: row.topic_vote_count ?? 0,
+        discussionOrder: null,
+        startedAt: null,
+        endedAt: null,
+      },
       card: {
         id: payload.cardId,
         columnId: row.card_column_id,
