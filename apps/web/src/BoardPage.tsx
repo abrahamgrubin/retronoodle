@@ -13,7 +13,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
-import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { SortableContext, sortableKeyboardCoordinates, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { generateKeyBetween } from 'fractional-indexing';
 import {
@@ -1125,6 +1125,19 @@ function Board({
     setActiveId(event.active.id as string);
   }
 
+  // Bug (#20): `verticalListSortingStrategy` (dnd-kit's default) shifts every *other* card's
+  // transform live, mid-drag, to preview where they'd land if the drag ended now — that's what
+  // made dropping on a card look like "reranking" instead of grouping: the hovered card kept
+  // sliding out from under the pointer, so by drop time its rect had already moved and rarely
+  // still overlapped the dragged card's center. We never read dnd-kit's own reorder output
+  // anyway (handleDragEnd below always recomputes the target from `board.cards` + siblings), so
+  // that live preview was purely cosmetic — and actively wrong for this board's two gestures
+  // ("drop on center groups, drop between moves"). Returning `null` for every card keeps every
+  // non-dragged card's rect exactly where it rests, which is what isCenterDrop's math assumes.
+  function noSortPreview(): null {
+    return null;
+  }
+
   // RN-015 layout spec: "hovering over a card's center gives it a 2px blue outline" — the
   // collision zone is the middle 50% of the target's rect, checked against the dragged card's own
   // center (not the pointer) so this matches regardless of where on the dragged card the pointer
@@ -1307,6 +1320,13 @@ function Board({
   const previousPhaseRef = useRef(board.phase);
   useEffect(() => {
     if (previousPhaseRef.current === 'write' && board.phase !== 'write') resyncRef.current(false);
+    // RN-018: "every card belongs to exactly one topic" once Vote starts — group->vote
+    // (onTransition.ts) auto-creates a single-card topic for anything still ungrouped, but that
+    // transition's own broadcast only carries the new phase (PhaseTransitionResult), same gap as
+    // write->group's reveal above. Without this, any card nobody manually grouped during Group
+    // never gets a topic in this client's board state, so it renders as a bare, vote-control-less
+    // card forever — resync once to pick up whatever topics actually exist now.
+    if (previousPhaseRef.current === 'group' && board.phase === 'vote') resyncRef.current(false);
     // RN-017: "Within 5s of entering Group, the facilitator sees suggested groups" — a live
     // transition (not a reload that happens to land already in Group — see this state's own
     // declaration comment) starts the "Finding similar cards…" window. The fallback timeout
@@ -1543,7 +1563,7 @@ function Board({
                       {column.title} <span style={{ fontWeight: 'normal', color: '#666' }}>({cards.length})</span>
                     </h2>
                     {column.prompt && <p style={{ fontSize: 12, color: '#666', margin: '0 0 8px' }}>{column.prompt}</p>}
-                    <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
+                    <SortableContext items={sortableIds} strategy={noSortPreview}>
                       {displayRows.map((row) =>
                         row.kind === 'card' ? (
                           row.card.hidden ? (
