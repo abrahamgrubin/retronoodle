@@ -547,12 +547,36 @@ Day 5 closes the follow-through loop, the product's north star: every topic gets
 
 **Technical notes**
 
-- Job `ai.summarizeTopic` (high priority) on each topic change and on `discuss → wrap_up` for the last topic.
-- Model `claude-sonnet-5-5` from config; 25 s timeout → one retry on Haiku → "Summary unavailable. Retry."
-- Input: topic name, cards, typed notes, team member names, open action items. Card and note text marked as data.
-- Output Zod schema: `key_points[]`, `decisions[]`, `disagreements[]`, `proposed_action_items[]`, each with `sources: cardId[]`. Drop entries citing unknown IDs. Decisions only with clear agreement. No suggested owners shown (flagged, P1).
-- Every generation inserts a new `topic_summaries` row (`version`, `model`, prompt version). Edits save as the final version; compute `edit_ratio` at close (Levenshtein share; ≤ 20% = accepted; regenerated = not accepted).
-- UI: "Summarizing…" placeholder; summary panel beside the board; hovering a point highlights its source cards; Edit and Regenerate buttons (facilitator only). Plain-text rendering.
+- Prompt lives at `.claude/agents/topic-summarizer.md` (frontmatter + body — this app's own
+  convention for every AI agent it calls at runtime, not an Anthropic SDK feature; see
+  `.claude/agents/README.md`), loaded via `apps/worker/src/agents/loadAgent.ts`. One agent file —
+  the fallback below is a different *model*, not a different *prompt*, so there's nothing to
+  duplicate into a second file.
+- Job `ai.summarizeTopic` (high priority) on each topic change and on `discuss → wrap_up` for the
+  last topic — already enqueued since RN-019 (`discussHelpers.ts`'s `endCurrentTopic`); this story
+  builds the one worker consumer that actually processes it.
+- Model: `AI_TOPIC_SUMMARY_MODEL` (`claude-sonnet-5`, `packages/shared/src/ai.ts`); 25 s timeout →
+  one retry on `AI_TOPIC_SUMMARY_FALLBACK_MODEL` (`claude-haiku-4-5-20251001`) → "Summary
+  unavailable. Retry." Same prompt both attempts.
+- Input: topic name, cards, typed notes (RN-020), team member names, open action items. Card and
+  note text wrapped as clearly-labeled data in the prompt, never instructions — true even if a
+  card's own text happens to look like one.
+- Output Zod schema: `key_points[]`, `decisions[]`, `disagreements[]`, `proposed_action_items[]`,
+  each with `sources: cardId[]`. Drop entries citing unknown IDs. Decisions only with clear
+  agreement. No suggested owners shown (flagged, P1).
+- Every generation inserts a new `topic_summaries` row. `prompt_version` is a short hash of
+  `topic-summarizer.md`'s own body at generation time (`loadAgent`'s own hash, not a hand-maintained
+  version number) — editing the prompt file automatically produces a new version; nobody has to
+  remember to bump anything. Edits save as the final version; compute `edit_ratio` at close
+  (Levenshtein share; ≤ 20% = accepted; regenerated = not accepted).
+- UI: "Summarizing…" placeholder; summary panel beside the board; hovering a point highlights its
+  source cards; Edit and Regenerate buttons (facilitator only). Plain-text rendering.
+- Distinct from the homework agent team's `group-summarizer` (a one-line blurb per group,
+  generated at `group->vote`, shown on the Vote page in place of a group's cards) and
+  `question-suggester` (opening questions, generated the moment a topic becomes current) — both
+  keep running unchanged. This story's summary is the end-of-discussion recap: a different moment,
+  richer structured output, and its own real storage (`topic_summaries`), not the homework's
+  `topics.ai_group_summary*` columns.
 
 **Layout spec** (no mock; build from existing board components and review in the running app)
 
@@ -569,6 +593,7 @@ Day 5 closes the follow-through loop, the product's north star: every topic gets
 - [ ] Edit and Regenerate work; each regenerate creates a new version row.
 - [ ] With Claude unavailable, the retro continues and the panel shows Retry.
 - [ ] Unit test: prompt input contains typed notes and excludes other topics' cards.
+- [ ] Unit test: `prompt_version` changes when `.claude/agents/topic-summarizer.md`'s body changes, and stays identical across two generations with no edit to the file in between.
 
 ### RN-022 · Create and edit action items
 
