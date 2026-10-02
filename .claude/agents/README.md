@@ -56,3 +56,11 @@ A one-shot worker broadcast like `broadcastRetro` here never goes through the no
 pipeline (no `retro_events` row, no real `seq`) — the client has to special-case its event name
 and apply it as a local patch instead of folding it through the seq-ordered reducer path (see
 BoardPage.tsx's retro-channel listener, `'topic.groupSummaryReady'`/`'topic.questionsReady'`).
+
+- **topic-summarizer** (`summarizeTopic.ts`, RN-021) — one call per topic change, with a primary
+  model and a fallback (same prompt, different model — `loadAgent`'s `model` field only ever
+  names the primary one, the fallback is just another argument the job passes at the call site).
+  Also the one agent whose output actually gets edited by a human afterward
+  (`topicEditSummary.ts`) and tracked through real version rows (`topic_summaries`,
+  `prompt_version` = `loadAgent(...).promptVersion`, a hash of the file's own body — not hand
+  bumped, see `loadAgent.ts`'s own comment on why).

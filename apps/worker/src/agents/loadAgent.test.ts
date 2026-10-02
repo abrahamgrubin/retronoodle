@@ -6,17 +6,27 @@ describe('parseAgentFile', () => {
     const raw = ['---', 'name: example', 'description: An example agent.', 'model: claude-haiku-4-5-20251001', '---', '', 'Body text here.', ''].join(
       '\n',
     );
-    expect(parseAgentFile(raw, 'example')).toEqual({
+    const parsed = parseAgentFile(raw, 'example');
+    expect(parsed).toMatchObject({
       name: 'example',
       description: 'An example agent.',
       model: 'claude-haiku-4-5-20251001',
       body: 'Body text here.',
     });
+    expect(parsed.promptVersion).toMatch(/^[0-9a-f]{12}$/);
   });
 
   it('falls back to the given name and empty strings for missing fields', () => {
     const raw = '---\n---\nJust a body.';
-    expect(parseAgentFile(raw, 'fallback')).toEqual({ name: 'fallback', description: '', model: '', body: 'Just a body.' });
+    expect(parseAgentFile(raw, 'fallback')).toMatchObject({ name: 'fallback', description: '', model: '', body: 'Just a body.' });
+  });
+
+  it('promptVersion changes when the body changes, and stays the same when it does not', () => {
+    const v1a = parseAgentFile('---\n---\nBody A.', 'x');
+    const v1b = parseAgentFile('---\n---\nBody A.', 'x');
+    const v2 = parseAgentFile('---\n---\nBody B.', 'x');
+    expect(v1a.promptVersion).toBe(v1b.promptVersion);
+    expect(v1a.promptVersion).not.toBe(v2.promptVersion);
   });
 
   it('throws a clear error when the frontmatter block is missing entirely', () => {

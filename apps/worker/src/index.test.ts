@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import { AI_GROUP_CARDS_QUEUE, AI_SUGGEST_QUESTIONS_QUEUE, AI_SUMMARIZE_GROUP_QUEUE, startWorker, type JobQueue } from './index.js';
+import {
+  AI_GROUP_CARDS_QUEUE,
+  AI_SUGGEST_QUESTIONS_QUEUE,
+  AI_SUMMARIZE_GROUP_QUEUE,
+  AI_SUMMARIZE_TOPIC_QUEUE,
+  startWorker,
+  type JobQueue,
+} from './index.js';
 
 function fakeQueue(): JobQueue & { started: boolean } {
   const q = {
@@ -61,5 +68,14 @@ describe('startWorker', () => {
     expect(queue.work).toHaveBeenCalledWith(AI_SUMMARIZE_GROUP_QUEUE, expect.any(Function));
     expect(queue.createQueue).toHaveBeenCalledWith(AI_SUGGEST_QUESTIONS_QUEUE);
     expect(queue.work).toHaveBeenCalledWith(AI_SUGGEST_QUESTIONS_QUEUE, expect.any(Function));
+  });
+
+  // RN-021
+  it('registers ai.summarizeTopic when `ai` deps are provided', async () => {
+    const queue = fakeQueue();
+    const ai = { supabaseAdmin: {} as never, realtimeBus: { broadcastUser: vi.fn(), broadcastRetro: vi.fn() }, anthropicApiKey: undefined };
+    await startWorker({ databaseUrl: 'x', logger, createQueue: () => queue, ai });
+    expect(queue.createQueue).toHaveBeenCalledWith(AI_SUMMARIZE_TOPIC_QUEUE);
+    expect(queue.work).toHaveBeenCalledWith(AI_SUMMARIZE_TOPIC_QUEUE, expect.any(Function));
   });
 });
