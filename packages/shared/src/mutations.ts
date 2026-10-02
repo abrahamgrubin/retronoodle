@@ -3,6 +3,7 @@ import { RetroPhase } from './retros.js';
 import { VisibleBoardCard } from './board.js';
 import { Topic } from './topics.js';
 import { Emoji } from './reactions.js';
+import { TopicSummary, TopicSummaryPoint } from './topicSummaries.js';
 
 /** POST /retros/:id/mutations body (RN-008). Every mutation type has its own payload schema
  * below; the envelope itself only knows the type name and a client-generated mutationId used
@@ -273,3 +274,37 @@ export const NoteUpsertResult = z.object({
   topic: Topic,
 });
 export type NoteUpsertResult = z.infer<typeof NoteUpsertResult>;
+
+/** `topic.editSummary` (RN-021): "Edit and Regenerate buttons (facilitator only)" — overwrites
+ * the latest `topic_summaries` row's four sections in place (no new version row — "edits save as
+ * the final version") and marks it `edited`. Same facilitator-only gate as
+ * `topic.editGroupSummary` (`retro.editAiSummary`), same Discuss/Wrap-up phase gate as
+ * `note.upsert` (`summaryEdit`). */
+export const TopicEditSummaryPayload = z.object({
+  topicId: z.string().uuid(),
+  keyPoints: z.array(TopicSummaryPoint),
+  decisions: z.array(TopicSummaryPoint),
+  disagreements: z.array(TopicSummaryPoint),
+  proposedActionItems: z.array(TopicSummaryPoint),
+});
+export type TopicEditSummaryPayload = z.infer<typeof TopicEditSummaryPayload>;
+
+export const TopicEditSummaryResult = z.object({
+  summary: TopicSummary,
+});
+export type TopicEditSummaryResult = z.infer<typeof TopicEditSummaryResult>;
+
+/** `topic.regenerateSummary` (RN-021): re-enqueues `ai.summarizeTopic` for a topic that already
+ * has a summary — "each regenerate creates a new version row," written later by the job itself
+ * once generation actually finishes. This mutation only ever acknowledges the request; "Replace
+ * your edits?" is a client-side confirm before it's even sent (BoardPage.tsx), not a server
+ * concern. Same gates as topic.editSummary. */
+export const TopicRegenerateSummaryPayload = z.object({
+  topicId: z.string().uuid(),
+});
+export type TopicRegenerateSummaryPayload = z.infer<typeof TopicRegenerateSummaryPayload>;
+
+export const TopicRegenerateSummaryResult = z.object({
+  topicId: z.string().uuid(),
+});
+export type TopicRegenerateSummaryResult = z.infer<typeof TopicRegenerateSummaryResult>;

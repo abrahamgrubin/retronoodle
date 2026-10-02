@@ -16,6 +16,8 @@ const emptyBoard: BoardState = {
   voteBudget: 3,
   myVotes: {},
   votingProgress: null,
+  topicSummaries: [],
+  summaryUnavailableTopicIds: [],
 };
 
 function createEvent(overrides: Partial<Record<string, unknown>> = {}): RetroEvent {
@@ -656,6 +658,54 @@ describe('reduceBoard', () => {
         },
       });
       expect(updated.topics[0]).toMatchObject({ notes: 'Decided to try pairing more.' });
+    });
+  });
+
+  describe('RN-021: AI topic summaries', () => {
+    const topicId = '00000000-0000-4000-8000-000000000050';
+    const cardId2 = '00000000-0000-4000-8000-000000000051';
+
+    function summary(overrides: Partial<Record<string, unknown>> = {}) {
+      return {
+        id: '00000000-0000-4000-8000-000000000060',
+        topicId,
+        version: 1,
+        model: 'claude-sonnet-5',
+        promptVersion: 'abc123',
+        keyPoints: [{ text: 'Deploys are slow', sources: [cardId2] }],
+        decisions: [],
+        disagreements: [],
+        proposedActionItems: [],
+        edited: false,
+        editRatio: null,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        ...overrides,
+      };
+    }
+
+    it('topic.editSummary upserts the summary and clears any unavailable flag', () => {
+      const board: BoardState = { ...emptyBoard, phase: 'discuss', summaryUnavailableTopicIds: [topicId] };
+      const edited = reduceBoard(board, { seq: 1, type: 'topic.editSummary', payload: { summary: summary({ edited: true }) } });
+      expect(edited.topicSummaries).toEqual([summary({ edited: true })]);
+      expect(edited.summaryUnavailableTopicIds).toEqual([]);
+    });
+
+    it('topic.editSummary replaces an existing summary for the same topic rather than duplicating it', () => {
+      const board: BoardState = { ...emptyBoard, phase: 'discuss', topicSummaries: [summary()] };
+      const edited = reduceBoard(board, {
+        seq: 1,
+        type: 'topic.editSummary',
+        payload: { summary: summary({ keyPoints: [], edited: true }) },
+      });
+      expect(edited.topicSummaries).toHaveLength(1);
+      expect(edited.topicSummaries[0]).toMatchObject({ keyPoints: [], edited: true });
+    });
+
+    it('topic.regenerateSummary clears the unavailable flag for that topic, leaving others untouched', () => {
+      const otherTopicId = '00000000-0000-4000-8000-000000000052';
+      const board: BoardState = { ...emptyBoard, summaryUnavailableTopicIds: [topicId, otherTopicId] };
+      const updated = reduceBoard(board, { seq: 1, type: 'topic.regenerateSummary', payload: { topicId } });
+      expect(updated.summaryUnavailableTopicIds).toEqual([otherTopicId]);
     });
   });
 });

@@ -33,6 +33,8 @@ import {
   type ReactionSummary,
   type RetroPhase,
   type Topic,
+  type TopicSummary,
+  type TopicSummaryPoint,
   type VisibleBoardCard,
 } from '@retronoodle/shared';
 import { signInWithGoogle } from './auth';
@@ -199,6 +201,10 @@ function CardView({
 
   return (
     <div
+      // RN-021 layout spec: "hovering [a summary source chip] outlines those cards on the board
+      // and scrolls them into view" — this id is the one thing that makes the "scrolls into view"
+      // half possible; the outline half already exists via `highlighted` above.
+      id={`board-card-${card.id}`}
       style={{
         border: '1px solid #ccc',
         borderRadius: 6,
@@ -850,15 +856,227 @@ function NotesEditor({
   );
 }
 
+/** RN-021 layout spec: "hovering [a source chip] outlines those cards on the board and scrolls
+ * them into view." A point with zero sources (always a facilitator's manual edit — see
+ * topicSummaries.ts's own comment on why that's legitimate) simply has no chip to hover. */
+function SummaryPointList({ points, onHoverSources }: { points: TopicSummaryPoint[]; onHoverSources: (sources: string[] | null) => void }) {
+  if (points.length === 0) return <p style={{ margin: '0 0 8px', fontSize: 12, color: '#999' }}>None.</p>;
+  return (
+    <ul style={{ margin: '0 0 8px', paddingLeft: 16 }}>
+      {points.map((p, i) => (
+        <li key={i} style={{ fontSize: 13, marginBottom: 4 }}>
+          {p.text}
+          {p.sources.length > 0 && (
+            <button
+              type="button"
+              onMouseEnter={() => onHoverSources(p.sources)}
+              onMouseLeave={() => onHoverSources(null)}
+              onFocus={() => onHoverSources(p.sources)}
+              onBlur={() => onHoverSources(null)}
+              style={{
+                marginLeft: 6,
+                fontSize: 11,
+                border: '1px solid #ddd',
+                borderRadius: 999,
+                padding: '0 6px',
+                background: 'none',
+                cursor: 'default',
+              }}
+            >
+              {p.sources.length} card{p.sources.length === 1 ? '' : 's'}
+            </button>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** RN-021: one topic's full summary card in the Summaries tab — "Summaries tab ... showing every
+ * topic stacked in vote order." No mock distinguishes a one-topic "detail" view (reached by
+ * clicking a Queue row) from the stacked list in Wrap up — this is deliberately the same
+ * component either way, just scrolled to and briefly highlighted when opened from the Queue,
+ * rather than a separate navigable detail screen with its own back arrow. */
+function SummaryCard({
+  topic,
+  summary,
+  unavailable,
+  canManage,
+  onHoverSources,
+  onSave,
+  onRegenerate,
+}: {
+  topic: Topic;
+  summary: TopicSummary | null;
+  unavailable: boolean;
+  canManage: boolean;
+  onHoverSources: (sources: string[] | null) => void;
+  onSave: (
+    keyPoints: TopicSummaryPoint[],
+    decisions: TopicSummaryPoint[],
+    disagreements: TopicSummaryPoint[],
+    proposedActionItems: TopicSummaryPoint[],
+  ) => void;
+  onRegenerate: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draftKeyPoints, setDraftKeyPoints] = useState('');
+  const [draftDecisions, setDraftDecisions] = useState('');
+  const [draftDisagreements, setDraftDisagreements] = useState('');
+  const [draftProposedActionItems, setDraftProposedActionItems] = useState('');
+
+  function linesToPoints(text: string): TopicSummaryPoint[] {
+    return text
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((text) => ({ text, sources: [] }));
+  }
+  function pointsToLines(points: TopicSummaryPoint[]): string {
+    return points.map((p) => p.text).join('\n');
+  }
+
+  function startEditing() {
+    if (!summary) return;
+    setDraftKeyPoints(pointsToLines(summary.keyPoints));
+    setDraftDecisions(pointsToLines(summary.decisions));
+    setDraftDisagreements(pointsToLines(summary.disagreements));
+    setDraftProposedActionItems(pointsToLines(summary.proposedActionItems));
+    setEditing(true);
+  }
+
+  function save() {
+    onSave(linesToPoints(draftKeyPoints), linesToPoints(draftDecisions), linesToPoints(draftDisagreements), linesToPoints(draftProposedActionItems));
+    setEditing(false);
+  }
+
+  // Layout spec: "Regenerating an edited summary first asks 'Replace your edits?'."
+  function regenerate() {
+    if (summary?.edited && !window.confirm('Replace your edits?')) return;
+    onRegenerate();
+  }
+
+  const cardStyle = { border: '1px solid #ddd', borderRadius: 8, padding: 8, marginBottom: 12 };
+
+  if (!topic.startedAt) {
+    return (
+      <div id={`summary-card-${topic.id}`} style={cardStyle}>
+        <p style={{ margin: 0, fontSize: 13, fontWeight: 'bold' }}>{topic.name || 'Untitled group'}</p>
+        <p style={{ margin: '4px 0 0', fontSize: 12, color: '#999' }}>Not discussed</p>
+      </div>
+    );
+  }
+
+  return (
+    <div id={`summary-card-${topic.id}`} style={cardStyle}>
+      <p style={{ margin: '0 0 2px', fontSize: 13, fontWeight: 'bold' }}>{topic.name || 'Untitled group'}</p>
+      <p style={{ margin: '0 0 8px', fontSize: 12, color: '#666' }}>
+        {topic.voteCount} vote{topic.voteCount === 1 ? '' : 's'}
+      </p>
+
+      {/* "States: summarizing (skeleton and spinner)" — a topic that's ended (or is still the
+          current one — generation only ever starts once it ends, see summarizeTopic.ts) with
+          nothing stored and no failure reported yet. */}
+      {!summary && !unavailable && (
+        <>
+          <p style={{ fontSize: 12, color: '#666', margin: '0 0 8px' }}>Summarizing…</p>
+          {[0, 1].map((i) => (
+            <div key={i} style={{ height: 14, background: '#f0f0f0', borderRadius: 4, marginBottom: 6 }} />
+          ))}
+        </>
+      )}
+
+      {!summary && unavailable && (
+        <div>
+          <p style={{ fontSize: 12, color: '#b00020', margin: '0 0 8px' }}>Summary unavailable.</p>
+          {canManage && (
+            <button type="button" onClick={regenerate}>
+              Retry
+            </button>
+          )}
+        </div>
+      )}
+
+      {summary && !editing && (
+        <>
+          <p style={{ margin: '8px 0 2px', fontWeight: 'bold', fontSize: 12 }}>Key points</p>
+          <SummaryPointList points={summary.keyPoints} onHoverSources={onHoverSources} />
+          <p style={{ margin: '8px 0 2px', fontWeight: 'bold', fontSize: 12 }}>Decisions</p>
+          <SummaryPointList points={summary.decisions} onHoverSources={onHoverSources} />
+          <p style={{ margin: '8px 0 2px', fontWeight: 'bold', fontSize: 12 }}>Disagreements</p>
+          <SummaryPointList points={summary.disagreements} onHoverSources={onHoverSources} />
+          <p style={{ margin: '8px 0 2px', fontWeight: 'bold', fontSize: 12 }}>Proposed action items</p>
+          <SummaryPointList points={summary.proposedActionItems} onHoverSources={onHoverSources} />
+
+          <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: '#666' }}>
+            <span>v{summary.version}</span>
+            {summary.edited && <span style={{ border: '1px solid #ddd', borderRadius: 999, padding: '0 6px' }}>Edited</span>}
+            {canManage && (
+              <>
+                <button type="button" onClick={startEditing}>
+                  Edit
+                </button>
+                <button type="button" onClick={regenerate}>
+                  Regenerate
+                </button>
+              </>
+            )}
+          </div>
+        </>
+      )}
+
+      {summary && editing && (
+        <>
+          <p style={{ margin: '0 0 2px', fontWeight: 'bold', fontSize: 12 }}>Key points</p>
+          <textarea
+            value={draftKeyPoints}
+            onChange={(e) => setDraftKeyPoints(e.target.value)}
+            rows={3}
+            aria-label="Key points (one per line)"
+            style={{ width: '100%', boxSizing: 'border-box', fontSize: 12, marginBottom: 8 }}
+          />
+          <p style={{ margin: '0 0 2px', fontWeight: 'bold', fontSize: 12 }}>Decisions</p>
+          <textarea
+            value={draftDecisions}
+            onChange={(e) => setDraftDecisions(e.target.value)}
+            rows={3}
+            aria-label="Decisions (one per line)"
+            style={{ width: '100%', boxSizing: 'border-box', fontSize: 12, marginBottom: 8 }}
+          />
+          <p style={{ margin: '0 0 2px', fontWeight: 'bold', fontSize: 12 }}>Disagreements</p>
+          <textarea
+            value={draftDisagreements}
+            onChange={(e) => setDraftDisagreements(e.target.value)}
+            rows={3}
+            aria-label="Disagreements (one per line)"
+            style={{ width: '100%', boxSizing: 'border-box', fontSize: 12, marginBottom: 8 }}
+          />
+          <p style={{ margin: '0 0 2px', fontWeight: 'bold', fontSize: 12 }}>Proposed action items</p>
+          <textarea
+            value={draftProposedActionItems}
+            onChange={(e) => setDraftProposedActionItems(e.target.value)}
+            rows={3}
+            aria-label="Proposed action items (one per line)"
+            style={{ width: '100%', boxSizing: 'border-box', fontSize: 12, marginBottom: 8 }}
+          />
+          <div style={{ display: 'flex', gap: 4 }}>
+            <button type="button" onClick={save}>
+              Save
+            </button>
+            <button type="button" onClick={() => setEditing(false)}>
+              Cancel
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 /** The 320px right-edge panel (RN-019 layout spec), open for everyone (not facilitator-gated,
  * unlike RN-017's SuggestionsPanel — "Voter sees own... Others see progress" precedent doesn't
- * apply here, the whole queue is public once Discuss starts). Only a "Queue" tab is built — the
- * layout spec's second "Summaries" tab belongs to RN-021 (AI topic summaries), which doesn't
- * exist yet; same "don't build ahead" reasoning as RN-018 leaving `discussionOrder`/`startedAt`
- * unconsumed until this story. The Discussed list's status chip is hardcoded to "Summarizing…"
- * for the same reason — there's no `topic_summaries` row this story ever produces, so there's
- * nothing real to distinguish "Ready" or "Unavailable" from yet.
- */
+ * apply here, the whole queue is public once Discuss starts). Two tabs: Queue (RN-019) and
+ * Summaries (RN-021, "the Summaries tab of the right panel"). */
 function DiscussQueuePanel({
   phase,
   topics,
@@ -870,6 +1088,13 @@ function DiscussQueuePanel({
   onReorder,
   canEditNotes,
   onNotesChange,
+  tab,
+  onTabChange,
+  topicSummaries,
+  summaryUnavailableTopicIds,
+  onHoverSummarySources,
+  onSaveSummary,
+  onRegenerateSummary,
 }: {
   phase: RetroPhase;
   topics: Topic[];
@@ -883,6 +1108,23 @@ function DiscussQueuePanel({
   // `canManage`'s facilitator-only queue controls above), so this is its own separate flag.
   canEditNotes: boolean;
   onNotesChange: (topicId: string, body: string) => void;
+  // RN-021: "two tabs: Queue and Summaries." Lifted to the caller (not local state) because
+  // clicking a Discussed row needs to switch tabs from inside the Queue tab's own content, and
+  // entering Wrap up defaults the tab for the whole panel — both are easier to drive from one
+  // place than threaded back up through this component.
+  tab: 'queue' | 'summaries';
+  onTabChange: (tab: 'queue' | 'summaries') => void;
+  topicSummaries: TopicSummary[];
+  summaryUnavailableTopicIds: string[];
+  onHoverSummarySources: (sources: string[] | null) => void;
+  onSaveSummary: (
+    topicId: string,
+    keyPoints: TopicSummaryPoint[],
+    decisions: TopicSummaryPoint[],
+    disagreements: TopicSummaryPoint[],
+    proposedActionItems: TopicSummaryPoint[],
+  ) => void;
+  onRegenerateSummary: (topicId: string) => void;
 }) {
   const current = topics.find((t) => t.startedAt && !t.endedAt) ?? null;
   const upNext = topics
@@ -913,12 +1155,29 @@ function DiscussQueuePanel({
     onReorder(active.id as string, generateKeyBetween(prev?.discussionOrder ?? null, next?.discussionOrder ?? null));
   }
 
+  const sortedTopics = [...topics].sort((a, b) => (a.discussionOrder ?? '').localeCompare(b.discussionOrder ?? ''));
+
   return (
     <div style={{ width: 320, flexShrink: 0 }}>
       <div style={{ border: '1px solid #ddd', borderRadius: 8, padding: 8 }}>
-        <p style={{ margin: '0 0 8px', fontWeight: 'bold', fontSize: 14 }}>Discuss queue</p>
+        <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+          <button
+            type="button"
+            onClick={() => onTabChange('queue')}
+            style={{ fontWeight: tab === 'queue' ? 'bold' : 'normal', textDecoration: tab === 'queue' ? 'underline' : undefined }}
+          >
+            Queue
+          </button>
+          <button
+            type="button"
+            onClick={() => onTabChange('summaries')}
+            style={{ fontWeight: tab === 'summaries' ? 'bold' : 'normal', textDecoration: tab === 'summaries' ? 'underline' : undefined }}
+          >
+            Summaries
+          </button>
+        </div>
 
-        {current && (
+        {tab === 'queue' && current && (
           <div style={{ border: '2px solid #2563eb', borderRadius: 6, padding: 8, marginBottom: 12 }}>
             <p style={{ margin: '0 0 2px', fontSize: 11, color: '#2563eb', fontWeight: 'bold' }}>Now discussing</p>
             <p style={{ margin: '0 0 4px', fontSize: 13, fontWeight: 'bold' }}>{current.name || 'Untitled group'}</p>
@@ -952,7 +1211,7 @@ function DiscussQueuePanel({
           </div>
         )}
 
-        {phase === 'discuss' && upNext.length > 0 && (
+        {tab === 'queue' && phase === 'discuss' && upNext.length > 0 && (
           <div style={{ marginBottom: 12 }}>
             <p style={{ margin: '0 0 4px', fontWeight: 'bold', fontSize: 12, color: '#666' }}>Up next</p>
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -965,36 +1224,50 @@ function DiscussQueuePanel({
           </div>
         )}
 
-        <div style={{ marginBottom: phase === 'wrap_up' ? 12 : 0 }}>
-          <p style={{ margin: '0 0 4px', fontWeight: 'bold', fontSize: 12, color: '#666' }}>Discussed</p>
-          {discussed.length === 0 && <p style={{ margin: 0, fontSize: 12, color: '#666' }}>Nothing discussed yet.</p>}
-          {discussed.map((t) => (
-            <div
-              key={t.id}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0', cursor: canManage ? 'pointer' : undefined }}
-              role={canManage ? 'button' : undefined}
-              tabIndex={canManage ? 0 : undefined}
-              onClick={canManage ? () => onJump(t.id) : undefined}
-              onKeyDown={(e) => {
-                if (canManage && (e.key === 'Enter' || e.key === ' ')) {
-                  e.preventDefault();
-                  onJump(t.id);
-                }
-              }}
-            >
-              <span aria-hidden="true">✓</span>
-              <span style={{ flex: 1, fontSize: 13 }}>{t.name || 'Untitled group'}</span>
-              <span style={{ fontSize: 11, color: '#666', border: '1px solid #ddd', borderRadius: 999, padding: '1px 6px' }}>
-                Summarizing…
-              </span>
-            </div>
-          ))}
-        </div>
+        {tab === 'queue' && (
+          <div style={{ marginBottom: phase === 'wrap_up' ? 12 : 0 }}>
+            <p style={{ margin: '0 0 4px', fontWeight: 'bold', fontSize: 12, color: '#666' }}>Discussed</p>
+            {discussed.length === 0 && <p style={{ margin: 0, fontSize: 12, color: '#666' }}>Nothing discussed yet.</p>}
+            {discussed.map((t) => {
+              // RN-021: "Clicking a discussed topic in the Queue opens its summary there" — a
+              // read-only navigation available to everyone, not the facilitator-only queue jump
+              // (`onJump`) this row used before summaries existed.
+              const status = topicSummaries.some((s) => s.topicId === t.id)
+                ? 'Ready'
+                : summaryUnavailableTopicIds.includes(t.id)
+                  ? 'Unavailable'
+                  : 'Summarizing…';
+              return (
+                <div
+                  key={t.id}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0', cursor: 'pointer' }}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    onTabChange('summaries');
+                    setTimeout(() => document.getElementById(`summary-card-${t.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      onTabChange('summaries');
+                      setTimeout(() => document.getElementById(`summary-card-${t.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+                    }
+                  }}
+                >
+                  <span aria-hidden="true">✓</span>
+                  <span style={{ flex: 1, fontSize: 13 }}>{t.name || 'Untitled group'}</span>
+                  <span style={{ fontSize: 11, color: '#666', border: '1px solid #ddd', borderRadius: 999, padding: '1px 6px' }}>{status}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* "Undiscussed topics are labeled 'not discussed' in Wrap up" — during Discuss itself
             the exact same topics already render above as "Up next"; this section only exists
             once that list stops being meaningful (reordering/jumping both end with Discuss). */}
-        {phase === 'wrap_up' && upNext.length > 0 && (
+        {tab === 'queue' && phase === 'wrap_up' && upNext.length > 0 && (
           <div>
             <p style={{ margin: '0 0 4px', fontWeight: 'bold', fontSize: 12, color: '#666' }}>Not discussed</p>
             {upNext.map((t) => (
@@ -1002,6 +1275,28 @@ function DiscussQueuePanel({
                 <span style={{ flex: 1, fontSize: 13 }}>{t.name || 'Untitled group'}</span>
                 <span style={{ fontSize: 11 }}>Not discussed</span>
               </div>
+            ))}
+          </div>
+        )}
+
+        {/* RN-021: "the Summaries tab ... showing every topic stacked in vote order" — every
+            topic, not just discussed ones (SummaryCard itself renders the right state for
+            not-yet-started, in-progress, ready, or failed). */}
+        {tab === 'summaries' && (
+          <div>
+            {sortedTopics.map((t) => (
+              <SummaryCard
+                key={t.id}
+                topic={t}
+                summary={topicSummaries.find((s) => s.topicId === t.id) ?? null}
+                unavailable={summaryUnavailableTopicIds.includes(t.id)}
+                canManage={canManage}
+                onHoverSources={onHoverSummarySources}
+                onSave={(keyPoints, decisions, disagreements, proposedActionItems) =>
+                  onSaveSummary(t.id, keyPoints, decisions, disagreements, proposedActionItems)
+                }
+                onRegenerate={() => onRegenerateSummary(t.id)}
+              />
             ))}
           </div>
         )}
@@ -1244,6 +1539,8 @@ function Board({
         voteBudget: initialBoard.retro.voteBudget,
         myVotes: Object.fromEntries(initialBoard.myVotes.map((v) => [v.topicId, v.count])),
         votingProgress: initialBoard.votingProgress,
+        topicSummaries: initialBoard.topicSummaries,
+        summaryUnavailableTopicIds: [],
       },
       initialSeq: initialBoard.seq,
       reduce: reduceBoard,
@@ -1339,6 +1636,11 @@ function Board({
   const [suggestions, setSuggestions] = useState<GroupSuggestion[]>(initialBoard.suggestions ?? []);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [suggestionsPanelOpen, setSuggestionsPanelOpen] = useState(false);
+  // RN-021 layout spec: "two tabs: Queue and Summaries... In Wrap up the panel opens on
+  // Summaries." Defaulted here (not inside DiscussQueuePanel) so the same effect below that
+  // already reacts to phase transitions can set it on entering Wrap up, without that component
+  // needing its own copy of "was the previous phase discuss."
+  const [rightPanelTab, setRightPanelTab] = useState<'queue' | 'summaries'>('queue');
   const [hoveredSuggestionId, setHoveredSuggestionId] = useState<string | null>(null);
   // "accepted (collapses to 'Grouped' for 2s, then disappears)" — tracked separately from
   // actually removing the suggestion so the collapsed state has something to render first.
@@ -1352,7 +1654,14 @@ function Board({
     (s) => !justAcceptedIds.has(s.id) && !s.cardIds.some((id) => board.cards.find((c) => c.id === id)?.topicId),
   );
   const columnTitleById = new Map(board.columns.map((c) => [c.id, c.title]));
-  const highlightedCardIds = new Set(hoveredSuggestionId ? (suggestions.find((s) => s.id === hoveredSuggestionId)?.cardIds ?? []) : []);
+  // RN-021: "hovering a point highlights its source cards" — the same amber outline suggestion-
+  // hover already uses, just driven by a second, independent hover source. The two never overlap
+  // in practice (suggestions only exist in Group, summary points only exist in Discuss/Wrap up).
+  const [hoveredSummarySourceIds, setHoveredSummarySourceIds] = useState<string[] | null>(null);
+  const highlightedCardIds = new Set([
+    ...(hoveredSuggestionId ? (suggestions.find((s) => s.id === hoveredSuggestionId)?.cardIds ?? []) : []),
+    ...(hoveredSummarySourceIds ?? []),
+  ]);
 
   function acceptSuggestion(suggestion: GroupSuggestion) {
     const mutationId = uuidv7();
@@ -1488,6 +1797,50 @@ function Board({
       mutationId,
       optimisticReduce: (b) => ({ ...b, topics: b.topics.map((t) => (t.id === topicId ? { ...t, notes: body } : t)) }),
       send: () => postMutation(accessToken, retroId, { mutationId, type: 'note.upsert', payload: { topicId, body } }),
+    });
+  }
+
+  // RN-021: "hovering [a source chip] outlines those cards on the board and scrolls them into
+  // view" — the outline is just highlightedCardIds (set above); the scroll only happens once, on
+  // hover-in, not continuously, so it doesn't fight a user who scrolls away themselves.
+  function hoverSummarySources(sources: string[] | null) {
+    setHoveredSummarySourceIds(sources);
+    if (sources && sources[0]) {
+      document.getElementById(`board-card-${sources[0]}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }
+
+  function editSummary(
+    topicId: string,
+    keyPoints: TopicSummaryPoint[],
+    decisions: TopicSummaryPoint[],
+    disagreements: TopicSummaryPoint[],
+    proposedActionItems: TopicSummaryPoint[],
+  ) {
+    const mutationId = uuidv7();
+    void sendMutation({
+      mutationId,
+      // No optimistic shortcut — the real result (TopicEditSummaryResult.summary) carries the
+      // full row (id, version, edited, etc.), which there's nothing useful to guess here.
+      optimisticReduce: (b) => b,
+      send: () =>
+        postMutation(accessToken, retroId, {
+          mutationId,
+          type: 'topic.editSummary',
+          payload: { topicId, keyPoints, decisions, disagreements, proposedActionItems },
+        }),
+    });
+  }
+
+  // RN-021: "each regenerate creates a new version row" — written later by the job, not this
+  // mutation's own result (see topicRegenerateSummary.ts's own comment). "Replace your edits?" is
+  // confirmed by the caller (SummaryCard) before this is ever called, not here.
+  function regenerateSummary(topicId: string) {
+    const mutationId = uuidv7();
+    void sendMutation({
+      mutationId,
+      optimisticReduce: (b) => b,
+      send: () => postMutation(accessToken, retroId, { mutationId, type: 'topic.regenerateSummary', payload: { topicId } }),
     });
   }
 
@@ -1699,6 +2052,11 @@ function Board({
               voteBudget: fresh.retro.voteBudget,
               myVotes: Object.fromEntries(fresh.myVotes.map((v) => [v.topicId, v.count])),
               votingProgress: fresh.votingProgress,
+              topicSummaries: fresh.topicSummaries,
+              // A resync is a hard reset against a fresh snapshot — any "unavailable" flag was
+              // either resolved (a summary exists now) or still true server-side with no event
+              // of its own to resurrect it from, so there's nothing to carry over here either way.
+              summaryUnavailableTopicIds: [],
             },
             fresh.seq,
           );
@@ -1750,6 +2108,32 @@ function Board({
         applyLocalPatch((b) => ({
           ...b,
           topics: b.topics.map((t) => (t.id === topicId ? { ...t, discussionQuestions: questions } : t)),
+        }));
+        return;
+      }
+      // RN-021: ai.summarizeTopic's own one-shot broadcasts — same reasoning as the two above,
+      // just for the real end-of-discussion summary instead of the homework's lighter one.
+      if (message.event === 'topic.summaryReady') {
+        const { summary } = message.payload as { topicId: string; summary: TopicSummary };
+        applyLocalPatch((b) => {
+          const existing = b.topicSummaries.find((s) => s.topicId === summary.topicId);
+          return {
+            ...b,
+            topicSummaries: existing
+              ? b.topicSummaries.map((s) => (s.topicId === summary.topicId ? summary : s))
+              : [...b.topicSummaries, summary],
+            summaryUnavailableTopicIds: b.summaryUnavailableTopicIds.filter((id) => id !== summary.topicId),
+          };
+        });
+        return;
+      }
+      if (message.event === 'topic.summaryFailed') {
+        const { topicId } = message.payload as { topicId: string };
+        applyLocalPatch((b) => ({
+          ...b,
+          summaryUnavailableTopicIds: b.summaryUnavailableTopicIds.includes(topicId)
+            ? b.summaryUnavailableTopicIds
+            : [...b.summaryUnavailableTopicIds, topicId],
         }));
         return;
       }
@@ -1822,6 +2206,9 @@ function Board({
     // failing) — "failure shows nothing," the same empty message as zero suggestions.
     if (previousPhaseRef.current === 'write' && board.phase === 'group' && isFacilitator) {
       setSuggestionsLoading(true);
+    }
+    if (previousPhaseRef.current === 'discuss' && board.phase === 'wrap_up') {
+      setRightPanelTab('summaries');
     }
     previousPhaseRef.current = board.phase;
   }, [board.phase, isFacilitator]);
@@ -2171,6 +2558,13 @@ function Board({
             onReorder={reorderQueueTopic}
             canEditNotes={canEditNotes}
             onNotesChange={updateNotes}
+            tab={rightPanelTab}
+            onTabChange={setRightPanelTab}
+            topicSummaries={board.topicSummaries}
+            summaryUnavailableTopicIds={board.summaryUnavailableTopicIds}
+            onHoverSummarySources={hoverSummarySources}
+            onSaveSummary={editSummary}
+            onRegenerateSummary={regenerateSummary}
           />
         )}
       </div>

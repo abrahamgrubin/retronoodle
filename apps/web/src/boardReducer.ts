@@ -18,6 +18,8 @@ import type {
   QueueReorderResult,
   TopicEditGroupSummaryResult,
   NoteUpsertResult,
+  TopicEditSummaryResult,
+  TopicSummary,
   VisibleBoardCard,
   VoteAddResult,
   VoteRemoveResult,
@@ -44,6 +46,15 @@ export interface BoardState {
   myVotes: Record<string, number>;
   // RN-018: "5 of 8 done voting" — null outside Vote, where the concept doesn't apply at all.
   votingProgress: VotingProgress | null;
+  // RN-021: the latest generation of each topic's AI summary — absent means "nothing yet" (still
+  // summarizing, or never discussed), same convention as myVotes above. Keyed by topicId via
+  // `.topicId` on each entry, not a separate map — small enough lists that find() is fine, and it
+  // keeps this array the same shape BoardResponse.topicSummaries already is.
+  topicSummaries: TopicSummary[];
+  // RN-021: "the panel shows Retry" — topics whose most recent generation attempt failed (both
+  // models). Purely a local, transient flag; never persisted, never in BoardResponse. Cleared the
+  // moment a new summary arrives for that topic, or optimistically on Regenerate.
+  summaryUnavailableTopicIds: string[];
 }
 
 function isHiddenPayload(payload: unknown): payload is HiddenBoardCard {
@@ -97,6 +108,20 @@ function upsertFromCardEvent(board: BoardState, payload: unknown): BoardState {
 function upsertTopic(board: BoardState, topic: Topic): BoardState {
   const existing = board.topics.find((t) => t.id === topic.id);
   return { ...board, topics: existing ? board.topics.map((t) => (t.id === topic.id ? topic : t)) : [...board.topics, topic] };
+}
+
+/** RN-021: replaces whichever topic's summary this is (there's only ever the latest one per
+ * topic — see BoardState's own comment) and clears that topic's "unavailable" flag, since a real
+ * summary arriving is proof generation didn't actually fail. */
+function upsertTopicSummary(board: BoardState, summary: TopicSummary): BoardState {
+  const existing = board.topicSummaries.find((s) => s.topicId === summary.topicId);
+  return {
+    ...board,
+    topicSummaries: existing
+      ? board.topicSummaries.map((s) => (s.topicId === summary.topicId ? summary : s))
+      : [...board.topicSummaries, summary],
+    summaryUnavailableTopicIds: board.summaryUnavailableTopicIds.filter((id) => id !== summary.topicId),
+  };
 }
 
 /** Folds a `dissolvedTopic` (RN-015: "a one-card group dissolves"), shared by card.move and
@@ -246,6 +271,21 @@ export function reduceBoard(board: BoardState, event: RetroEvent): BoardState {
     case 'note.upsert': {
       const result = event.payload as NoteUpsertResult;
       return upsertTopic(board, result.topic);
+    }
+    // topic.editSummary (RN-021): a normal mutation (real seq) — the facilitator's edit overwrites
+    // the latest summary in place, same "replace the whole thing" convention as every other
+    // topic-shaped result in this file.
+    case 'topic.editSummary': {
+      const result = event.payload as TopicEditSummaryResult;
+      return upsertTopicSummary(board, result.summary);
+    }
+    // topic.regenerateSummary (RN-021): this mutation's own result never carries a new summary —
+    // the job is still running when it resolves. All there is to fold here is "whatever used to
+    // be marked unavailable for this topic isn't anymore, we just asked again" (optimistic); the
+    // real new version arrives later via topic.summaryReady below.
+    case 'topic.regenerateSummary': {
+      const { topicId } = event.payload as { topicId: string };
+      return { ...board, summaryUnavailableTopicIds: board.summaryUnavailableTopicIds.filter((id) => id !== topicId) };
     }
     // suggestion.reject (RN-017): nothing board-wide changes (no card or topic is touched) —
     // this reaches every participant's shared channel like any other mutation, but it never

@@ -4,6 +4,7 @@ import { Topic } from './topics.js';
 import { ReactionSummary } from './reactions.js';
 import { GroupSuggestion } from './ai.js';
 import { VotingProgress } from './votes.js';
+import { TopicSummary } from './topicSummaries.js';
 
 export const BoardColumn = z.object({
   id: z.string().uuid(),
@@ -87,6 +88,11 @@ export const BoardResponse = z.object({
   myVotes: z.array(z.object({ topicId: z.string().uuid(), count: z.number().int().positive() })),
   // RN-018: "5 of 8 done voting" — only meaningful during Vote; null every other phase.
   votingProgress: VotingProgress.nullable(),
+  // RN-021: the latest generation of each topic's AI summary — a topic with no summary yet
+  // (still summarizing, generation failed, or never discussed) simply has no entry here, same
+  // "absent means not there yet" convention as myVotes above. Visible to everyone (the summary
+  // panel is public — only editing/regenerating it is facilitator-only), not redacted.
+  topicSummaries: z.array(TopicSummary),
   seq: z.number().int().nonnegative(),
   // RN-012: "every API response includes serverTime" — the client compares this to its own
   // clock once, at load, to get a stable offset, then counts the phase timer down locally
