@@ -1307,6 +1307,13 @@ function Board({
   const previousPhaseRef = useRef(board.phase);
   useEffect(() => {
     if (previousPhaseRef.current === 'write' && board.phase !== 'write') resyncRef.current(false);
+    // RN-018: "every card belongs to exactly one topic" once Vote starts — group->vote
+    // (onTransition.ts) auto-creates a single-card topic for anything still ungrouped, but that
+    // transition's own broadcast only carries the new phase (PhaseTransitionResult), same gap as
+    // write->group's reveal above. Without this, any card nobody manually grouped during Group
+    // never gets a topic in this client's board state, so it renders as a bare, vote-control-less
+    // card forever — resync once to pick up whatever topics actually exist now.
+    if (previousPhaseRef.current === 'group' && board.phase === 'vote') resyncRef.current(false);
     // RN-017: "Within 5s of entering Group, the facilitator sees suggested groups" — a live
     // transition (not a reload that happens to land already in Group — see this state's own
     // declaration comment) starts the "Finding similar cards…" window. The fallback timeout
