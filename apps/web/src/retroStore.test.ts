@@ -233,6 +233,32 @@ describe('retroStore — resetBoard (RN-011, extended by RN-013)', () => {
     store.getState().resetBoard(['fresh snapshot'], 10);
     expect(store.getState().board).toEqual(['fresh snapshot', 'optimistic:offline-edit']);
   });
+
+  // Bug found live: a resync's GET /board can race the mutation that triggered it and lose —
+  // its response arrives after a broadcast already advanced lastAppliedSeq further, carrying a
+  // snapshot from *before* that broadcast's own change. Applying it anyway visibly reverted a
+  // facilitator's phase change a couple seconds after clicking Skip. seq only ever moves forward
+  // for a retro, so anything offering an older one is stale by definition.
+  it('ignores a resync whose seq is older than what has already been applied (a losing race)', () => {
+    const store = makeStore();
+    store.getState().applyServerEvent(event(1, 'a'));
+    store.getState().applyServerEvent(event(2, 'b')); // e.g. the broadcast for the mutation that triggered the resync
+
+    store.getState().resetBoard(['stale snapshot, read before the broadcast\'s change committed'], 1);
+
+    expect(store.getState().board).toEqual(['test.append:a', 'test.append:b']); // unchanged
+    expect(store.getState().lastAppliedSeq).toBe(2); // not regressed
+  });
+
+  it('still accepts a resync at the exact same seq already applied (no-op, not a regression)', () => {
+    const store = makeStore();
+    store.getState().applyServerEvent(event(1, 'a'));
+
+    store.getState().resetBoard(['fresh snapshot, same seq'], 1);
+
+    expect(store.getState().board).toEqual(['fresh snapshot, same seq']);
+    expect(store.getState().lastAppliedSeq).toBe(1);
+  });
 });
 
 describe('retroStore — retryPendingMutations (RN-013)', () => {
