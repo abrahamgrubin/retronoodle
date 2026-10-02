@@ -2,7 +2,7 @@ import { QueueReorderPayload, QueueReorderResult, type RetroPhase } from '@retro
 import { can } from '../auth/can.js';
 import type { MutationTypeDef } from './registry.js';
 import { MutationRejected } from './errors.js';
-import { toTopic, TOPIC_COLUMNS, type TopicRow } from './discussHelpers.js';
+import { toTopic, updateTopicReturningFull, type TopicRow } from './discussHelpers.js';
 
 /**
  * queue.reorder (RN-019): facilitator-only, Discuss phase only — drags a not-yet-discussed topic
@@ -32,7 +32,7 @@ export const queueReorderMutation: MutationTypeDef<QueueReorderPayload> = {
       throw new MutationRejected(409, 'already_started', 'Only topics not yet discussed can be reordered');
     }
 
-    const updated = await client.query<TopicRow>(`update topics set discussion_order = $1 where id = $2 returning ${TOPIC_COLUMNS}`, [
+    const updated = await client.query<TopicRow>(updateTopicReturningFull('update topics set discussion_order = $1 where id = $2'), [
       payload.discussionOrder,
       payload.topicId,
     ]);

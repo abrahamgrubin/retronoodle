@@ -40,6 +40,7 @@ describe('queue.reorder', () => {
           ai_group_summary_title: null,
           ai_group_summary: null,
           ai_discussion_questions: null,
+          notes: '',
         },
       ],
     }); // update
@@ -59,6 +60,7 @@ describe('queue.reorder', () => {
         groupSummaryTitle: null,
         groupSummary: null,
         discussionQuestions: null,
+        notes: '',
       },
     });
   });

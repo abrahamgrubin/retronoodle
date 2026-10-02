@@ -17,6 +17,7 @@ import type {
   TopicRenameResult,
   QueueReorderResult,
   TopicEditGroupSummaryResult,
+  NoteUpsertResult,
   VisibleBoardCard,
   VoteAddResult,
   VoteRemoveResult,
@@ -238,6 +239,12 @@ export function reduceBoard(board: BoardState, event: RetroEvent): BoardState {
     // they carry no real seq to fold here).
     case 'topic.editGroupSummary': {
       const result = event.payload as TopicEditGroupSummaryResult;
+      return upsertTopic(board, result.topic);
+    }
+    // note.upsert (RN-020): "notes save automatically and appear for everyone" — a normal
+    // mutation (real seq), folded the same way as topic.rename/queue.reorder.
+    case 'note.upsert': {
+      const result = event.payload as NoteUpsertResult;
       return upsertTopic(board, result.topic);
     }
     // suggestion.reject (RN-017): nothing board-wide changes (no card or topic is touched) —

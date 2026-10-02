@@ -40,6 +40,7 @@ export const topicRenameMutation: MutationTypeDef<TopicRenamePayload> = {
         groupSummaryTitle: null,
         groupSummary: null,
         discussionQuestions: null,
+        notes: '',
       },
     });
   },

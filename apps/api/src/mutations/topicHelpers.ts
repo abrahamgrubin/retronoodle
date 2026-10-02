@@ -127,6 +127,8 @@ export async function createTopicFromCardIds(
       groupSummaryTitle: null,
       groupSummary: null,
       discussionQuestions: null,
+      // RN-020: notes are editable Discuss/Wrap-up onward only — a topic can't have any yet.
+      notes: '',
     },
     cards: lookup.rows.map((r) => ({
       id: r.id,
