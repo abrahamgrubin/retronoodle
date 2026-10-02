@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { AI_GROUPING_MODEL, type Database } from '@retronoodle/shared';
 import type { WorkerLogger } from '../logger.js';
-import { loadGroupingPrompt } from './prompt.js';
+import { loadAgent } from '../agents/loadAgent.js';
 
 /** The one shape RealtimeBus actually needs here — a structural subset, not the concrete class,
  * so this job (and its tests) don't depend on apps/api's RealtimeBus at all. */
@@ -85,7 +85,7 @@ export async function runGroupCardsJob(data: GroupCardsJobData, deps: GroupCards
   const cardLines = groupable
     .map((c) => `- id: ${c.id} | column: ${columnTitleById.get(c.column_id)} | text: ${c.body.replace(/\n/g, ' ')}`)
     .join('\n');
-  const prompt = loadGroupingPrompt().replace('{{CARDS}}', cardLines);
+  const prompt = loadAgent('grouper').body.replace('{{CARDS}}', cardLines);
 
   const validCardIds = new Set(groupable.map((c) => c.id));
   const columnByCardId = new Map(groupable.map((c) => [c.id, c.column_id]));
