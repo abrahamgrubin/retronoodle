@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -10,6 +11,12 @@ export interface AgentDefinition {
   /** The prompt itself — everything after the closing `---`, trimmed. May contain
    * `{{PLACEHOLDER}}` tokens the caller substitutes before sending it to Anthropic. */
   body: string;
+  /** RN-021: a short hash of `body`, for jobs that persist which exact prompt produced a stored
+   * result (`topic_summaries.prompt_version`). Automatic, not a hand-maintained version number —
+   * editing the prompt file changes this the moment the process next loads it, so a stale
+   * version can never be left unbumped by mistake. Not informational like `model` above: this one
+   * actually gets written to the database. */
+  promptVersion: string;
 }
 
 /** Exported for its own unit tests — the parsing logic doesn't need a real file on disk to
@@ -30,11 +37,14 @@ export function parseAgentFile(raw: string, name: string): AgentDefinition {
     fields.set(line.slice(0, colon).trim(), line.slice(colon + 1).trim());
   }
 
+  const body = lines.slice(closingIndex + 1).join('\n').trim();
+
   return {
     name: fields.get('name') ?? name,
     description: fields.get('description') ?? '',
     model: fields.get('model') ?? '',
-    body: lines.slice(closingIndex + 1).join('\n').trim(),
+    body,
+    promptVersion: createHash('sha256').update(body).digest('hex').slice(0, 12),
   };
 }
 

@@ -7,6 +7,7 @@ import {
   type GroupSuggestion,
   type ReactionSummary,
   type RetroPhase,
+  type TopicSummary,
   type VisibleBoardCard,
   type VotingProgress,
 } from '@retronoodle/shared';
@@ -116,6 +117,41 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
         return reply.code(500).send({ error: 'board_read_failed' });
       }
       for (const row of noteRows ?? []) notesByTopic.set(row.topic_id, row.body);
+    }
+
+    // RN-021: the latest version per topic only — the board never shows a version browser. Rows
+    // come back ordered within each topic by the `version desc` below; the first one this loop
+    // sees for a given topic_id is its latest, so later (older) rows for the same topic are
+    // simply skipped.
+    const latestSummaryByTopic = new Map<string, TopicSummary>();
+    if (topicIds.length > 0) {
+      const { data: summaryRows, error: summariesError } = await supabaseAdmin
+        .from('topic_summaries')
+        .select()
+        .in('topic_id', topicIds)
+        .order('topic_id')
+        .order('version', { ascending: false });
+      if (summariesError) {
+        request.log.error({ err: summariesError }, 'failed to read topic summaries');
+        return reply.code(500).send({ error: 'board_read_failed' });
+      }
+      for (const row of summaryRows ?? []) {
+        if (latestSummaryByTopic.has(row.topic_id)) continue;
+        latestSummaryByTopic.set(row.topic_id, {
+          id: row.id,
+          topicId: row.topic_id,
+          version: row.version,
+          model: row.model,
+          promptVersion: row.prompt_version,
+          keyPoints: row.key_points as TopicSummary['keyPoints'],
+          decisions: row.decisions as TopicSummary['decisions'],
+          disagreements: row.disagreements as TopicSummary['disagreements'],
+          proposedActionItems: row.proposed_action_items as TopicSummary['proposedActionItems'],
+          edited: row.edited,
+          editRatio: row.edit_ratio === null ? null : Number(row.edit_ratio),
+          createdAt: row.created_at,
+        });
+      }
     }
 
     // RN-017: "Participants who aren't the facilitator never receive suggestions" — true for the
@@ -235,6 +271,7 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
       suggestions,
       myVotes,
       votingProgress,
+      topicSummaries: [...latestSummaryByTopic.values()],
       seq: lastEventResult.data?.seq ?? 0,
       // RN-012: this specific response is what a late joiner's clock-offset calculation anchors
       // to, so it's set explicitly here rather than relying solely on the global serverTime hook

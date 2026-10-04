@@ -5,6 +5,7 @@ import type { WorkerLogger } from './logger.js';
 import { runGroupCardsJob } from './jobs/groupCards.js';
 import { runSummarizeGroupJob } from './jobs/summarizeGroup.js';
 import { runSuggestQuestionsJob } from './jobs/suggestQuestions.js';
+import { runSummarizeTopicJob } from './jobs/summarizeTopic.js';
 
 export type { WorkerLogger } from './logger.js';
 
@@ -12,6 +13,8 @@ export const AI_GROUP_CARDS_QUEUE = 'ai.groupCards';
 // Homework: AI agent team.
 export const AI_SUMMARIZE_GROUP_QUEUE = 'ai.summarizeGroup';
 export const AI_SUGGEST_QUESTIONS_QUEUE = 'ai.suggestQuestions';
+// RN-021: already enqueued since RN-019 (discussHelpers.ts), but never had a consumer until now.
+export const AI_SUMMARIZE_TOPIC_QUEUE = 'ai.summarizeTopic';
 
 /** The union of every job's own (narrower) RealtimeBusLike requirement — groupCards.ts only ever
  * needs broadcastUser, summarizeGroup.ts/suggestQuestions.ts only ever need broadcastRetro, but
@@ -91,6 +94,16 @@ export async function startWorker(options: StartWorkerOptions): Promise<RunningW
         await runSuggestQuestionsJob(job.data, { supabaseAdmin, realtimeBus, anthropicApiKey, logger: options.logger });
       }
     });
+
+    // RN-021, high priority — pg-boss processes queues independently, so this doesn't need its
+    // own priority mechanism to stay responsive; it's just the one users actually wait on ("a
+    // summary appears within 30s of leaving a topic").
+    await queue.createQueue(AI_SUMMARIZE_TOPIC_QUEUE);
+    await queue.work<{ topicId: string }>(AI_SUMMARIZE_TOPIC_QUEUE, async (jobs) => {
+      for (const job of jobs) {
+        await runSummarizeTopicJob(job.data, { supabaseAdmin, realtimeBus, anthropicApiKey, logger: options.logger });
+      }
+    });
   }
 
   options.logger.info('worker started');
@@ -119,6 +132,7 @@ export async function createJobSender(databaseUrl: string, logger: WorkerLogger)
   await boss.createQueue(AI_GROUP_CARDS_QUEUE);
   await boss.createQueue(AI_SUMMARIZE_GROUP_QUEUE);
   await boss.createQueue(AI_SUGGEST_QUESTIONS_QUEUE);
+  await boss.createQueue(AI_SUMMARIZE_TOPIC_QUEUE);
   return {
     sender: { send: (queueName, data) => boss.send(queueName, data) },
     async stop() {
