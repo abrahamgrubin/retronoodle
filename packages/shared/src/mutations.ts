@@ -4,6 +4,7 @@ import { VisibleBoardCard } from './board.js';
 import { Topic } from './topics.js';
 import { Emoji } from './reactions.js';
 import { TopicSummary, TopicSummaryPoint } from './topicSummaries.js';
+import { ActionItem, ActionItemOrigin } from './actionItems.js';
 
 /** POST /retros/:id/mutations body (RN-008). Every mutation type has its own payload schema
  * below; the envelope itself only knows the type name and a client-generated mutationId used
@@ -308,3 +309,41 @@ export const TopicRegenerateSummaryResult = z.object({
   topicId: z.string().uuid(),
 });
 export type TopicRegenerateSummaryResult = z.infer<typeof TopicRegenerateSummaryResult>;
+
+/** `actionItem.create` (RN-022): "Create from a proposed item in the summary ('Add as action
+ * item') or via '+ Add a card' in the Action items column" — `origin`/`sourceTopicId` tell the
+ * two apart, set by the client depending on which flow this came from, not inferred server-side.
+ * `id` is browser-generated (UUIDv7), same as cards. No ownership/role check beyond the phase
+ * gate (`actionItemEdit` — Review, Discuss, Wrap up) — the story never says "facilitator-only,"
+ * same "anyone" default as topic.rename/note.upsert. */
+export const ActionItemCreatePayload = z.object({
+  id: z.string().uuid(),
+  title: z.string().trim().min(1).max(500),
+  sourceTopicId: z.string().uuid().nullable(),
+  ownerId: z.string().uuid().nullable(),
+  dueDate: z.string().nullable(),
+  origin: ActionItemOrigin,
+});
+export type ActionItemCreatePayload = z.infer<typeof ActionItemCreatePayload>;
+
+export const ActionItemCreateResult = z.object({
+  actionItem: ActionItem,
+});
+export type ActionItemCreateResult = z.infer<typeof ActionItemCreateResult>;
+
+/** `actionItem.update` (RN-022): "owner and due date are editable inline" — title is included too
+ * for symmetry with every other editable entity in this app, though it's not explicitly called
+ * out by the story's own ACs. Every field is optional — only the ones actually being changed are
+ * sent, same partial-update shape as topic.editGroupSummary's "overwrite in place" precedent. */
+export const ActionItemUpdatePayload = z.object({
+  id: z.string().uuid(),
+  title: z.string().trim().min(1).max(500).optional(),
+  ownerId: z.string().uuid().nullable().optional(),
+  dueDate: z.string().nullable().optional(),
+});
+export type ActionItemUpdatePayload = z.infer<typeof ActionItemUpdatePayload>;
+
+export const ActionItemUpdateResult = z.object({
+  actionItem: ActionItem,
+});
+export type ActionItemUpdateResult = z.infer<typeof ActionItemUpdateResult>;

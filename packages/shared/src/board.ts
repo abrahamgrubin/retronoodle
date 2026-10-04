@@ -5,6 +5,7 @@ import { ReactionSummary } from './reactions.js';
 import { GroupSuggestion } from './ai.js';
 import { VotingProgress } from './votes.js';
 import { TopicSummary } from './topicSummaries.js';
+import { ActionItem } from './actionItems.js';
 
 export const BoardColumn = z.object({
   id: z.string().uuid(),
@@ -72,6 +73,12 @@ export const BoardResponse = z.object({
     // RN-018: "set by the facilitator before Vote" — read here by every viewer so each can
     // compute their own remaining count locally (voteBudget - sum of myVotes).
     voteBudget: z.number().int().positive(),
+    // RN-022: "due date defaults to the day before the next retro (next retro = today +
+    // retro_cadence_days, default 14)" — the client computes that default itself from these two,
+    // since neither one alone is the answer (next_retro_at is usually unset until something
+    // actually schedules it, which no story does yet).
+    retroCadenceDays: z.number().int().positive(),
+    nextRetroAt: z.string().nullable(),
   }),
   columns: z.array(BoardColumn),
   cards: z.array(BoardCard),
@@ -93,6 +100,11 @@ export const BoardResponse = z.object({
   // "absent means not there yet" convention as myVotes above. Visible to everyone (the summary
   // panel is public — only editing/regenerating it is facilitator-only), not redacted.
   topicSummaries: z.array(TopicSummary),
+  // RN-022: scoped to `source_retro_id = this retro` only — "Review shows carried items (RN-025)"
+  // is a later story's job; this one never looks past the current retro.
+  actionItems: z.array(ActionItem),
+  // RN-022: every member of the retro's team, for the owner picker — not just whoever's online.
+  teamMembers: z.array(z.object({ id: z.string().uuid(), displayName: z.string() })),
   seq: z.number().int().nonnegative(),
   // RN-012: "every API response includes serverTime" — the client compares this to its own
   // clock once, at load, to get a stable offset, then counts the phase timer down locally

@@ -25,6 +25,7 @@ import {
   phaseDurationMinutes,
   phaseSubtitle,
   previousPhase,
+  type ActionItem,
   type BoardCard,
   type BoardColumn,
   type BoardResponse,
@@ -86,6 +87,130 @@ function AddCardForm({ onAdd }: { onAdd: (body: string) => void }) {
       {error && (
         <p role="alert" style={{ color: 'crimson', margin: '4px 0', fontSize: 13 }}>
           {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// RN-022: "due date defaults to the day before the next retro (next retro = today +
+// retro_cadence_days, default 14)" — next_retro_at is usually unset (nothing schedules it yet),
+// so the fallback is the one actually exercised in practice today.
+function defaultActionItemDueDate(retro: BoardResponse['retro']): string {
+  const base = retro.nextRetroAt ? new Date(`${retro.nextRetroAt}T00:00:00Z`) : new Date();
+  if (!retro.nextRetroAt) base.setUTCDate(base.getUTCDate() + retro.retroCadenceDays);
+  base.setUTCDate(base.getUTCDate() - 1);
+  return base.toISOString().slice(0, 10);
+}
+
+// Mock: "Name · due Oct 6" — no time-of-day concept for a due date (actionItems.ts), so this never
+// needs to account for the viewer's own timezone the way a real timestamp would.
+function formatDueDate(dueDate: string): string {
+  return new Date(`${dueDate}T00:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+
+/** RN-022: manual creation from the Action items column — "+ Add a card" per the story's own
+ * technical notes, just with an owner and due date alongside the title. */
+function AddActionItemForm({
+  teamMembers,
+  defaultDueDate,
+  onAdd,
+}: {
+  teamMembers: { id: string; displayName: string }[];
+  defaultDueDate: string;
+  onAdd: (title: string, ownerId: string | null, dueDate: string | null) => void;
+}) {
+  const [title, setTitle] = useState('');
+  const [ownerId, setOwnerId] = useState('');
+  const [dueDate, setDueDate] = useState(defaultDueDate);
+
+  function submit() {
+    const trimmed = title.trim();
+    if (!trimmed) return;
+    onAdd(trimmed, ownerId || null, dueDate || null);
+    setTitle('');
+    setOwnerId('');
+    setDueDate(defaultDueDate);
+  }
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <textarea
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            submit();
+          }
+        }}
+        placeholder="+ Add an action item"
+        aria-label="Add an action item"
+        rows={2}
+        style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical' }}
+      />
+      <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+        <select aria-label="Owner" value={ownerId} onChange={(e) => setOwnerId(e.target.value)} style={{ flex: 1 }}>
+          <option value="">Unassigned</option>
+          {teamMembers.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.displayName}
+            </option>
+          ))}
+        </select>
+        <input aria-label="Due date" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+        <button type="button" onClick={submit}>
+          Add
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** RN-022: "title, owner avatar, 'Name · due Oct 6', reactions" per the mock — reactions are
+ * skipped (no backing table: action_items has no equivalent of card_reactions, and the AC list
+ * never asks for them). No avatar image infra exists yet either (same gap HiddenCardPlaceholder's
+ * own comment already notes), so this shows the owner's name instead. */
+function ActionItemRow({
+  item,
+  teamMembers,
+  canEdit,
+  onUpdate,
+}: {
+  item: ActionItem;
+  teamMembers: { id: string; displayName: string }[];
+  canEdit: boolean;
+  onUpdate: (patch: { ownerId?: string | null; dueDate?: string | null }) => void;
+}) {
+  const ownerName = teamMembers.find((m) => m.id === item.ownerId)?.displayName ?? 'Unassigned';
+  return (
+    <div style={{ border: '1px solid #ddd', borderRadius: 6, padding: 8, marginBottom: 8 }}>
+      <p style={{ margin: '0 0 6px', fontSize: 13 }}>{item.title}</p>
+      {canEdit ? (
+        <div style={{ display: 'flex', gap: 8, fontSize: 12 }}>
+          <select
+            aria-label={`Owner for ${item.title}`}
+            value={item.ownerId ?? ''}
+            onChange={(e) => onUpdate({ ownerId: e.target.value || null })}
+          >
+            <option value="">Unassigned</option>
+            {teamMembers.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.displayName}
+              </option>
+            ))}
+          </select>
+          <input
+            aria-label={`Due date for ${item.title}`}
+            type="date"
+            value={item.dueDate ?? ''}
+            onChange={(e) => onUpdate({ dueDate: e.target.value || null })}
+          />
+        </div>
+      ) : (
+        <p style={{ margin: 0, fontSize: 12, color: '#666' }}>
+          {ownerName}
+          {item.dueDate && ` · due ${formatDueDate(item.dueDate)}`}
         </p>
       )}
     </div>
@@ -859,13 +984,24 @@ function NotesEditor({
 /** RN-021 layout spec: "hovering [a source chip] outlines those cards on the board and scrolls
  * them into view." A point with zero sources (always a facilitator's manual edit — see
  * topicSummaries.ts's own comment on why that's legitimate) simply has no chip to hover. */
-function SummaryPointList({ points, onHoverSources }: { points: TopicSummaryPoint[]; onHoverSources: (sources: string[] | null) => void }) {
+function SummaryPointList({
+  points,
+  onHoverSources,
+  renderAction,
+}: {
+  points: TopicSummaryPoint[];
+  onHoverSources: (sources: string[] | null) => void;
+  // RN-022: "Add as action item" on a proposed item — only ever passed for the proposedActionItems
+  // list (SummaryCard), never key points/decisions/disagreements.
+  renderAction?: (point: TopicSummaryPoint, index: number) => ReactNode;
+}) {
   if (points.length === 0) return <p style={{ margin: '0 0 8px', fontSize: 12, color: '#999' }}>None.</p>;
   return (
     <ul style={{ margin: '0 0 8px', paddingLeft: 16 }}>
       {points.map((p, i) => (
         <li key={i} style={{ fontSize: 13, marginBottom: 4 }}>
           {p.text}
+          {renderAction?.(p, i)}
           {p.sources.length > 0 && (
             <button
               type="button"
@@ -905,6 +1041,7 @@ function SummaryCard({
   onHoverSources,
   onSave,
   onRegenerate,
+  onAddActionItem,
 }: {
   topic: Topic;
   summary: TopicSummary | null;
@@ -918,8 +1055,15 @@ function SummaryCard({
     proposedActionItems: TopicSummaryPoint[],
   ) => void;
   onRegenerate: () => void;
+  // RN-022: "'Add as action item' on a proposal pre-fills title and source topic" — available to
+  // anyone, same as the rest of this panel (summaries are public; only editing is facilitator-only,
+  // per topicSummaries.ts's own comment), not gated behind `canManage`.
+  onAddActionItem: (text: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
+  // Local only — "Added" is feedback that this click already fired, not server state (nothing
+  // here tracks whether an action item from this exact point still exists or was since deleted).
+  const [addedIndices, setAddedIndices] = useState<Set<number>>(new Set());
   const [draftKeyPoints, setDraftKeyPoints] = useState('');
   const [draftDecisions, setDraftDecisions] = useState('');
   const [draftDisagreements, setDraftDisagreements] = useState('');
@@ -1006,7 +1150,26 @@ function SummaryCard({
           <p style={{ margin: '8px 0 2px', fontWeight: 'bold', fontSize: 12 }}>Disagreements</p>
           <SummaryPointList points={summary.disagreements} onHoverSources={onHoverSources} />
           <p style={{ margin: '8px 0 2px', fontWeight: 'bold', fontSize: 12 }}>Proposed action items</p>
-          <SummaryPointList points={summary.proposedActionItems} onHoverSources={onHoverSources} />
+          <SummaryPointList
+            points={summary.proposedActionItems}
+            onHoverSources={onHoverSources}
+            renderAction={(p, i) =>
+              addedIndices.has(i) ? (
+                <span style={{ marginLeft: 6, fontSize: 11, color: '#666' }}>Added</span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onAddActionItem(p.text);
+                    setAddedIndices((s) => new Set(s).add(i));
+                  }}
+                  style={{ marginLeft: 6, fontSize: 11 }}
+                >
+                  Add as action item
+                </button>
+              )
+            }
+          />
 
           <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: '#666' }}>
             <span>v{summary.version}</span>
@@ -1095,6 +1258,7 @@ function DiscussQueuePanel({
   onHoverSummarySources,
   onSaveSummary,
   onRegenerateSummary,
+  onAddActionItem,
 }: {
   phase: RetroPhase;
   topics: Topic[];
@@ -1125,6 +1289,7 @@ function DiscussQueuePanel({
     proposedActionItems: TopicSummaryPoint[],
   ) => void;
   onRegenerateSummary: (topicId: string) => void;
+  onAddActionItem: (topicId: string, text: string) => void;
 }) {
   const current = topics.find((t) => t.startedAt && !t.endedAt) ?? null;
   const upNext = topics
@@ -1296,6 +1461,7 @@ function DiscussQueuePanel({
                   onSaveSummary(t.id, keyPoints, decisions, disagreements, proposedActionItems)
                 }
                 onRegenerate={() => onRegenerateSummary(t.id)}
+                onAddActionItem={(text) => onAddActionItem(t.id, text)}
               />
             ))}
           </div>
@@ -1541,6 +1707,8 @@ function Board({
         votingProgress: initialBoard.votingProgress,
         topicSummaries: initialBoard.topicSummaries,
         summaryUnavailableTopicIds: [],
+        actionItems: initialBoard.actionItems,
+        teamMembers: initialBoard.teamMembers,
       },
       initialSeq: initialBoard.seq,
       reduce: reduceBoard,
@@ -1844,6 +2012,55 @@ function Board({
     });
   }
 
+  // RN-022: manual creation (sourceTopicId null) and "Add as action item" on a proposal
+  // (sourceTopicId set, origin 'ai') both go through this one function — the only difference
+  // between them is which arguments the caller already has in hand.
+  function createActionItem(title: string, sourceTopicId: string | null, ownerId: string | null, dueDate: string | null, origin: 'ai' | 'manual') {
+    const id = uuidv7();
+    const mutationId = uuidv7();
+    const now = new Date().toISOString();
+    void sendMutation({
+      mutationId,
+      optimisticReduce: (b) =>
+        reduceBoard(b, {
+          seq: -1,
+          type: 'actionItem.create',
+          payload: {
+            actionItem: {
+              id,
+              sourceRetroId: retroId,
+              sourceTopicId,
+              title,
+              ownerId,
+              dueDate,
+              status: 'open',
+              origin,
+              completedAt: null,
+              createdAt: now,
+              updatedAt: now,
+            },
+          },
+        }),
+      send: () =>
+        postMutation(accessToken, retroId, {
+          mutationId,
+          type: 'actionItem.create',
+          payload: { id, title, sourceTopicId, ownerId, dueDate, origin },
+        }),
+    });
+  }
+
+  // RN-022: "owner and due date changes sync to all browsers" — title isn't inline-editable (only
+  // ever set at creation), so this never touches it.
+  function updateActionItem(id: string, patch: { ownerId?: string | null; dueDate?: string | null }) {
+    const mutationId = uuidv7();
+    void sendMutation({
+      mutationId,
+      optimisticReduce: (b) => ({ ...b, actionItems: b.actionItems.map((a) => (a.id === id ? { ...a, ...patch } : a)) }),
+      send: () => postMutation(accessToken, retroId, { mutationId, type: 'actionItem.update', payload: { id, ...patch } }),
+    });
+  }
+
   // The single decision point both the center-drop path and the "Group with…" menu route
   // through: joining a card that's already grouped adds to its group, otherwise a brand-new one
   // is created from just the two cards involved.
@@ -2057,6 +2274,8 @@ function Board({
               // either resolved (a summary exists now) or still true server-side with no event
               // of its own to resurrect it from, so there's nothing to carry over here either way.
               summaryUnavailableTopicIds: [],
+              actionItems: fresh.actionItems,
+              teamMembers: fresh.teamMembers,
             },
             fresh.seq,
           );
@@ -2391,10 +2610,39 @@ function Board({
               .slice()
               .sort((a, b) => a.position - b.position)
               .map((column) => {
+                const canEdit = canEditColumn(column.kind);
+                // RN-022: action_items has no column_id FK at all (unlike cards) — it renders
+                // `board.actionItems` directly instead of anything filtered from `board.cards`.
+                if (column.kind === 'action_items') {
+                  const items = [...board.actionItems].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+                  return (
+                    <DroppableColumn key={column.id} column={column}>
+                      <h2 style={{ fontSize: 16, margin: '0 0 4px' }}>
+                        {column.title} <span style={{ fontWeight: 'normal', color: '#666' }}>({items.length})</span>
+                      </h2>
+                      {column.prompt && <p style={{ fontSize: 12, color: '#666', margin: '0 0 8px' }}>{column.prompt}</p>}
+                      {items.map((item) => (
+                        <ActionItemRow
+                          key={item.id}
+                          item={item}
+                          teamMembers={board.teamMembers}
+                          canEdit={canEdit}
+                          onUpdate={(patch) => updateActionItem(item.id, patch)}
+                        />
+                      ))}
+                      {canEdit && (
+                        <AddActionItemForm
+                          teamMembers={board.teamMembers}
+                          defaultDueDate={defaultActionItemDueDate(initialBoard.retro)}
+                          onAdd={(title, ownerId, dueDate) => createActionItem(title, null, ownerId, dueDate, 'manual')}
+                        />
+                      )}
+                    </DroppableColumn>
+                  );
+                }
                 const cards = board.cards
                   .filter((c) => c.columnId === column.id)
                   .sort((a, b) => a.position.localeCompare(b.position));
-                const canEdit = canEditColumn(column.kind);
                 const rows = buildColumnRows(cards, board.topics);
                 // RN-018 AC: "After Vote, topics display vote counts and sort descending, ties by
                 // creation time." `Array.prototype.sort` is stable, so ties keep `rows`' own
@@ -2565,6 +2813,7 @@ function Board({
             onHoverSummarySources={hoverSummarySources}
             onSaveSummary={editSummary}
             onRegenerateSummary={regenerateSummary}
+            onAddActionItem={(topicId, text) => createActionItem(text, topicId, null, defaultActionItemDueDate(initialBoard.retro), 'ai')}
           />
         )}
       </div>

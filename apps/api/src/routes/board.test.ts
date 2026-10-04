@@ -37,6 +37,7 @@ const retroRow = {
   cards_revealed: false,
   phase_deadline: '2026-01-01T00:05:00.000Z',
   vote_budget: 3,
+  next_retro_at: null,
   created_at: new Date().toISOString(),
 };
 
@@ -66,12 +67,31 @@ const suggestionRow = {
   card_ids: [cardRow.id, '00000000-0000-4000-8000-0000000000f2'],
 };
 
+// team_members is queried two different shapes in one request: getTeamRole's own
+// `.select('role').eq().eq().maybeSingle()` (one row, for the access check) and board.ts's own
+// `.select('user_id').eq('team_id', ...)` (every row, for the owner picker's teamMembers list,
+// RN-022) — the plain `chain()` stub has one fixed terminal per table, so this one needs its own
+// stub that tells the two calls apart by whether `.maybeSingle()` is ever reached.
+function teamMembersChain(teamRole: 'admin' | 'member' | null) {
+  const api = {
+    select: () => api,
+    eq: () => api,
+    async maybeSingle() {
+      return { data: teamRole ? { role: teamRole } : null, error: null };
+    },
+    then(resolve: (v: { data: unknown; error: null }) => unknown) {
+      return Promise.resolve(resolve({ data: [{ user_id: claims.sub }], error: null }));
+    },
+  };
+  return api;
+}
+
 function build(teamRole: 'admin' | 'member' | null, opts: { facilitatorId?: string } = {}) {
   const retro = opts.facilitatorId ? { ...retroRow, facilitator_id: opts.facilitatorId } : retroRow;
   const supabaseAdmin = {
     from(table: string) {
       if (table === 'retros') return chain({ data: retro, error: null });
-      if (table === 'team_members') return chain({ data: teamRole ? { role: teamRole } : null, error: null });
+      if (table === 'team_members') return teamMembersChain(teamRole);
       if (table === 'retro_columns') return chain({ data: [columnRow], error: null });
       if (table === 'cards') return chain({ data: [cardRow], error: null });
       if (table === 'topics') return chain({ data: [], error: null });
@@ -81,6 +101,8 @@ function build(teamRole: 'admin' | 'member' | null, opts: { facilitatorId?: stri
       if (table === 'retro_participants') return chain({ data: [], error: null });
       if (table === 'profiles') return chain({ data: [{ id: claims.sub, display_name: 'Ada Lovelace' }], error: null });
       if (table === 'retro_events') return chain({ data: { seq: 3 }, error: null });
+      if (table === 'teams') return chain({ data: { retro_cadence_days: 14 }, error: null });
+      if (table === 'action_items') return chain({ data: [], error: null });
       throw new Error(`unexpected table ${table}`);
     },
   } as unknown as SupabaseClient<Database>;

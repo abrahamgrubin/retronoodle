@@ -13,3 +13,4 @@ export * from './reactions.js';
 export * from './ai.js';
 export * from './votes.js';
 export * from './topicSummaries.js';
+export * from './actionItems.js';
