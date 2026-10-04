@@ -18,6 +18,8 @@ const emptyBoard: BoardState = {
   votingProgress: null,
   topicSummaries: [],
   summaryUnavailableTopicIds: [],
+  actionItems: [],
+  teamMembers: [],
 };
 
 function createEvent(overrides: Partial<Record<string, unknown>> = {}): RetroEvent {

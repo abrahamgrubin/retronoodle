@@ -1,4 +1,7 @@
 import type {
+  ActionItem,
+  ActionItemCreateResult,
+  ActionItemUpdateResult,
   BoardCard,
   BoardColumn,
   CardAddToTopicResult,
@@ -55,6 +58,12 @@ export interface BoardState {
   // models). Purely a local, transient flag; never persisted, never in BoardResponse. Cleared the
   // moment a new summary arrives for that topic, or optimistically on Regenerate.
   summaryUnavailableTopicIds: string[];
+  // RN-022: scoped to this retro only (see board.ts's own comment — "Review shows carried items
+  // (RN-025)" is a later story's job). Renders in the Action items column instead of `cards`.
+  actionItems: ActionItem[];
+  // RN-022: every team member, for the owner picker — never changes mid-retro, so there's no
+  // reducer case that ever touches this after the initial snapshot.
+  teamMembers: { id: string; displayName: string }[];
 }
 
 function isHiddenPayload(payload: unknown): payload is HiddenBoardCard {
@@ -103,6 +112,19 @@ function upsertFromCardEvent(board: BoardState, payload: unknown): BoardState {
     ? { id: result.id, columnId: result.columnId, authorId: result.authorId, position: result.position, topicId: result.topicId, hidden: true }
     : { ...result, hidden: false };
   return upsertCard(board, card);
+}
+
+/** actionItem.create / actionItem.update (RN-022): upsert by id, same convention as every other
+ * "replace the whole thing" result in this file — a partial actionItem.update result is already
+ * the full post-update item (actionItemUpdate.ts returns the whole row), never just a diff. */
+function upsertActionItem(board: BoardState, actionItem: ActionItem): BoardState {
+  const existing = board.actionItems.find((a) => a.id === actionItem.id);
+  return {
+    ...board,
+    actionItems: existing
+      ? board.actionItems.map((a) => (a.id === actionItem.id ? actionItem : a))
+      : [...board.actionItems, actionItem],
+  };
 }
 
 function upsertTopic(board: BoardState, topic: Topic): BoardState {
@@ -294,6 +316,16 @@ export function reduceBoard(board: BoardState, event: RetroEvent): BoardState {
     // than left to `default` purely so a future reader doesn't mistake the omission for a bug.
     case 'suggestion.reject': {
       return board;
+    }
+    // actionItem.create / actionItem.update (RN-022): normal mutations (real seq), folded the
+    // same upsert-by-id way as every other topic/card result above.
+    case 'actionItem.create': {
+      const result = event.payload as ActionItemCreateResult;
+      return upsertActionItem(board, result.actionItem);
+    }
+    case 'actionItem.update': {
+      const result = event.payload as ActionItemUpdateResult;
+      return upsertActionItem(board, result.actionItem);
     }
     // cards.reveal (RN-011): the facilitator's manual Reveal — every card comes back in full.
     case 'cards.reveal': {

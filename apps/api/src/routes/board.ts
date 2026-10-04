@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
+  ActionItem,
   BoardResponse,
   type BoardCard,
   type Database,
@@ -47,19 +48,57 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
       return reply.code(403).send({ error: 'forbidden' });
     }
 
-    const [columnsResult, cardsResult, topicsResult, lastEventResult] = await Promise.all([
-      supabaseAdmin.from('retro_columns').select().eq('retro_id', retroId).order('position'),
-      supabaseAdmin.from('cards').select().eq('retro_id', retroId),
-      supabaseAdmin.from('topics').select().eq('retro_id', retroId),
-      supabaseAdmin.from('retro_events').select('seq').eq('retro_id', retroId).order('seq', { ascending: false }).limit(1).maybeSingle(),
-    ]);
+    const [columnsResult, cardsResult, topicsResult, lastEventResult, teamResult, actionItemsResult, teamMemberRowsResult] =
+      await Promise.all([
+        supabaseAdmin.from('retro_columns').select().eq('retro_id', retroId).order('position'),
+        supabaseAdmin.from('cards').select().eq('retro_id', retroId),
+        supabaseAdmin.from('topics').select().eq('retro_id', retroId),
+        supabaseAdmin.from('retro_events').select('seq').eq('retro_id', retroId).order('seq', { ascending: false }).limit(1).maybeSingle(),
+        supabaseAdmin.from('teams').select('retro_cadence_days').eq('id', retro.team_id).single(),
+        // RN-022: scoped to this retro only — "Review shows carried items (RN-025)" is a later
+        // story's job, not this one's.
+        supabaseAdmin.from('action_items').select().eq('source_retro_id', retroId).order('created_at'),
+        supabaseAdmin.from('team_members').select('user_id').eq('team_id', retro.team_id),
+      ]);
 
-    if (columnsResult.error || cardsResult.error || topicsResult.error || lastEventResult.error) {
+    if (
+      columnsResult.error ||
+      cardsResult.error ||
+      topicsResult.error ||
+      lastEventResult.error ||
+      teamResult.error ||
+      actionItemsResult.error ||
+      teamMemberRowsResult.error
+    ) {
       request.log.error(
-        { columns: columnsResult.error, cards: cardsResult.error, topics: topicsResult.error, event: lastEventResult.error },
+        {
+          columns: columnsResult.error,
+          cards: cardsResult.error,
+          topics: topicsResult.error,
+          event: lastEventResult.error,
+          team: teamResult.error,
+          actionItems: actionItemsResult.error,
+          teamMembers: teamMemberRowsResult.error,
+        },
         'failed to read board data',
       );
       return reply.code(500).send({ error: 'board_read_failed' });
+    }
+
+    // RN-022: the owner picker lists every team member, not just whoever's online — same
+    // id-list-then-profiles-join pattern as card authors above.
+    const memberIds = (teamMemberRowsResult.data ?? []).map((m) => m.user_id);
+    const teamMembers: { id: string; displayName: string }[] = [];
+    if (memberIds.length > 0) {
+      const { data: memberProfiles, error: memberProfilesError } = await supabaseAdmin
+        .from('profiles')
+        .select('id, display_name')
+        .in('id', memberIds);
+      if (memberProfilesError) {
+        request.log.error({ err: memberProfilesError }, 'failed to read team member profiles');
+        return reply.code(500).send({ error: 'board_read_failed' });
+      }
+      for (const profile of memberProfiles ?? []) teamMembers.push({ id: profile.id, displayName: profile.display_name });
     }
 
     const cards = cardsResult.data ?? [];
@@ -230,6 +269,8 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
         cardsRevealed: retro.cards_revealed,
         phaseDeadline: retro.phase_deadline,
         voteBudget: retro.vote_budget,
+        retroCadenceDays: teamResult.data.retro_cadence_days,
+        nextRetroAt: retro.next_retro_at,
       },
       columns: (columnsResult.data ?? []).map((c) => ({
         id: c.id,
@@ -272,6 +313,22 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
       myVotes,
       votingProgress,
       topicSummaries: [...latestSummaryByTopic.values()],
+      actionItems: (actionItemsResult.data ?? []).map(
+        (a): ActionItem => ({
+          id: a.id,
+          sourceRetroId: a.source_retro_id,
+          sourceTopicId: a.source_topic_id,
+          title: a.title,
+          ownerId: a.owner_id,
+          dueDate: a.due_date,
+          status: a.status as ActionItem['status'],
+          origin: a.origin as ActionItem['origin'],
+          completedAt: a.completed_at,
+          createdAt: a.created_at,
+          updatedAt: a.updated_at,
+        }),
+      ),
+      teamMembers,
       seq: lastEventResult.data?.seq ?? 0,
       // RN-012: this specific response is what a late joiner's clock-offset calculation anchors
       // to, so it's set explicitly here rather than relying solely on the global serverTime hook
