@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { ActionItem } from '@retronoodle/shared';
 import { reduceBoard, type BoardState } from './boardReducer';
 import type { RetroEvent } from './retroStore';
 
@@ -19,6 +20,7 @@ const emptyBoard: BoardState = {
   topicSummaries: [],
   summaryUnavailableTopicIds: [],
   actionItems: [],
+  actionItemReviewOutcomes: [],
   teamMembers: [],
 };
 
@@ -708,6 +710,64 @@ describe('reduceBoard', () => {
       const board: BoardState = { ...emptyBoard, summaryUnavailableTopicIds: [topicId, otherTopicId] };
       const updated = reduceBoard(board, { seq: 1, type: 'topic.regenerateSummary', payload: { topicId } });
       expect(updated.summaryUnavailableTopicIds).toEqual([otherTopicId]);
+    });
+  });
+
+  describe('RN-025: Review carry-over', () => {
+    const itemId = '00000000-0000-4000-8000-000000000070';
+
+    function carriedItem(overrides: Partial<ActionItem> = {}): ActionItem {
+      return {
+        id: itemId,
+        sourceRetroId: '00000000-0000-4000-8000-000000000099',
+        sourceTopicId: null,
+        title: 'Carried item',
+        ownerId: null,
+        dueDate: null,
+        status: 'open',
+        origin: 'manual',
+        completedAt: null,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        ...overrides,
+      };
+    }
+
+    it('"Keep open" (carried) records the outcome without touching the item itself', () => {
+      const board: BoardState = { ...emptyBoard, phase: 'review', actionItems: [carriedItem()] };
+      const updated = reduceBoard(board, {
+        seq: 1,
+        type: 'actionItem.review',
+        payload: { actionItem: carriedItem(), outcome: 'carried' },
+      });
+      expect(updated.actionItems[0]).toMatchObject({ status: 'open' });
+      expect(updated.actionItemReviewOutcomes).toEqual([{ actionItemId: itemId, outcome: 'carried' }]);
+    });
+
+    it('"Done" folds the status-changed item and records the outcome', () => {
+      const board: BoardState = { ...emptyBoard, phase: 'review', actionItems: [carriedItem()] };
+      const updated = reduceBoard(board, {
+        seq: 1,
+        type: 'actionItem.review',
+        payload: { actionItem: carriedItem({ status: 'done', completedAt: '2026-01-02T00:00:00.000Z' }), outcome: 'done' },
+      });
+      expect(updated.actionItems[0]).toMatchObject({ status: 'done', completedAt: '2026-01-02T00:00:00.000Z' });
+      expect(updated.actionItemReviewOutcomes).toEqual([{ actionItemId: itemId, outcome: 'done' }]);
+    });
+
+    it('replaces a prior outcome for the same item rather than duplicating it', () => {
+      const board: BoardState = {
+        ...emptyBoard,
+        phase: 'review',
+        actionItems: [carriedItem()],
+        actionItemReviewOutcomes: [{ actionItemId: itemId, outcome: 'carried' }],
+      };
+      const updated = reduceBoard(board, {
+        seq: 1,
+        type: 'actionItem.review',
+        payload: { actionItem: carriedItem({ status: 'dropped' }), outcome: 'dropped' },
+      });
+      expect(updated.actionItemReviewOutcomes).toEqual([{ actionItemId: itemId, outcome: 'dropped' }]);
     });
   });
 });

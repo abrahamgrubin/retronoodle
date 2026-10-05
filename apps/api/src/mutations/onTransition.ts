@@ -18,6 +18,22 @@ const onTransition: Partial<Record<`${RetroPhase}->${RetroPhase}`, TransitionEff
   'vote->group': async ({ client, retro }) => {
     await client.query('delete from votes where retro_id = $1', [retro.id]);
   },
+  // RN-025: "On review -> write, unmarked items are recorded as carried." Anything the
+  // facilitator (or anyone) already clicked a quick action for already has a row for this retro
+  // (actionItemReview.ts's own upsert, including an explicit "Keep open" — which writes this same
+  // 'carried' outcome itself) — `on conflict do nothing` here is what keeps an explicit click from
+  // being silently overwritten by this sweep. Excludes this retro's own brand-new items
+  // (`source_retro_id <> retro.id`) — those never had anything to review in the first place.
+  'review->write': async ({ client, retro }) => {
+    await client.query(
+      `insert into action_item_reviews (action_item_id, retro_id, outcome, actor_id)
+       select id, $1, 'carried', null
+       from action_items
+       where team_id = $2 and source_retro_id <> $1 and status in ('open', 'in_progress')
+       on conflict (action_item_id, retro_id) do nothing`,
+      [retro.id, retro.team_id],
+    );
+  },
   // RN-011: "Reveal happens ... on write -> group". This only sets the durable flag — it
   // deliberately does NOT also broadcast every card's full content here. A second broadcast for
   // this transition would need its own retro_events row (and thus its own seq) to avoid

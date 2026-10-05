@@ -1,6 +1,8 @@
 import type {
   ActionItem,
   ActionItemCreateResult,
+  ActionItemReviewOutcome,
+  ActionItemReviewResult,
   ActionItemUpdateResult,
   BoardCard,
   BoardColumn,
@@ -58,9 +60,14 @@ export interface BoardState {
   // models). Purely a local, transient flag; never persisted, never in BoardResponse. Cleared the
   // moment a new summary arrives for that topic, or optimistically on Regenerate.
   summaryUnavailableTopicIds: string[];
-  // RN-022: scoped to this retro only (see board.ts's own comment — "Review shows carried items
-  // (RN-025)" is a later story's job). Renders in the Action items column instead of `cards`.
+  // RN-022/RN-025: scoped to this retro only outside Review; during Review, every team item with
+  // status open/in_progress regardless of source retro (board.ts's own comment). Renders in the
+  // Action items column instead of `cards`.
   actionItems: ActionItem[];
+  // RN-025: this retro's own recorded outcome per carried-over item, keyed by actionItemId — same
+  // "separate array, not a field on the entity itself" convention as myVotes (only ever meaningful
+  // during Review, for this one retro).
+  actionItemReviewOutcomes: { actionItemId: string; outcome: ActionItemReviewOutcome }[];
   // RN-022: every team member, for the owner picker — never changes mid-retro, so there's no
   // reducer case that ever touches this after the initial snapshot.
   teamMembers: { id: string; displayName: string }[];
@@ -329,6 +336,19 @@ export function reduceBoard(board: BoardState, event: RetroEvent): BoardState {
     case 'actionItem.update': {
       const result = event.payload as ActionItemUpdateResult;
       return upsertActionItem(board, result.actionItem);
+    }
+    // actionItem.review (RN-025): the Review quick actions — folds the (possibly status-changed)
+    // item the same way, plus records this retro's own outcome for it.
+    case 'actionItem.review': {
+      const result = event.payload as ActionItemReviewResult;
+      const withItem = upsertActionItem(board, result.actionItem);
+      return {
+        ...withItem,
+        actionItemReviewOutcomes: [
+          ...withItem.actionItemReviewOutcomes.filter((o) => o.actionItemId !== result.actionItem.id),
+          { actionItemId: result.actionItem.id, outcome: result.outcome },
+        ],
+      };
     }
     // cards.reveal (RN-011): the facilitator's manual Reveal — every card comes back in full.
     case 'cards.reveal': {

@@ -5,7 +5,7 @@ import { ReactionSummary } from './reactions.js';
 import { GroupSuggestion } from './ai.js';
 import { VotingProgress } from './votes.js';
 import { TopicSummary } from './topicSummaries.js';
-import { ActionItem } from './actionItems.js';
+import { ActionItem, ActionItemReviewOutcome } from './actionItems.js';
 
 export const BoardColumn = z.object({
   id: z.string().uuid(),
@@ -100,9 +100,17 @@ export const BoardResponse = z.object({
   // "absent means not there yet" convention as myVotes above. Visible to everyone (the summary
   // panel is public — only editing/regenerating it is facilitator-only), not redacted.
   topicSummaries: z.array(TopicSummary),
-  // RN-022: scoped to `source_retro_id = this retro` only — "Review shows carried items (RN-025)"
-  // is a later story's job; this one never looks past the current retro.
+  // RN-022/RN-025: scoped to `source_retro_id = this retro` only, outside Review — "Write through
+  // Wrap up shows only items with source_retro_id = this retro." During Review, this is instead
+  // every team item with status open/in_progress regardless of source retro (board.ts branches on
+  // phase), so this array's exact scoping rule depends on `retro.phase` above.
   actionItems: z.array(ActionItem),
+  // RN-025: this retro's own outcome (if recorded yet) for each carried-over item currently shown
+  // — null/absent outside Review, where the concept doesn't apply. A separate array keyed by
+  // actionItemId rather than a field on ActionItem itself, same convention as myVotes below (not
+  // baked into Topic) — reviewOutcome only ever means something in this one phase, for this one
+  // retro, to every viewer (never redacted, unlike myVotes).
+  actionItemReviewOutcomes: z.array(z.object({ actionItemId: z.string().uuid(), outcome: ActionItemReviewOutcome })),
   // RN-022: every member of the retro's team, for the owner picker — not just whoever's online.
   teamMembers: z.array(z.object({ id: z.string().uuid(), displayName: z.string() })),
   seq: z.number().int().nonnegative(),
