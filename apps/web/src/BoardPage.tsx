@@ -26,6 +26,7 @@ import {
   phaseSubtitle,
   previousPhase,
   type ActionItem,
+  type ActionItemReviewOutcome,
   type BoardCard,
   type BoardColumn,
   type BoardResponse,
@@ -179,16 +180,34 @@ function AddActionItemForm({
  * skipped (no backing table: action_items has no equivalent of card_reactions, and the AC list
  * never asks for them). No avatar image infra exists yet either (same gap HiddenCardPlaceholder's
  * own comment already notes), so this shows the owner's name instead. */
+// RN-025: labels for the Review quick actions — 'carried' is "Keep open" as a button, the same
+// outcome value the review->write sweep stamps on anything left unmarked (onTransition.ts).
+const REVIEW_OUTCOME_LABEL: Record<ActionItemReviewOutcome, string> = {
+  done: 'Done',
+  in_progress: 'In progress',
+  dropped: 'Drop',
+  carried: 'Keep open',
+};
+const REVIEW_OUTCOMES: ActionItemReviewOutcome[] = ['done', 'in_progress', 'dropped', 'carried'];
+
 function ActionItemRow({
   item,
   teamMembers,
   canEdit,
   onUpdate,
+  isCarriedOver,
+  reviewOutcome,
+  onReview,
 }: {
   item: ActionItem;
   teamMembers: { id: string; displayName: string }[];
   canEdit: boolean;
   onUpdate: (patch: { ownerId?: string | null; dueDate?: string | null }) => void;
+  // RN-025: "Review" quick actions only ever apply to an item carried in from a *past* retro —
+  // never this retro's own, freshly created one (see actionItemReview.ts's own "not_reviewable").
+  isCarriedOver: boolean;
+  reviewOutcome: ActionItemReviewOutcome | null;
+  onReview: (outcome: ActionItemReviewOutcome) => void;
 }) {
   const ownerName = teamMembers.find((m) => m.id === item.ownerId)?.displayName ?? 'Unassigned';
   return (
@@ -220,6 +239,24 @@ function ActionItemRow({
           {ownerName}
           {item.dueDate && ` · due ${formatDueDate(item.dueDate)}`}
         </p>
+      )}
+      {isCarriedOver && (
+        <div style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'wrap' }}>
+          {REVIEW_OUTCOMES.map((outcome) => (
+            <button
+              key={outcome}
+              type="button"
+              onClick={() => onReview(outcome)}
+              style={{
+                fontSize: 11,
+                fontWeight: reviewOutcome === outcome ? 'bold' : 'normal',
+                textDecoration: reviewOutcome === outcome ? 'underline' : undefined,
+              }}
+            >
+              {REVIEW_OUTCOME_LABEL[outcome]}
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -1820,6 +1857,7 @@ function Board({
         topicSummaries: initialBoard.topicSummaries,
         summaryUnavailableTopicIds: [],
         actionItems: initialBoard.actionItems,
+        actionItemReviewOutcomes: initialBoard.actionItemReviewOutcomes,
         teamMembers: initialBoard.teamMembers,
       },
       initialSeq: initialBoard.seq,
@@ -2176,6 +2214,31 @@ function Board({
     });
   }
 
+  // RN-025: Review's four quick actions on a carried-over item. Only done/in_progress/dropped
+  // change the item's own status (and completedAt) — 'carried' ("Keep open") only ever touches
+  // the review outcome itself, same split actionItemReview.ts enforces server-side.
+  function reviewActionItem(actionItemId: string, outcome: ActionItemReviewOutcome) {
+    const mutationId = uuidv7();
+    void sendMutation({
+      mutationId,
+      optimisticReduce: (b) => {
+        const changesStatus = outcome === 'done' || outcome === 'in_progress' || outcome === 'dropped';
+        const actionItems = changesStatus
+          ? b.actionItems.map((a) =>
+              a.id === actionItemId ? { ...a, status: outcome, completedAt: outcome === 'done' ? new Date().toISOString() : null } : a,
+            )
+          : b.actionItems;
+        const actionItemReviewOutcomes = [
+          ...b.actionItemReviewOutcomes.filter((o) => o.actionItemId !== actionItemId),
+          { actionItemId, outcome },
+        ];
+        return { ...b, actionItems, actionItemReviewOutcomes };
+      },
+      send: () =>
+        postMutation(accessToken, retroId, { mutationId, type: 'actionItem.review', payload: { actionItemId, outcome } }),
+    });
+  }
+
   // The single decision point both the center-drop path and the "Group with…" menu route
   // through: joining a card that's already grouped adds to its group, otherwise a brand-new one
   // is created from just the two cards involved.
@@ -2390,6 +2453,7 @@ function Board({
               // of its own to resurrect it from, so there's nothing to carry over here either way.
               summaryUnavailableTopicIds: [],
               actionItems: fresh.actionItems,
+              actionItemReviewOutcomes: fresh.actionItemReviewOutcomes,
               teamMembers: fresh.teamMembers,
             },
             fresh.seq,
@@ -2770,6 +2834,9 @@ function Board({
                           teamMembers={board.teamMembers}
                           canEdit={canEdit}
                           onUpdate={(patch) => updateActionItem(item.id, patch)}
+                          isCarriedOver={board.phase === 'review' && item.sourceRetroId !== retroId}
+                          reviewOutcome={board.actionItemReviewOutcomes.find((o) => o.actionItemId === item.id)?.outcome ?? null}
+                          onReview={(outcome) => reviewActionItem(item.id, outcome)}
                         />
                       ))}
                       {canEdit && (

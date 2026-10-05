@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   ActionItem,
+  type ActionItemReviewOutcome,
   BoardResponse,
   type BoardCard,
   type Database,
@@ -48,18 +49,36 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
       return reply.code(403).send({ error: 'forbidden' });
     }
 
-    const [columnsResult, cardsResult, topicsResult, lastEventResult, teamResult, actionItemsResult, teamMemberRowsResult] =
-      await Promise.all([
-        supabaseAdmin.from('retro_columns').select().eq('retro_id', retroId).order('position'),
-        supabaseAdmin.from('cards').select().eq('retro_id', retroId),
-        supabaseAdmin.from('topics').select().eq('retro_id', retroId),
-        supabaseAdmin.from('retro_events').select('seq').eq('retro_id', retroId).order('seq', { ascending: false }).limit(1).maybeSingle(),
-        supabaseAdmin.from('teams').select('retro_cadence_days').eq('id', retro.team_id).single(),
-        // RN-022: scoped to this retro only — "Review shows carried items (RN-025)" is a later
-        // story's job, not this one's.
-        supabaseAdmin.from('action_items').select().eq('source_retro_id', retroId).order('created_at'),
-        supabaseAdmin.from('team_members').select('user_id').eq('team_id', retro.team_id),
-      ]);
+    // RN-025: "On setup -> review, load team items with status open or in progress into the
+    // Action items column" — every carried-over item, team-wide, regardless of which retro
+    // created it. Every other phase keeps RN-022's own scoping: only this retro's own items
+    // ("Write through Wrap up shows only items with source_retro_id = this retro").
+    const actionItemsQuery =
+      retro.phase === 'review'
+        ? supabaseAdmin.from('action_items').select().eq('team_id', retro.team_id).in('status', ['open', 'in_progress'])
+        : supabaseAdmin.from('action_items').select().eq('source_retro_id', retroId).order('created_at');
+
+    const [
+      columnsResult,
+      cardsResult,
+      topicsResult,
+      lastEventResult,
+      teamResult,
+      actionItemsResult,
+      teamMemberRowsResult,
+      actionItemReviewsResult,
+    ] = await Promise.all([
+      supabaseAdmin.from('retro_columns').select().eq('retro_id', retroId).order('position'),
+      supabaseAdmin.from('cards').select().eq('retro_id', retroId),
+      supabaseAdmin.from('topics').select().eq('retro_id', retroId),
+      supabaseAdmin.from('retro_events').select('seq').eq('retro_id', retroId).order('seq', { ascending: false }).limit(1).maybeSingle(),
+      supabaseAdmin.from('teams').select('retro_cadence_days').eq('id', retro.team_id).single(),
+      actionItemsQuery,
+      supabaseAdmin.from('team_members').select('user_id').eq('team_id', retro.team_id),
+      // RN-025: this retro's own recorded outcome per carried-over item — meaningless outside
+      // Review, but cheap enough (indexed by retro_id) not to bother branching the query itself.
+      supabaseAdmin.from('action_item_reviews').select('action_item_id, outcome').eq('retro_id', retroId),
+    ]);
 
     if (
       columnsResult.error ||
@@ -68,7 +87,8 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
       lastEventResult.error ||
       teamResult.error ||
       actionItemsResult.error ||
-      teamMemberRowsResult.error
+      teamMemberRowsResult.error ||
+      actionItemReviewsResult.error
     ) {
       request.log.error(
         {
@@ -79,6 +99,7 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
           team: teamResult.error,
           actionItems: actionItemsResult.error,
           teamMembers: teamMemberRowsResult.error,
+          actionItemReviews: actionItemReviewsResult.error,
         },
         'failed to read board data',
       );
@@ -328,6 +349,10 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
           updatedAt: a.updated_at,
         }),
       ),
+      actionItemReviewOutcomes: (actionItemReviewsResult.data ?? []).map((r) => ({
+        actionItemId: r.action_item_id,
+        outcome: r.outcome as ActionItemReviewOutcome,
+      })),
       teamMembers,
       seq: lastEventResult.data?.seq ?? 0,
       // RN-012: this specific response is what a late joiner's clock-offset calculation anchors

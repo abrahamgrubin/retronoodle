@@ -4,7 +4,7 @@ import { VisibleBoardCard } from './board.js';
 import { Topic } from './topics.js';
 import { Emoji } from './reactions.js';
 import { TopicSummary, TopicSummaryPoint } from './topicSummaries.js';
-import { ActionItem, ActionItemOrigin } from './actionItems.js';
+import { ActionItem, ActionItemOrigin, ActionItemReviewOutcome } from './actionItems.js';
 
 /** POST /retros/:id/mutations body (RN-008). Every mutation type has its own payload schema
  * below; the envelope itself only knows the type name and a client-generated mutationId used
@@ -360,3 +360,22 @@ export const ActionItemUpdateResult = z.object({
   actionItem: ActionItem,
 });
 export type ActionItemUpdateResult = z.infer<typeof ActionItemUpdateResult>;
+
+/** `actionItem.review` (RN-025): the Review phase's four quick actions (Done, In progress, Drop,
+ * Keep open) — Review only (`actionItemReview`), same "anyone" default as every other action-item
+ * mutation; the story never says facilitator-only. Targets any team item carried in from a past
+ * retro (`team_id` match, never `source_retro_id` — that's how actionItem.create/update scope
+ * their own lookups, but this one's whole point is reaching items that belong to *other* retros).
+ * Rejects an item whose `sourceRetroId` is *this* retro — "new items created during Review ...
+ * never get a carried review row," so there's nothing for this mutation to do with one. */
+export const ActionItemReviewPayload = z.object({
+  actionItemId: z.string().uuid(),
+  outcome: ActionItemReviewOutcome,
+});
+export type ActionItemReviewPayload = z.infer<typeof ActionItemReviewPayload>;
+
+export const ActionItemReviewResult = z.object({
+  actionItem: ActionItem,
+  outcome: ActionItemReviewOutcome,
+});
+export type ActionItemReviewResult = z.infer<typeof ActionItemReviewResult>;

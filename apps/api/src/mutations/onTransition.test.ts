@@ -16,7 +16,7 @@ const retro: LockedRetro = {
 describe('runTransitionEffect', () => {
   it('is a no-op for a "from->to" pair with no registered effect', async () => {
     const query = vi.fn();
-    await runTransitionEffect({ query } as unknown as PoolClient, retro, 'review', 'write');
+    await runTransitionEffect({ query } as unknown as PoolClient, retro, 'discuss', 'wrap_up');
     expect(query).not.toHaveBeenCalled();
   });
 
@@ -142,6 +142,19 @@ describe('runTransitionEffect', () => {
       await runTransitionEffect({ query } as unknown as PoolClient, retro, 'vote', 'group');
       expect(query).toHaveBeenCalledTimes(1);
       expect((query.mock.calls[0] as unknown[])[0]).toContain('delete from votes');
+    });
+  });
+
+  describe('review->write (RN-025: "unmarked items are recorded as carried")', () => {
+    it('inserts a carried review row for this retro, scoped to the team, excluding this retro\'s own new items', async () => {
+      const query = vi.fn().mockResolvedValueOnce({ rows: [] });
+      await runTransitionEffect({ query } as unknown as PoolClient, retro, 'review', 'write');
+      expect(query).toHaveBeenCalledTimes(1);
+      const [sql, params] = query.mock.calls[0] as [string, unknown[]];
+      expect(sql).toContain("'carried'");
+      expect(sql).toContain('on conflict (action_item_id, retro_id) do nothing');
+      expect(sql).toContain('source_retro_id <> $1');
+      expect(params).toEqual([retro.id, retro.team_id]);
     });
   });
 
