@@ -9,6 +9,7 @@ import { registerRetroRoutes } from './routes/retros.js';
 import { registerTemplateRoutes } from './routes/templates.js';
 import { registerMutationRoutes } from './routes/mutations.js';
 import { registerBoardRoutes } from './routes/board.js';
+import { registerActionItemRoutes } from './routes/actionItems.js';
 import type { RealtimeBus } from './realtime/RealtimeBus.js';
 import type { MutationRegistry, JobSender } from './mutations/index.js';
 
@@ -83,6 +84,7 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
     registerRetroRoutes(app, { supabaseAdmin, requireAuth });
     registerTemplateRoutes(app, { supabaseAdmin, requireAuth });
     registerBoardRoutes(app, { supabaseAdmin, requireAuth });
+    registerActionItemRoutes(app, { supabaseAdmin, requireAuth });
     await registerMutationRoutes(app, { pool, registry: mutationRegistry, realtimeBus, requireAuth, jobs });
   }
 

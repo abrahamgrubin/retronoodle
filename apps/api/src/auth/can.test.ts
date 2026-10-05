@@ -101,6 +101,15 @@ describe('can — role x action matrix (Design 3.4, reconstructed for RN-005)', 
     ['retro.close', retroAsMember, false],
     ['retro.close', retroNonMember, false],
 
+    // actionItem.read / actionItem.updateStatus (RN-024): any team member, no role distinction —
+    // "A member sees all team items" / "Any team member may change status."
+    ['actionItem.read', teamAdmin, true],
+    ['actionItem.read', teamMember, true],
+    ['actionItem.read', teamNonMember, false],
+    ['actionItem.updateStatus', teamAdmin, true],
+    ['actionItem.updateStatus', teamMember, true],
+    ['actionItem.updateStatus', teamNonMember, false],
+
     // card.edit / card.delete / card.move: ownership, not a role — only the author, ever.
     ['card.edit', ownCard, true],
     ['card.edit', othersCard, false],

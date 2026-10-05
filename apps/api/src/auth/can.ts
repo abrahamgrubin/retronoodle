@@ -43,6 +43,8 @@ export type Action =
   | 'retro.editAiSummary'
   | 'retro.close'
   | 'template.read'
+  | 'actionItem.read'
+  | 'actionItem.updateStatus'
   | 'card.edit'
   | 'card.delete'
   | 'card.move';
@@ -71,6 +73,13 @@ export function can(user: CanUser, action: Action, resource: Resource): boolean 
       return resource?.type === 'team' && resource.role !== null;
     case 'template.read':
       // Any team member may see the templates they can create a retro from (RN-007).
+      return resource?.type === 'team' && resource.role !== null;
+    case 'actionItem.read':
+      // RN-024: "A member sees all team items" — membership only, same shape as template.read.
+      return resource?.type === 'team' && resource.role !== null;
+    case 'actionItem.updateStatus':
+      // RN-024: "Any team member may change status" — no ownership restriction (unlike
+      // card.edit's "only the author"), just membership, same as actionItem.read above.
       return resource?.type === 'team' && resource.role !== null;
     case 'retro.read':
       return resource?.type === 'retro' && resource.teamRole !== null;
