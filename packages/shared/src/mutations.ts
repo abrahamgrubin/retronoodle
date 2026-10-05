@@ -166,6 +166,19 @@ export const PhaseTransitionResult = z.object({
 });
 export type PhaseTransitionResult = z.infer<typeof PhaseTransitionResult>;
 
+/** `retro.close` (RN-023): the one way wrap_up ever reaches `closed` — `phase.next`/`phase.skip`
+ * explicitly refuse that specific target (phaseNext.ts) so this F2 check can't be bypassed.
+ * `nextRetroAt` is always sent (the dialog prefills it from the team's cadence, but the
+ * facilitator can change it); `override` is only ever true from the dialog's "Close anyway"
+ * button, shown only once an ownerless item already made that visible. The result is just a
+ * phase transition to 'closed' — same shape as phase.next/back/skip, nothing close-specific to
+ * report back (closed_with_override is persisted, never displayed). */
+export const RetroClosePayload = z.object({
+  nextRetroAt: z.string(),
+  override: z.boolean(),
+});
+export type RetroClosePayload = z.infer<typeof RetroClosePayload>;
+
 /** `cards.reveal` (RN-011): facilitator-only, Write phase only. Broadcasts every card in full —
  * this is the one mutation type that's deliberately never passed through redact(). */
 export const CardsRevealPayload = z.object({}).strict();

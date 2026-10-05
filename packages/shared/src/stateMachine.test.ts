@@ -158,9 +158,13 @@ describe('footerHint', () => {
     expect(footerHint('group')).toBe('Drag a card onto another to group them');
   });
 
+  it('matches the story-specified Wrap up copy verbatim (RN-023)', () => {
+    expect(footerHint('wrap_up')).toBe('Review action items and assign owners before closing the retro');
+  });
+
   it('is null for every other phase — no story has specified their copy yet', () => {
     for (const phase of ALL_PHASES) {
-      if (phase === 'write' || phase === 'group') continue;
+      if (phase === 'write' || phase === 'group' || phase === 'wrap_up') continue;
       expect(footerHint(phase)).toBeNull();
     }
   });

@@ -35,13 +35,14 @@ function fakeClient() {
 
 describe('phase.next', () => {
   it('advances the facilitator through the canonical sequence, setting a fresh deadline', async () => {
+    // wrap_up -> closed is deliberately excluded here — RN-023 routes that one target through
+    // retro.close instead (its own test below), never through phase.next/phase.skip.
     const cases: Array<[string, string]> = [
       ['review', 'write'],
       ['write', 'group'],
       ['group', 'vote'],
       ['vote', 'discuss'],
       ['discuss', 'wrap_up'],
-      ['wrap_up', 'closed'],
     ];
     for (const [from, to] of cases) {
       const client = fakeClient();
@@ -65,6 +66,14 @@ describe('phase.next', () => {
     await expect(
       phaseNextMutation.apply({ client, retro: retroAt('closed'), user: facilitator, payload: {} }),
     ).rejects.toMatchObject({ status: 409, code: 'phase_not_allowed' });
+  });
+
+  it('rejects wrap_up -> closed — only retro.close may close the retro (RN-023)', async () => {
+    const client = fakeClient();
+    await expect(
+      phaseNextMutation.apply({ client, retro: retroAt('wrap_up'), user: facilitator, payload: {} }),
+    ).rejects.toMatchObject({ status: 409, code: 'phase_not_allowed' });
+    expect(client.query).not.toHaveBeenCalled();
   });
 
   it('403s a non-facilitator, even a team admin', async () => {

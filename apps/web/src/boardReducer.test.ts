@@ -149,8 +149,8 @@ describe('reduceBoard', () => {
     expect(unchanged).toBe(board);
   });
 
-  it('phase.next, phase.skip and phase.back all just adopt the broadcast target phase and deadline', () => {
-    for (const type of ['phase.next', 'phase.skip', 'phase.back']) {
+  it('phase.next, phase.skip, phase.back and retro.close all just adopt the broadcast target phase and deadline', () => {
+    for (const type of ['phase.next', 'phase.skip', 'phase.back', 'retro.close']) {
       const board = reduceBoard(emptyBoard, { seq: 1, type, payload: { phase: 'group', phaseDeadline: '2026-01-01T00:05:00.000Z' } });
       expect(board.phase).toBe('group');
       expect(board.phaseDeadline).toBe('2026-01-01T00:05:00.000Z');

@@ -99,6 +99,8 @@ export function footerHint(phase: RetroPhase): string | null {
   if (phase === 'write') return 'Add cards to each column · your notes are private until the next phase';
   // RN-015 layout spec, verbatim.
   if (phase === 'group') return 'Drag a card onto another to group them';
+  // RN-023 technical notes, verbatim.
+  if (phase === 'wrap_up') return 'Review action items and assign owners before closing the retro';
   return null;
 }
 

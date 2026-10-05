@@ -93,14 +93,22 @@ function AddCardForm({ onAdd }: { onAdd: (body: string) => void }) {
   );
 }
 
-// RN-022: "due date defaults to the day before the next retro (next retro = today +
-// retro_cadence_days, default 14)" — next_retro_at is usually unset (nothing schedules it yet),
-// so the fallback is the one actually exercised in practice today.
+// RN-023: "'Next retro' date picker prefilled from the cadence" — next_retro_at is usually unset
+// (nothing schedules it until a retro actually closes), so the fallback is what's actually
+// exercised today. Shared with RN-022's own due-date default below, since "next retro" is the
+// same date either way, not two independent computations.
+function defaultNextRetroDate(retro: BoardResponse['retro']): string {
+  if (retro.nextRetroAt) return retro.nextRetroAt;
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + retro.retroCadenceDays);
+  return d.toISOString().slice(0, 10);
+}
+
+// RN-022: "due date defaults to the day before the next retro."
 function defaultActionItemDueDate(retro: BoardResponse['retro']): string {
-  const base = retro.nextRetroAt ? new Date(`${retro.nextRetroAt}T00:00:00Z`) : new Date();
-  if (!retro.nextRetroAt) base.setUTCDate(base.getUTCDate() + retro.retroCadenceDays);
-  base.setUTCDate(base.getUTCDate() - 1);
-  return base.toISOString().slice(0, 10);
+  const d = new Date(`${defaultNextRetroDate(retro)}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
 }
 
 // Mock: "Name · due Oct 6" — no time-of-day concept for a due date (actionItems.ts), so this never
@@ -213,6 +221,110 @@ function ActionItemRow({
           {item.dueDate && ` · due ${formatDueDate(item.dueDate)}`}
         </p>
       )}
+    </div>
+  );
+}
+
+/** RN-023 layout spec (no mock — "build from existing board components"): a centered 520px
+ * modal, facilitator only, opened from the header during Wrap up. "Close retro" stays disabled
+ * while any *active* item lacks an owner — computed from `actionItems` directly (already in
+ * `board.actionItems`, no separate fetch) rather than waiting on the server's own F2 check, so the
+ * button's disabled state and the warning box agree with each other without a round trip. The
+ * inline owner picker reuses the same actionItem.update path as the Action items column itself —
+ * assigning an owner here is indistinguishable from doing it there. */
+function CloseRetroDialog({
+  retroName,
+  actionItems,
+  teamMembers,
+  defaultNextRetroAt,
+  onUpdateOwner,
+  onClose,
+  onCancel,
+}: {
+  retroName: string;
+  actionItems: ActionItem[];
+  teamMembers: { id: string; displayName: string }[];
+  defaultNextRetroAt: string;
+  onUpdateOwner: (id: string, ownerId: string | null) => void;
+  onClose: (nextRetroAt: string, override: boolean) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const [nextRetroAt, setNextRetroAt] = useState(defaultNextRetroAt);
+  const [submitting, setSubmitting] = useState<'close' | 'override' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const ownerless = actionItems.filter((a) => (a.status === 'open' || a.status === 'in_progress') && !a.ownerId);
+
+  async function submit(override: boolean) {
+    setSubmitting(override ? 'override' : 'close');
+    setError(null);
+    try {
+      await onClose(nextRetroAt, override);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to close the retro.');
+      setSubmitting(null);
+    }
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Close ${retroName}?`}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10 }}
+    >
+      <div style={{ width: 520, background: '#fff', borderRadius: 8, padding: 20 }}>
+        <h2 style={{ marginTop: 0 }}>Close {retroName}?</h2>
+        <label style={{ display: 'block', marginBottom: 12, fontSize: 13 }}>
+          Next retro{' '}
+          <input type="date" value={nextRetroAt} onChange={(e) => setNextRetroAt(e.target.value)} />
+        </label>
+        <p style={{ fontSize: 13 }}>
+          {actionItems.length} action item{actionItems.length === 1 ? '' : 's'}
+        </p>
+        {ownerless.length > 0 && (
+          <div style={{ background: '#fff8e1', border: '1px solid #f0c000', borderRadius: 6, padding: 8, marginBottom: 12 }}>
+            <p style={{ margin: '0 0 6px', fontSize: 13, fontWeight: 'bold' }}>
+              {ownerless.length} item{ownerless.length === 1 ? '' : 's'} missing an owner
+            </p>
+            {ownerless.map((item) => (
+              <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                <span style={{ flex: 1, fontSize: 13 }}>{item.title}</span>
+                <select
+                  aria-label={`Owner for ${item.title}`}
+                  value={item.ownerId ?? ''}
+                  onChange={(e) => onUpdateOwner(item.id, e.target.value || null)}
+                >
+                  <option value="">Unassigned</option>
+                  {teamMembers.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.displayName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))}
+          </div>
+        )}
+        {error && (
+          <p role="alert" style={{ color: 'crimson', fontSize: 13 }}>
+            {error}
+          </p>
+        )}
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+          <button type="button" onClick={onCancel} disabled={submitting !== null}>
+            Cancel
+          </button>
+          {ownerless.length > 0 && (
+            <button type="button" style={{ color: 'crimson' }} onClick={() => submit(true)} disabled={submitting !== null}>
+              {submitting === 'override' ? 'Closing…' : 'Close anyway'}
+            </button>
+          )}
+          <button type="button" onClick={() => submit(false)} disabled={ownerless.length > 0 || submitting !== null}>
+            {submitting === 'close' ? 'Closing…' : 'Close retro'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1732,6 +1844,9 @@ function Board({
   // RN-013: "Reconnecting…" badge — true from the moment the Realtime channel drops until a
   // resync (refetch + replay of anything still pending) finishes.
   const [isReconnecting, setIsReconnecting] = useState(false);
+  // RN-023: the "Close retro" header button opens this; closed by Cancel or a successful close
+  // (the dialog's own component manages its submitting/error state, not this board).
+  const [closeDialogOpen, setCloseDialogOpen] = useState(false);
   // The Action items column follows the matrix's separate "Create or edit action items" row
   // (Review/Discuss/Wrap up), not "Add, edit, delete own card" (Write/Group) — matching the
   // server-side check in cardCreate/cardEdit/cardDelete's apply().
@@ -2532,6 +2647,24 @@ function Board({
     });
   }
 
+  // RN-023: bypasses sendMutation's optimistic/rollback plumbing deliberately — the dialog needs
+  // its own inline error ("error (inline message, dialog stays open)" per the layout spec), not
+  // the board's global `lastError` banner, and there's nothing useful to guess optimistically for
+  // a one-shot close. On success, the real phase change arrives the same way every other client's
+  // does: through the broadcast (same `retro:{retroId}` channel this browser is already on).
+  async function closeRetro(nextRetroAt: string, override: boolean) {
+    const mutationId = uuidv7();
+    const res = await postMutation(accessToken, retroId, { mutationId, type: 'retro.close', payload: { nextRetroAt, override } });
+    if (!res.ok) {
+      const message = await res
+        .json()
+        .then((body: { message?: string; error?: string }) => body.message ?? body.error)
+        .catch(() => undefined);
+      throw new Error(message ?? `Failed to close the retro (${res.status}).`);
+    }
+    setCloseDialogOpen(false);
+  }
+
   // Header pill bar per mock (RN-010): current phase is the dark pill; past phases stay
   // clickable-looking but inert — there's no "jump to phase" action, only next/back/skip.
   const PHASE_PILLS: RetroPhase[] = ['review', 'write', 'group', 'vote', 'discuss', 'wrap_up'];
@@ -2577,10 +2710,19 @@ function Board({
               Back
             </button>
           )}{' '}
-          {nextPhase(board.phase) && (
-            <button type="button" onClick={() => changePhase('skip')}>
-              Skip
+          {/* RN-023: wrap_up's "Skip" is replaced by this dialog-opening button — phase.skip (same
+              mutation type as phase.next) is rejected server-side for that specific target now,
+              so this is the only door from here to Closed. */}
+          {board.phase === 'wrap_up' ? (
+            <button type="button" onClick={() => setCloseDialogOpen(true)}>
+              Close retro
             </button>
+          ) : (
+            nextPhase(board.phase) && (
+              <button type="button" onClick={() => changePhase('skip')}>
+                Skip
+              </button>
+            )
           )}{' '}
           {board.phaseDeadline &&
             [1, 2, 5].map((minutes) => (
@@ -2818,6 +2960,17 @@ function Board({
         )}
       </div>
       {footerHint(board.phase) && <p style={{ marginTop: 24, color: '#666', fontSize: 13 }}>{footerHint(board.phase)}</p>}
+      {closeDialogOpen && (
+        <CloseRetroDialog
+          retroName={initialBoard.retro.name}
+          actionItems={board.actionItems}
+          teamMembers={board.teamMembers}
+          defaultNextRetroAt={defaultNextRetroDate(initialBoard.retro)}
+          onUpdateOwner={(id, ownerId) => updateActionItem(id, { ownerId })}
+          onClose={closeRetro}
+          onCancel={() => setCloseDialogOpen(false)}
+        />
+      )}
     </main>
   );
 }
