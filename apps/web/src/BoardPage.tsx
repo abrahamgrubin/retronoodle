@@ -2303,7 +2303,7 @@ function Board({
   // (same reasoning as acceptSuggestion's own "no optimistic shortcut").
   function topicNext() {
     const mutationId = uuidv7();
-    void sendMutation({
+    return sendMutation({
       mutationId,
       optimisticReduce: (b) => b,
       send: () => postMutation(accessToken, retroId, { mutationId, type: 'topic.next', payload: {} }),
@@ -2314,9 +2314,16 @@ function Board({
   // same topic.next the rest of the queue uses, then also advances the retro's own phase —
   // topics and phase are different concerns with their own mutations elsewhere in this file too,
   // so this is two calls fired from one button rather than teaching topic.next about phases.
+  //
+  // Bug found live: these two calls used to fire without waiting for the first — topic.next is
+  // Discuss-phase-only server-side (topicNext.ts), and phase.skip's own request can reach the
+  // server and commit *first* (it's a smaller transaction), flipping the phase to wrap_up before
+  // topic.next's request is even processed there, which then rejects with "topic.next is not
+  // allowed during wrap_up." Awaiting topic.next first guarantees the phase is still Discuss when
+  // it runs, matching topicNext.ts's own comment ("BoardPage.tsx is what also calls phase.next
+  // right after" — after, not concurrently).
   function finishDiscussion() {
-    topicNext();
-    changePhase('skip');
+    void topicNext().then(() => changePhase('skip'));
   }
 
   function jumpToTopic(topicId: string) {
