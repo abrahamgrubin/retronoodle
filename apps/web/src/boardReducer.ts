@@ -71,6 +71,9 @@ export interface BoardState {
   // RN-022: every team member, for the owner picker — never changes mid-retro, so there's no
   // reducer case that ever touches this after the initial snapshot.
   teamMembers: { id: string; displayName: string }[];
+  // RN-026: whoever actually joined this retro — same "no reducer case touches it" reasoning as
+  // teamMembers (no mutation adds an attendee after the fact; only /join does, server-side).
+  attendees: { id: string; displayName: string }[];
 }
 
 function isHiddenPayload(payload: unknown): payload is HiddenBoardCard {

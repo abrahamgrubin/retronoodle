@@ -1191,6 +1191,7 @@ function SummaryCard({
   onSave,
   onRegenerate,
   onAddActionItem,
+  canAddActionItem,
 }: {
   topic: Topic;
   summary: TopicSummary | null;
@@ -1208,6 +1209,9 @@ function SummaryCard({
   // anyone, same as the rest of this panel (summaries are public; only editing is facilitator-only,
   // per topicSummaries.ts's own comment), not gated behind `canManage`.
   onAddActionItem: (text: string) => void;
+  // RN-026: "no add ... " on a closed (read-only) retro — the mutation would already be rejected
+  // server-side, but the button shouldn't be offered at all once there's nothing it can do.
+  canAddActionItem: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   // Local only — "Added" is feedback that this click already fired, not server state (nothing
@@ -1302,21 +1306,24 @@ function SummaryCard({
           <SummaryPointList
             points={summary.proposedActionItems}
             onHoverSources={onHoverSources}
-            renderAction={(p, i) =>
-              addedIndices.has(i) ? (
-                <span style={{ marginLeft: 6, fontSize: 11, color: '#666' }}>Added</span>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    onAddActionItem(p.text);
-                    setAddedIndices((s) => new Set(s).add(i));
-                  }}
-                  style={{ marginLeft: 6, fontSize: 11 }}
-                >
-                  Add as action item
-                </button>
-              )
+            renderAction={
+              canAddActionItem
+                ? (p, i) =>
+                    addedIndices.has(i) ? (
+                      <span style={{ marginLeft: 6, fontSize: 11, color: '#666' }}>Added</span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onAddActionItem(p.text);
+                          setAddedIndices((s) => new Set(s).add(i));
+                        }}
+                        style={{ marginLeft: 6, fontSize: 11 }}
+                      >
+                        Add as action item
+                      </button>
+                    )
+                : undefined
             }
           />
 
@@ -1408,6 +1415,7 @@ function DiscussQueuePanel({
   onSaveSummary,
   onRegenerateSummary,
   onAddActionItem,
+  attendees,
 }: {
   phase: RetroPhase;
   topics: Topic[];
@@ -1439,6 +1447,7 @@ function DiscussQueuePanel({
   ) => void;
   onRegenerateSummary: (topicId: string) => void;
   onAddActionItem: (topicId: string, text: string) => void;
+  attendees: { id: string; displayName: string }[];
 }) {
   const current = topics.find((t) => t.startedAt && !t.endedAt) ?? null;
   const upNext = topics
@@ -1611,8 +1620,19 @@ function DiscussQueuePanel({
                 }
                 onRegenerate={() => onRegenerateSummary(t.id)}
                 onAddActionItem={(text) => onAddActionItem(t.id, text)}
+                canAddActionItem={phase !== 'closed'}
               />
             ))}
+            {/* RN-026: "attendance" — only ever shown once the retro's actually closed, the one
+                new thing this story's summaries panel adds beyond what RN-021 already built. */}
+            {phase === 'closed' && (
+              <div style={{ marginTop: 12, fontSize: 12, color: '#666' }}>
+                <p style={{ margin: '0 0 2px', fontWeight: 'bold' }}>Attendance</p>
+                <p style={{ margin: 0 }}>
+                  {attendees.length > 0 ? attendees.map((a) => a.displayName).join(', ') : 'No attendance recorded.'}
+                </p>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1859,6 +1879,7 @@ function Board({
         actionItems: initialBoard.actionItems,
         actionItemReviewOutcomes: initialBoard.actionItemReviewOutcomes,
         teamMembers: initialBoard.teamMembers,
+        attendees: initialBoard.attendees,
       },
       initialSeq: initialBoard.seq,
       reduce: reduceBoard,
@@ -1960,8 +1981,12 @@ function Board({
   // RN-021 layout spec: "two tabs: Queue and Summaries... In Wrap up the panel opens on
   // Summaries." Defaulted here (not inside DiscussQueuePanel) so the same effect below that
   // already reacts to phase transitions can set it on entering Wrap up, without that component
-  // needing its own copy of "was the previous phase discuss."
-  const [rightPanelTab, setRightPanelTab] = useState<'queue' | 'summaries'>('queue');
+  // needing its own copy of "was the previous phase discuss." The initial value also covers
+  // loading straight into Wrap up or Closed (no live transition to react to) — RN-026: a reader
+  // opening a closed retro wants the recap, not the queue tab's now-inert manage controls.
+  const [rightPanelTab, setRightPanelTab] = useState<'queue' | 'summaries'>(
+    initialBoard.retro.phase === 'wrap_up' || initialBoard.retro.phase === 'closed' ? 'summaries' : 'queue',
+  );
   const [hoveredSuggestionId, setHoveredSuggestionId] = useState<string | null>(null);
   // "accepted (collapses to 'Grouped' for 2s, then disappears)" — tracked separately from
   // actually removing the suggestion so the collapsed state has something to render first.
@@ -2462,6 +2487,7 @@ function Board({
               actionItems: fresh.actionItems,
               actionItemReviewOutcomes: fresh.actionItemReviewOutcomes,
               teamMembers: fresh.teamMembers,
+              attendees: fresh.attendees,
             },
             fresh.seq,
           );
@@ -3010,12 +3036,15 @@ function Board({
             onAcceptAll={acceptAllSuggestions}
           />
         )}
-        {(board.phase === 'discuss' || board.phase === 'wrap_up') && (
+        {/* RN-026: closed is read-only — the Summaries tab (defaulted below) is the recap view a
+            member who missed the retro actually wants; the Queue tab's manage controls
+            (canManage) are hidden rather than left to fail server-side on click. */}
+        {(board.phase === 'discuss' || board.phase === 'wrap_up' || board.phase === 'closed') && (
           <DiscussQueuePanel
             phase={board.phase}
             topics={board.topics}
             cardCountByTopic={cardCountByTopic}
-            canManage={isFacilitator}
+            canManage={isFacilitator && board.phase !== 'closed'}
             onNext={topicNext}
             onFinish={finishDiscussion}
             onJump={jumpToTopic}
@@ -3030,6 +3059,7 @@ function Board({
             onSaveSummary={editSummary}
             onRegenerateSummary={regenerateSummary}
             onAddActionItem={(topicId, text) => createActionItem(text, topicId, null, defaultActionItemDueDate(initialBoard.retro), 'ai')}
+            attendees={board.attendees}
           />
         )}
       </div>

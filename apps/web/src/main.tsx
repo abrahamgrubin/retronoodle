@@ -5,6 +5,7 @@ import { ActionsPage } from './ActionsPage';
 import { App } from './App';
 import { BoardPage } from './BoardPage';
 import { JoinPage } from './JoinPage';
+import { RetroListPage } from './RetroListPage';
 
 const queryClient = new QueryClient();
 const root = document.getElementById('root');
@@ -14,11 +15,13 @@ if (!root) throw new Error('Missing #root element');
 const joinMatch = /^\/join\/([^/]+)$/.exec(window.location.pathname);
 const retroMatch = /^\/retros\/([^/]+)$/.exec(window.location.pathname);
 const teamActionsMatch = /^\/teams\/([^/]+)\/actions$/.exec(window.location.pathname);
+const teamRetrosMatch = /^\/teams\/([^/]+)\/retros$/.exec(window.location.pathname);
 
 function page() {
   if (joinMatch) return <JoinPage code={joinMatch[1]!} />;
   if (retroMatch) return <BoardPage retroId={retroMatch[1]!} />;
   if (teamActionsMatch) return <ActionsPage teamId={teamActionsMatch[1]!} />;
+  if (teamRetrosMatch) return <RetroListPage teamId={teamRetrosMatch[1]!} />;
   return <App />;
 }
 

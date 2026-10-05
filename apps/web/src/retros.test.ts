@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createRetro, JoinError, joinRetro } from './retros';
+import { createRetro, fetchTeamRetros, JoinError, joinRetro } from './retros';
 
 const retro = {
   id: '00000000-0000-4000-8000-000000000001',
@@ -32,6 +32,25 @@ describe('createRetro', () => {
     expect(seenBody?.name).toBe('Sprint 1 retro');
     expect(seenBody?.templateId).toBe(retro.templateId);
     expect(seenBody?.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  });
+});
+
+describe('fetchTeamRetros', () => {
+  it('parses the list', async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify([{ id: retro.id, name: retro.name, phase: 'closed', createdAt: retro.createdAt, closedAt: retro.createdAt }]),
+        ),
+    );
+    const retros = await fetchTeamRetros('token-123', retro.teamId, fetchImpl as unknown as typeof fetch);
+    expect(retros).toHaveLength(1);
+    expect(retros[0]?.name).toBe('Sprint 1 retro');
+  });
+
+  it('rejects a non-2xx response', async () => {
+    const fetchImpl = vi.fn(async () => new Response('nope', { status: 403 }));
+    await expect(fetchTeamRetros('token-123', retro.teamId, fetchImpl as typeof fetch)).rejects.toThrow(/403/);
   });
 });
 

@@ -7,6 +7,7 @@ import {
   phaseDurationMinutes,
   RetroCreatedResponse,
   TemplateColumn,
+  TeamRetrosResponse,
   type Database,
 } from '@retronoodle/shared';
 import { can } from '../auth/can.js';
@@ -146,9 +147,46 @@ export function registerRetroRoutes(app: FastifyInstance, deps: RetroRoutesDeps)
         return reply.code(500).send({ error: 'retro_create_failed' });
       }
 
+      // RN-026: the facilitator obviously attends their own retro, but creating one never routes
+      // through /join (that's for everyone else) — without this, "attendance" would always omit
+      // them. retro_participants is otherwise only ever written there.
+      const { error: participantError } = await supabaseAdmin.from('retro_participants').insert({ retro_id: retro.id, user_id: user.id });
+      if (participantError) {
+        request.log.error({ err: participantError }, 'failed to record facilitator as a retro participant');
+        return reply.code(500).send({ error: 'retro_create_failed' });
+      }
+
       return reply.code(201).send(toRetroCreatedResponse(retro, joinCode));
     },
   );
+
+  /** GET /teams/:teamId/retros (RN-026): "retro list at /teams/:id/retros links to it" — team
+   * members only (same `team.read` check as `GET /teams/:id`), newest first so an open retro (if
+   * any) and the most recently closed one are the first things a reader sees. */
+  app.get<{ Params: { teamId: string } }>('/teams/:teamId/retros', { preHandler: requireAuth }, async (request, reply) => {
+    const user = request.user;
+    if (!user) return reply.code(401).send({ error: 'unauthorized' });
+
+    const teamId = request.params.teamId;
+    const role = await getTeamRole(supabaseAdmin, teamId, user.id);
+    if (!can(user, 'team.read', { type: 'team', role })) {
+      return reply.code(403).send({ error: 'forbidden' });
+    }
+
+    const { data: retros, error } = await supabaseAdmin
+      .from('retros')
+      .select('id, name, phase, created_at, closed_at')
+      .eq('team_id', teamId)
+      .order('created_at', { ascending: false });
+    if (error) {
+      request.log.error({ err: error }, 'failed to list team retros');
+      return reply.code(500).send({ error: 'retros_list_failed' });
+    }
+
+    return TeamRetrosResponse.parse(
+      (retros ?? []).map((r) => ({ id: r.id, name: r.name, phase: r.phase, createdAt: r.created_at, closedAt: r.closed_at })),
+    );
+  });
 
   app.post<{ Params: { id: string } }>(
     '/retros/:id/join-link/regenerate',

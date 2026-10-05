@@ -70,6 +70,7 @@ jobs:
       - run: pnpm --filter @retronoodle/api exec vitest run src/mutations/retroClose.integration.test.ts
       - run: pnpm --filter @retronoodle/api exec vitest run src/routes/actionItems.integration.test.ts
       - run: pnpm --filter @retronoodle/api exec vitest run src/mutations/review.integration.test.ts
+      - run: pnpm --filter @retronoodle/api exec vitest run src/routes/closedRetro.integration.test.ts
       - run: pnpm --filter @retronoodle/web exec playwright install --with-deps chromium
       - run: pnpm --filter @retronoodle/web exec playwright test
       - if: always()

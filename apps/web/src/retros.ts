@@ -1,4 +1,4 @@
-import { CreateRetroRequest, JoinResponse, RetroCreatedResponse } from '@retronoodle/shared';
+import { CreateRetroRequest, JoinResponse, RetroCreatedResponse, TeamRetrosResponse } from '@retronoodle/shared';
 import { uuidv7 } from 'uuidv7';
 import { API_URL } from './api';
 
@@ -21,6 +21,18 @@ export async function createRetro(
   });
   if (!res.ok) throw new Error(`POST /teams/:id/retros failed: ${res.status}`);
   return RetroCreatedResponse.parse(await res.json());
+}
+
+export async function fetchTeamRetros(
+  accessToken: string,
+  teamId: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<TeamRetrosResponse> {
+  const res = await fetchImpl(`${API_URL}/teams/${teamId}/retros`, {
+    headers: authHeaders(accessToken),
+  });
+  if (!res.ok) throw new Error(`GET /teams/:id/retros failed: ${res.status}`);
+  return TeamRetrosResponse.parse(await res.json());
 }
 
 export class JoinError extends Error {

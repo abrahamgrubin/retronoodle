@@ -39,3 +39,18 @@ export const JoinResponse = z.object({
   phase: RetroPhase,
 });
 export type JoinResponse = z.infer<typeof JoinResponse>;
+
+/** `GET /teams/:id/retros` (RN-026): "retro list at /teams/:id/retros links to it [a closed
+ * retro's board]" — just enough to render a list and link each row to `/retros/:id`, which
+ * already works at any phase. */
+export const RetroListItem = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  phase: RetroPhase,
+  createdAt: z.string(),
+  closedAt: z.string().nullable(),
+});
+export type RetroListItem = z.infer<typeof RetroListItem>;
+
+export const TeamRetrosResponse = z.array(RetroListItem);
+export type TeamRetrosResponse = z.infer<typeof TeamRetrosResponse>;

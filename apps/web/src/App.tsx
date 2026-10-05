@@ -142,11 +142,10 @@ function TeamsPanel({ accessToken }: { accessToken: string }) {
       <p>
         Your team: <strong>{team.name}</strong> ({team.role})
       </p>
-      {/* RN-024: "reached from the team top bar tabs 'Retros' and 'Action items.'" This page
-          itself is the de facto "Retros" tab (retro creation/listing); the other tab is the only
-          new navigation RN-024 actually needs. */}
+      {/* RN-024/RN-026: "reached from the team top bar tabs 'Retros' and 'Action items.'" Retro
+          creation stays here (the home page); the list of past retros is its own page now. */}
       <p>
-        <strong>Retros</strong> · <a href={`/teams/${team.id}/actions`}>Action items</a>
+        <a href={`/teams/${team.id}/retros`}>Retros</a> · <a href={`/teams/${team.id}/actions`}>Action items</a>
       </p>
       <RetroCreator accessToken={accessToken} teamId={team.id} />
     </>

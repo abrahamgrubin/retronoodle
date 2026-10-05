@@ -154,7 +154,7 @@ export function ActionsPage({ teamId }: { teamId: string }) {
 
   const nav = (
     <p>
-      <a href="/">Retros</a> · <strong>Action items</strong>
+      <a href={`/teams/${teamId}/retros`}>Retros</a> · <strong>Action items</strong>
     </p>
   );
 
