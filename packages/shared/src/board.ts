@@ -113,6 +113,9 @@ export const BoardResponse = z.object({
   actionItemReviewOutcomes: z.array(z.object({ actionItemId: z.string().uuid(), outcome: ActionItemReviewOutcome })),
   // RN-022: every member of the retro's team, for the owner picker — not just whoever's online.
   teamMembers: z.array(z.object({ id: z.string().uuid(), displayName: z.string() })),
+  // RN-026: "attendance" in the closed-retro recap panel — whoever actually joined this retro
+  // (retro_participants), not the team roster teamMembers already carries above.
+  attendees: z.array(z.object({ id: z.string().uuid(), displayName: z.string() })),
   seq: z.number().int().nonnegative(),
   // RN-012: "every API response includes serverTime" — the client compares this to its own
   // clock once, at load, to get a stable offset, then counts the phase timer down locally

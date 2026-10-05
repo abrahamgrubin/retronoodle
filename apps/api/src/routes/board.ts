@@ -67,6 +67,7 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
       actionItemsResult,
       teamMemberRowsResult,
       actionItemReviewsResult,
+      retroParticipantsResult,
     ] = await Promise.all([
       supabaseAdmin.from('retro_columns').select().eq('retro_id', retroId).order('position'),
       supabaseAdmin.from('cards').select().eq('retro_id', retroId),
@@ -78,6 +79,9 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
       // RN-025: this retro's own recorded outcome per carried-over item — meaningless outside
       // Review, but cheap enough (indexed by retro_id) not to bother branching the query itself.
       supabaseAdmin.from('action_item_reviews').select('action_item_id, outcome').eq('retro_id', retroId),
+      // RN-026: "attendance" — whoever actually joined this retro, same reasoning as above (cheap
+      // enough not to branch on phase even though it's only ever shown once closed).
+      supabaseAdmin.from('retro_participants').select('user_id').eq('retro_id', retroId),
     ]);
 
     if (
@@ -88,7 +92,8 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
       teamResult.error ||
       actionItemsResult.error ||
       teamMemberRowsResult.error ||
-      actionItemReviewsResult.error
+      actionItemReviewsResult.error ||
+      retroParticipantsResult.error
     ) {
       request.log.error(
         {
@@ -100,6 +105,7 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
           actionItems: actionItemsResult.error,
           teamMembers: teamMemberRowsResult.error,
           actionItemReviews: actionItemReviewsResult.error,
+          retroParticipants: retroParticipantsResult.error,
         },
         'failed to read board data',
       );
@@ -121,6 +127,11 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
       }
       for (const profile of memberProfiles ?? []) teamMembers.push({ id: profile.id, displayName: profile.display_name });
     }
+
+    // RN-026: whoever joined this retro is necessarily already a team member (the /join route
+    // upserts both rows together) — filtering teamMembers avoids a second profiles round trip.
+    const participantIds = new Set((retroParticipantsResult.data ?? []).map((p) => p.user_id));
+    const attendees = teamMembers.filter((m) => participantIds.has(m.id));
 
     const cards = cardsResult.data ?? [];
     const authorIds = [...new Set(cards.map((c) => c.author_id))];
@@ -354,6 +365,7 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
         outcome: r.outcome as ActionItemReviewOutcome,
       })),
       teamMembers,
+      attendees,
       seq: lastEventResult.data?.seq ?? 0,
       // RN-012: this specific response is what a late joiner's clock-offset calculation anchors
       // to, so it's set explicitly here rather than relying solely on the global serverTime hook

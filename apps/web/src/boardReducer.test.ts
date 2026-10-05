@@ -22,6 +22,7 @@ const emptyBoard: BoardState = {
   actionItems: [],
   actionItemReviewOutcomes: [],
   teamMembers: [],
+  attendees: [],
 };
 
 function createEvent(overrides: Partial<Record<string, unknown>> = {}): RetroEvent {

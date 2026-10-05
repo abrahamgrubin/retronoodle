@@ -61,6 +61,7 @@ describe('POST /teams/:teamId/retros', () => {
         }
         if (table === 'retros') return chain({ data: retroRow, error: null }, retroCalls);
         if (table === 'retro_columns') return chain({ data: null, error: null }, columnsCalls);
+        if (table === 'retro_participants') return chain({ data: null, error: null });
         throw new Error(`unexpected table ${table}`);
       },
     } as unknown as SupabaseClient<Database>;
@@ -132,6 +133,7 @@ describe('POST /teams/:teamId/retros', () => {
         }
         if (table === 'retros') return chain({ data: retroRow, error: null }, retroCalls);
         if (table === 'retro_columns') return chain({ data: null, error: null });
+        if (table === 'retro_participants') return chain({ data: null, error: null });
         throw new Error(`unexpected table ${table}`);
       },
     } as unknown as SupabaseClient<Database>;
@@ -346,5 +348,57 @@ describe('GET /join/:code', () => {
     const res = await app.inject({ method: 'GET', url: `/join/${code}`, headers: AUTH_HEADER });
     expect(res.statusCode).toBe(410);
     expect(res.json()).toMatchObject({ error: 'retro_closed', teamId });
+  });
+});
+
+describe('GET /teams/:teamId/retros', () => {
+  const teamId = '00000000-0000-4000-8000-0000000000aa';
+
+  it('lists the team\'s retros, newest first', async () => {
+    const rows = [
+      {
+        id: '00000000-0000-4000-8000-0000000000c1',
+        name: 'Sprint 2 retro',
+        phase: 'closed',
+        created_at: '2026-01-02T00:00:00.000Z',
+        closed_at: '2026-01-02T01:00:00.000Z',
+      },
+      {
+        id: '00000000-0000-4000-8000-0000000000c2',
+        name: 'Sprint 1 retro',
+        phase: 'closed',
+        created_at: '2026-01-01T00:00:00.000Z',
+        closed_at: '2026-01-01T01:00:00.000Z',
+      },
+    ];
+    const supabaseAdmin = {
+      from(table: string) {
+        if (table === 'team_members') return chain({ data: { role: 'member' }, error: null });
+        if (table === 'retros') return chain({ data: rows, error: null });
+        throw new Error(`unexpected table ${table}`);
+      },
+    } as unknown as SupabaseClient<Database>;
+
+    app = await buildWith(supabaseAdmin);
+    const res = await app.inject({ method: 'GET', url: `/teams/${teamId}/retros`, headers: AUTH_HEADER });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body).toHaveLength(2);
+    expect(body[0]).toMatchObject({ id: rows[0]!.id, name: 'Sprint 2 retro', phase: 'closed', closedAt: rows[0]!.closed_at });
+    expect(Array.isArray(body)).toBe(true);
+  });
+
+  it('a non-member gets 403', async () => {
+    const supabaseAdmin = {
+      from(table: string) {
+        if (table === 'team_members') return chain({ data: null, error: null });
+        throw new Error(`unexpected table ${table}`);
+      },
+    } as unknown as SupabaseClient<Database>;
+
+    app = await buildWith(supabaseAdmin);
+    const res = await app.inject({ method: 'GET', url: `/teams/${teamId}/retros`, headers: AUTH_HEADER });
+    expect(res.statusCode).toBe(403);
   });
 });
