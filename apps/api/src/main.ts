@@ -72,7 +72,12 @@ const running = await startProcess(config.role, {
     let ai: Parameters<typeof startWorker>[0]['ai'];
     if (config.supabaseUrl && config.supabaseServiceRoleKey) {
       const supabaseAdmin = createSupabaseAdmin(config.supabaseUrl, config.supabaseServiceRoleKey);
-      ai = { supabaseAdmin, realtimeBus: new RealtimeBus(supabaseAdmin), anthropicApiKey: config.anthropicApiKey };
+      ai = {
+        supabaseAdmin,
+        realtimeBus: new RealtimeBus(supabaseAdmin),
+        anthropicApiKey: config.anthropicApiKey,
+        monthlyCapUsd: config.aiMonthlyCapUsd,
+      };
     }
     return startWorker({ databaseUrl: config.databaseUrl, logger: log, ai });
   },

@@ -4,6 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { AI_TOPIC_SUMMARY_FALLBACK_MODEL, AI_TOPIC_SUMMARY_MODEL, AI_TOPIC_SUMMARY_TIMEOUT_MS, type Database } from '@retronoodle/shared';
 import type { WorkerLogger } from '../logger.js';
 import { loadAgent } from '../agents/loadAgent.js';
+import { isOverMonthlyCap, recordAiUsage } from '../aiSpendCap.js';
 import type { AnthropicMessagesClient } from './groupCards.js';
 import type { RealtimeBusLike } from './summarizeGroup.js';
 
@@ -15,6 +16,7 @@ export interface SummarizeTopicDeps {
   supabaseAdmin: SupabaseClient<Database>;
   realtimeBus: RealtimeBusLike;
   anthropicApiKey: string | undefined;
+  monthlyCapUsd: number | undefined;
   logger: WorkerLogger;
   createAnthropicClient?: (apiKey: string) => AnthropicMessagesClient;
 }
@@ -71,7 +73,7 @@ async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
  */
 export async function runSummarizeTopicJob(data: SummarizeTopicJobData, deps: SummarizeTopicDeps): Promise<void> {
   const { topicId } = data;
-  const { supabaseAdmin, realtimeBus, anthropicApiKey, logger } = deps;
+  const { supabaseAdmin, realtimeBus, anthropicApiKey, monthlyCapUsd, logger } = deps;
   const createAnthropicClient: (apiKey: string) => AnthropicMessagesClient =
     deps.createAnthropicClient ?? ((apiKey) => new Anthropic({ apiKey }));
 
@@ -82,6 +84,17 @@ export async function runSummarizeTopicJob(data: SummarizeTopicJobData, deps: Su
 
   const { data: topic } = await supabaseAdmin.from('topics').select('retro_id, name').eq('id', topicId).maybeSingle();
   if (!topic) return;
+
+  // RN-027: "on cap, AI features fall back silently ... 'Summary unavailable'" names this job's
+  // own fallback by name — unlike the other three AI jobs (optional background polish with no
+  // "waiting" UI state), this one leaves the panel showing "Summarizing…" forever if nothing ever
+  // tells the client otherwise, so this broadcasts the same topic.summaryFailed event the
+  // both-attempts-failed path below does, rather than silently returning.
+  if (monthlyCapUsd !== undefined && (await isOverMonthlyCap(supabaseAdmin, monthlyCapUsd))) {
+    logger.info(`ai.summarizeTopic: skipped for topic ${topicId} (monthly AI spend cap reached)`);
+    await realtimeBus.broadcastRetro(topic.retro_id, { type: 'topic.summaryFailed', payload: { topicId } });
+    return;
+  }
 
   const { data: retro } = await supabaseAdmin.from('retros').select('team_id').eq('id', topic.retro_id).maybeSingle();
   if (!retro) return;
@@ -130,6 +143,7 @@ export async function runSummarizeTopicJob(data: SummarizeTopicJobData, deps: Su
       logger.info(
         `ai usage: topic=${topicId} job=ai.summarizeTopic model=${model} in=${response.usage.input_tokens} out=${response.usage.output_tokens}`,
       );
+      await recordAiUsage(supabaseAdmin, model, response.usage.input_tokens, response.usage.output_tokens);
       const text = response.content.find((block) => block.type === 'text')?.text ?? '';
       const parsed = SummaryShape.safeParse(JSON.parse(extractJsonObjectText(text)));
       return parsed.success ? { raw: parsed.data, model } : null;

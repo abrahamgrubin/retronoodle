@@ -1,0 +1,15 @@
+name: Health ping
+
+# RN-027: "GET /health every 3 days so Supabase never pauses" — Supabase's free tier pauses a
+# project after a week of no activity; this just needs to happen regularly, not on any precise
+# schedule.
+on:
+  schedule:
+    - cron: '0 12 */3 * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl -fsS https://api.retronoodle.com/health

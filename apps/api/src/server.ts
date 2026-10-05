@@ -1,9 +1,12 @@
 import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
+import rateLimit from '@fastify/rate-limit';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { HealthResponse, MeResponse, type Database } from '@retronoodle/shared';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Pool } from 'pg';
 import { createRequireAuth, timezoneFromHeader, upsertProfile, type VerifyAccessToken } from './auth/index.js';
+import { redactForLogging } from './logging/redact.js';
 import { registerTeamRoutes } from './routes/teams.js';
 import { registerRetroRoutes } from './routes/retros.js';
 import { registerTemplateRoutes } from './routes/templates.js';
@@ -32,10 +35,41 @@ export interface ServerOptions {
 /** Builds the Fastify app. Routes from later stories register here. */
 export async function buildServer(options: ServerOptions): Promise<FastifyInstance> {
   const app = Fastify({
-    logger: options.logger ?? false,
+    logger: options.logger
+      ? {
+          // RN-027: "Pino JSON logs with a redaction list" — every log call passes through this,
+          // app-wide, before pino's own serializers ever see it (redact.ts's own comment explains
+          // why this is safe against Fastify's own internal req/res/err logging too).
+          hooks: {
+            logMethod(inputArgs, method) {
+              return method.apply(
+                this,
+                inputArgs.map((arg) => redactForLogging(arg)) as Parameters<typeof method>,
+              );
+            },
+          },
+        }
+      : false,
   });
 
   await app.register(cors, { origin: options.webOrigin });
+
+  // RN-027 security baseline: HSTS (helmet's own CSP default is fine here too — this is a JSON
+  // API, not a page that loads scripts; the strict "no inline scripts, connect-src our domains +
+  // Supabase" CSP belongs to the actual web app's pages, enforced via Cloudflare Pages' own
+  // _headers file, not this server).
+  await app.register(helmet, { hsts: { maxAge: 15_552_000, includeSubDomains: true } });
+
+  // RN-027: "per-user and per-IP rate limits" baseline, applied to every route by default
+  // (`global: true`) — the mutation pipeline (routes/mutations.ts) already registers its own
+  // stricter, encapsulated 20/s-per-user limit on top of this for that one route; the two don't
+  // conflict, they just both have to pass.
+  await app.register(rateLimit, {
+    global: true,
+    max: 300,
+    timeWindow: '1 minute',
+    keyGenerator: (request) => request.user?.id ?? request.ip,
+  });
 
   // RN-012: "every API response includes serverTime" — added once here rather than in each
   // route, so nothing can forget it. Object-shaped payloads only: a handful of routes (e.g. GET

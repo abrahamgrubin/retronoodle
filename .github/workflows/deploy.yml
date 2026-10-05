@@ -1,0 +1,61 @@
+name: Deploy
+
+# RN-027: "A merge to main deploys both apps with migrations applied first." Separate from ci.yml
+# deliberately — by the time a push lands on main, the PR that put it there already passed CI
+# (branch protection), so this workflow's only job is shipping it, not re-verifying it.
+#
+# Required repo secrets (Settings > Secrets and variables > Actions):
+#   PRODUCTION_DATABASE_URL   — Postgres connection string (Supabase Project Settings > Database)
+#   RENDER_DEPLOY_HOOK_URL    — Render service > Settings > Deploy Hook
+#   CLOUDFLARE_API_TOKEN      — Cloudflare dashboard > My Profile > API Tokens (Pages:Edit)
+#   CLOUDFLARE_ACCOUNT_ID     — Cloudflare dashboard > right sidebar of any domain overview
+#   VITE_SUPABASE_URL         — same value as SUPABASE_URL, exposed to the browser bundle
+#   VITE_SUPABASE_ANON_KEY    — Supabase Project Settings > API > anon/public key
+# The Cloudflare Pages project ("retronoodle") and its retronoodle.com domain binding, and the
+# Render service itself, are created once by hand — this workflow only ever pushes to them.
+on:
+  push:
+    branches: [main]
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      # `db push` tracks which migrations already ran against this exact database (its own
+      # schema_migrations table) and applies only what's new, in order — safe to run on every
+      # deploy even when nothing changed.
+      - run: supabase db push --db-url "${{ secrets.PRODUCTION_DATABASE_URL }}"
+
+  deploy-api:
+    needs: migrate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Render deploy
+        run: curl -fsS -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
+
+  deploy-web:
+    needs: migrate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @retronoodle/web build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_API_URL: https://api.retronoodle.com
+      - uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: retronoodle
+          directory: apps/web/dist

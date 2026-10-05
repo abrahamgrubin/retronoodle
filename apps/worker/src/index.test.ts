@@ -53,7 +53,7 @@ describe('startWorker', () => {
 
   it('registers ai.groupCards when `ai` deps are provided', async () => {
     const queue = fakeQueue();
-    const ai = { supabaseAdmin: {} as never, realtimeBus: { broadcastUser: vi.fn(), broadcastRetro: vi.fn() }, anthropicApiKey: undefined };
+    const ai = { supabaseAdmin: {} as never, realtimeBus: { broadcastUser: vi.fn(), broadcastRetro: vi.fn() }, anthropicApiKey: undefined, monthlyCapUsd: undefined };
     await startWorker({ databaseUrl: 'x', logger, createQueue: () => queue, ai });
     expect(queue.createQueue).toHaveBeenCalledWith(AI_GROUP_CARDS_QUEUE);
     expect(queue.work).toHaveBeenCalledWith(AI_GROUP_CARDS_QUEUE, expect.any(Function));
@@ -62,7 +62,7 @@ describe('startWorker', () => {
   // Homework: AI agent team.
   it('registers ai.summarizeGroup and ai.suggestQuestions when `ai` deps are provided', async () => {
     const queue = fakeQueue();
-    const ai = { supabaseAdmin: {} as never, realtimeBus: { broadcastUser: vi.fn(), broadcastRetro: vi.fn() }, anthropicApiKey: undefined };
+    const ai = { supabaseAdmin: {} as never, realtimeBus: { broadcastUser: vi.fn(), broadcastRetro: vi.fn() }, anthropicApiKey: undefined, monthlyCapUsd: undefined };
     await startWorker({ databaseUrl: 'x', logger, createQueue: () => queue, ai });
     expect(queue.createQueue).toHaveBeenCalledWith(AI_SUMMARIZE_GROUP_QUEUE);
     expect(queue.work).toHaveBeenCalledWith(AI_SUMMARIZE_GROUP_QUEUE, expect.any(Function));
@@ -73,7 +73,7 @@ describe('startWorker', () => {
   // RN-021
   it('registers ai.summarizeTopic when `ai` deps are provided', async () => {
     const queue = fakeQueue();
-    const ai = { supabaseAdmin: {} as never, realtimeBus: { broadcastUser: vi.fn(), broadcastRetro: vi.fn() }, anthropicApiKey: undefined };
+    const ai = { supabaseAdmin: {} as never, realtimeBus: { broadcastUser: vi.fn(), broadcastRetro: vi.fn() }, anthropicApiKey: undefined, monthlyCapUsd: undefined };
     await startWorker({ databaseUrl: 'x', logger, createQueue: () => queue, ai });
     expect(queue.createQueue).toHaveBeenCalledWith(AI_SUMMARIZE_TOPIC_QUEUE);
     expect(queue.work).toHaveBeenCalledWith(AI_SUMMARIZE_TOPIC_QUEUE, expect.any(Function));

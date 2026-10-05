@@ -1,0 +1,23 @@
+name: Nightly DB dump
+
+# RN-027: "nightly compressed DB dump." Stored as a workflow artifact (free within GitHub's
+# included quota at this project's size) rather than a second cloud storage account — "under
+# $10/month" and "deferred: staging" both argue against adding infra for this.
+on:
+  schedule:
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dump and compress
+        run: |
+          which pg_dump || sudo apt-get update && sudo apt-get install -y postgresql-client
+          pg_dump "${{ secrets.PRODUCTION_DATABASE_URL }}" | gzip > "retronoodle-$(date -u +%F).sql.gz"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: retronoodle-db-dump-${{ github.run_id }}
+          path: retronoodle-*.sql.gz
+          retention-days: 14
