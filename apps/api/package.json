@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/main.ts",
-    "build": "tsup src/main.ts --format esm --target node22 --out-dir dist --clean --noExternal @retronoodle/shared --noExternal @retronoodle/worker",
+    "build": "tsup",
     "start": "node dist/main.js",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json",
