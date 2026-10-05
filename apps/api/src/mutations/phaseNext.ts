@@ -24,6 +24,13 @@ export const phaseNextMutation: MutationTypeDef<PhaseTransitionPayload> = {
     const from = retro.phase as RetroPhase;
     const to = nextPhase(from);
     if (!to) throw new MutationRejected(409, 'phase_not_allowed', `Cannot advance from ${from}`);
+    // RN-023: wrap_up's only way forward is retro.close, which runs the F2 ownerless-item check
+    // this mutation has no business doing — rejecting the target here, not just hiding the
+    // client's button, is what actually closes the loophole (CLAUDE.md: every write goes through
+    // the shared state machine, not a client-side gate alone).
+    if (to === 'closed') {
+      throw new MutationRejected(409, 'phase_not_allowed', 'Use retro.close to close the retro');
+    }
 
     await runTransitionEffect(client, retro, from, to, jobs);
     const phaseDeadline = await setPhase(client, retro.id, to);

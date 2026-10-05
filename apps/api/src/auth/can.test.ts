@@ -94,6 +94,13 @@ describe('can — role x action matrix (Design 3.4, reconstructed for RN-005)', 
     ['retro.editAiSummary', retroAsMember, false],
     ['retro.editAiSummary', retroNonMember, false],
 
+    // retro.close (RN-023): facilitator only — "a 'Close retro' primary button ... facilitator
+    // only" — retro.close gates on this.
+    ['retro.close', retroAsFacilitator, true],
+    ['retro.close', retroAsAdmin, false],
+    ['retro.close', retroAsMember, false],
+    ['retro.close', retroNonMember, false],
+
     // card.edit / card.delete / card.move: ownership, not a role — only the author, ever.
     ['card.edit', ownCard, true],
     ['card.edit', othersCard, false],

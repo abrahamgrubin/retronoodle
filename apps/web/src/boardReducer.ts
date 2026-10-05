@@ -220,9 +220,12 @@ export function reduceBoard(board: BoardState, event: RetroEvent): BoardState {
     }
     // phase.next and phase.skip resolve to the same target phase server-side (RN-010) — both
     // broadcast the same result shape, so both fold into board state the same way here too.
+    // retro.close (RN-023): the only door from wrap_up to closed (phase.next/phase.skip refuse
+    // that target server-side) — same {phase, phaseDeadline} result shape, folded identically.
     case 'phase.next':
     case 'phase.skip':
-    case 'phase.back': {
+    case 'phase.back':
+    case 'retro.close': {
       const result = event.payload as PhaseTransitionResult;
       // RN-018: "Going back Vote→Group refunds all votes" — the server deletes every vote row on
       // this one backward transition (onTransition.ts's 'vote->group'); this is the client half of

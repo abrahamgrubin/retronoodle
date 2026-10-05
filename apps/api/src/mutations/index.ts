@@ -28,6 +28,7 @@ import { topicEditSummaryMutation } from './topicEditSummary.js';
 import { topicRegenerateSummaryMutation } from './topicRegenerateSummary.js';
 import { actionItemCreateMutation } from './actionItemCreate.js';
 import { actionItemUpdateMutation } from './actionItemUpdate.js';
+import { retroCloseMutation } from './retroClose.js';
 
 export function createDefaultMutationRegistry(): MutationRegistry {
   const registry = new MutationRegistry();
@@ -52,6 +53,7 @@ export function createDefaultMutationRegistry(): MutationRegistry {
   registry.register('topic.regenerateSummary', topicRegenerateSummaryMutation);
   registry.register('actionItem.create', actionItemCreateMutation);
   registry.register('actionItem.update', actionItemUpdateMutation);
+  registry.register('retro.close', retroCloseMutation);
   registry.register('phase.next', phaseNextMutation);
   // phase.skip resolves to the same target as phase.next (see phaseNext.ts's own comment) — the
   // timer's Skip button (RN-012) sends this instead, so it's registered under its own type name.
