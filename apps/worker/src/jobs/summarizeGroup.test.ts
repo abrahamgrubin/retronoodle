@@ -32,6 +32,12 @@ function fakeSupabase(opts: { topic?: unknown; cards?: unknown[]; authors?: unkn
       if (table === 'profiles') {
         return { select: () => ({ in: async () => ({ data: authors }) }) };
       }
+      if (table === 'ai_usage') {
+        return {
+          select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }),
+          upsert: vi.fn().mockResolvedValue({ data: null, error: null }),
+        };
+      }
       throw new Error(`unexpected table ${table}`);
     }),
   } as unknown as SummarizeGroupDeps['supabaseAdmin'];
@@ -53,6 +59,7 @@ function baseDeps(overrides: Partial<SummarizeGroupDeps> = {}): SummarizeGroupDe
     supabaseAdmin: fakeSupabase(),
     realtimeBus: { broadcastRetro: vi.fn() },
     anthropicApiKey: 'sk-test',
+    monthlyCapUsd: undefined,
     logger: { info: vi.fn(), error: vi.fn() },
     ...overrides,
   };
@@ -63,6 +70,18 @@ describe('runSummarizeGroupJob', () => {
     const supabaseAdmin = fakeSupabase();
     await runSummarizeGroupJob({ topicId }, baseDeps({ supabaseAdmin, anthropicApiKey: undefined }));
     expect(supabaseAdmin.from).not.toHaveBeenCalled();
+  });
+
+  it('skips entirely when the monthly AI spend cap is already reached', async () => {
+    const supabaseAdmin = {
+      from: vi.fn((table: string) => {
+        if (table === 'ai_usage') return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { total_cost_usd: '5.0000' } }) }) }) };
+        throw new Error(`unexpected table ${table}`);
+      }),
+    } as unknown as SummarizeGroupDeps['supabaseAdmin'];
+    const anthropic = fakeAnthropic(JSON.stringify({ title: 'T', summary: 'S' }));
+    await runSummarizeGroupJob({ topicId }, baseDeps({ supabaseAdmin, monthlyCapUsd: 5, createAnthropicClient: () => anthropic }));
+    expect(anthropic.messages.create).not.toHaveBeenCalled();
   });
 
   it('does nothing when the topic has no cards', async () => {

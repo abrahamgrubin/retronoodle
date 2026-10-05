@@ -12,6 +12,9 @@ export interface Config {
   // RN-017: undefined means ai.groupCards runs as a no-op ("failure shows nothing and manual
   // grouping still works") — never required to start either role.
   anthropicApiKey: string | undefined;
+  // RN-027: "Claude spend cap $5/month in config" — undefined means no cap is enforced at all
+  // (matches .env.example's own documented default of 5, but never assumed here).
+  aiMonthlyCapUsd: number | undefined;
   isProduction: boolean;
 }
 
@@ -30,6 +33,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
     supabaseUrl: env.SUPABASE_URL || undefined,
     supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY || undefined,
     anthropicApiKey: env.ANTHROPIC_API_KEY || undefined,
+    aiMonthlyCapUsd: env.AI_MONTHLY_CAP_USD ? Number(env.AI_MONTHLY_CAP_USD) : undefined,
     isProduction: env.NODE_ENV === 'production',
   };
 }

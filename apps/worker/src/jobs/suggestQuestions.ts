@@ -4,6 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { AI_QUESTION_SUGGESTER_MODEL, type Database } from '@retronoodle/shared';
 import type { WorkerLogger } from '../logger.js';
 import { loadAgent } from '../agents/loadAgent.js';
+import { isOverMonthlyCap, recordAiUsage } from '../aiSpendCap.js';
 import type { AnthropicMessagesClient } from './groupCards.js';
 import type { RealtimeBusLike } from './summarizeGroup.js';
 
@@ -15,6 +16,7 @@ export interface SuggestQuestionsDeps {
   supabaseAdmin: SupabaseClient<Database>;
   realtimeBus: RealtimeBusLike;
   anthropicApiKey: string | undefined;
+  monthlyCapUsd: number | undefined;
   logger: WorkerLogger;
   createAnthropicClient?: (apiKey: string) => AnthropicMessagesClient;
 }
@@ -38,12 +40,16 @@ function extractJsonObjectText(text: string): string {
  */
 export async function runSuggestQuestionsJob(data: SuggestQuestionsJobData, deps: SuggestQuestionsDeps): Promise<void> {
   const { topicId } = data;
-  const { supabaseAdmin, realtimeBus, anthropicApiKey, logger } = deps;
+  const { supabaseAdmin, realtimeBus, anthropicApiKey, monthlyCapUsd, logger } = deps;
   const createAnthropicClient: (apiKey: string) => AnthropicMessagesClient =
     deps.createAnthropicClient ?? ((apiKey) => new Anthropic({ apiKey }));
 
   if (!anthropicApiKey) {
     logger.info(`ai.suggestQuestions: skipped for topic ${topicId} (no ANTHROPIC_API_KEY)`);
+    return;
+  }
+  if (monthlyCapUsd !== undefined && (await isOverMonthlyCap(supabaseAdmin, monthlyCapUsd))) {
+    logger.info(`ai.suggestQuestions: skipped for topic ${topicId} (monthly AI spend cap reached)`);
     return;
   }
 
@@ -72,6 +78,7 @@ export async function runSuggestQuestionsJob(data: SuggestQuestionsJobData, deps
       logger.info(
         `ai usage: topic=${topicId} job=ai.suggestQuestions model=${AI_QUESTION_SUGGESTER_MODEL} in=${response.usage.input_tokens} out=${response.usage.output_tokens}`,
       );
+      await recordAiUsage(supabaseAdmin, AI_QUESTION_SUGGESTER_MODEL, response.usage.input_tokens, response.usage.output_tokens);
 
       const text = response.content.find((block) => block.type === 'text')?.text ?? '';
       const result = QuestionsShape.safeParse(JSON.parse(extractJsonObjectText(text)));

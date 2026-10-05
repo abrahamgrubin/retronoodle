@@ -53,6 +53,8 @@ export interface StartWorkerOptions {
     supabaseAdmin: SupabaseClient<Database>;
     realtimeBus: RealtimeBusLike;
     anthropicApiKey: string | undefined;
+    // RN-027: "Claude spend cap $5/month in config" — undefined means no cap is configured.
+    monthlyCapUsd: number | undefined;
   };
 }
 
@@ -72,11 +74,11 @@ export async function startWorker(options: StartWorkerOptions): Promise<RunningW
   await queue.start();
 
   if (options.ai) {
-    const { supabaseAdmin, realtimeBus, anthropicApiKey } = options.ai;
+    const { supabaseAdmin, realtimeBus, anthropicApiKey, monthlyCapUsd } = options.ai;
     await queue.createQueue(AI_GROUP_CARDS_QUEUE);
     await queue.work<{ retroId: string }>(AI_GROUP_CARDS_QUEUE, async (jobs) => {
       for (const job of jobs) {
-        await runGroupCardsJob(job.data, { supabaseAdmin, realtimeBus, anthropicApiKey, logger: options.logger });
+        await runGroupCardsJob(job.data, { supabaseAdmin, realtimeBus, anthropicApiKey, monthlyCapUsd, logger: options.logger });
       }
     });
 
@@ -84,14 +86,14 @@ export async function startWorker(options: StartWorkerOptions): Promise<RunningW
     await queue.createQueue(AI_SUMMARIZE_GROUP_QUEUE);
     await queue.work<{ topicId: string }>(AI_SUMMARIZE_GROUP_QUEUE, async (jobs) => {
       for (const job of jobs) {
-        await runSummarizeGroupJob(job.data, { supabaseAdmin, realtimeBus, anthropicApiKey, logger: options.logger });
+        await runSummarizeGroupJob(job.data, { supabaseAdmin, realtimeBus, anthropicApiKey, monthlyCapUsd, logger: options.logger });
       }
     });
 
     await queue.createQueue(AI_SUGGEST_QUESTIONS_QUEUE);
     await queue.work<{ topicId: string }>(AI_SUGGEST_QUESTIONS_QUEUE, async (jobs) => {
       for (const job of jobs) {
-        await runSuggestQuestionsJob(job.data, { supabaseAdmin, realtimeBus, anthropicApiKey, logger: options.logger });
+        await runSuggestQuestionsJob(job.data, { supabaseAdmin, realtimeBus, anthropicApiKey, monthlyCapUsd, logger: options.logger });
       }
     });
 
@@ -101,7 +103,7 @@ export async function startWorker(options: StartWorkerOptions): Promise<RunningW
     await queue.createQueue(AI_SUMMARIZE_TOPIC_QUEUE);
     await queue.work<{ topicId: string }>(AI_SUMMARIZE_TOPIC_QUEUE, async (jobs) => {
       for (const job of jobs) {
-        await runSummarizeTopicJob(job.data, { supabaseAdmin, realtimeBus, anthropicApiKey, logger: options.logger });
+        await runSummarizeTopicJob(job.data, { supabaseAdmin, realtimeBus, anthropicApiKey, monthlyCapUsd, logger: options.logger });
       }
     });
   }

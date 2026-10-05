@@ -50,6 +50,26 @@ describe('GET /health', () => {
     });
     expect(other.headers['access-control-allow-origin']).not.toBe('https://evil.example');
   });
+
+  // RN-027: "per-user and per-IP rate limits" — a global 300/minute baseline on every route,
+  // distinct from routes/mutations.ts's own stricter, encapsulated 20/s-per-user limit on that
+  // one route specifically. Keyed the same way (user if authenticated, else IP) — here always IP,
+  // since /health has no auth.
+  it('rate-limits at 300/minute per IP, globally, on an unauthenticated route', async () => {
+    app = await buildServer({ webOrigin: 'http://localhost:5173' });
+
+    for (let i = 0; i < 300; i++) {
+      const res = await app.inject({ method: 'GET', url: '/health', remoteAddress: '203.0.113.5' });
+      expect(res.statusCode).toBe(200);
+    }
+
+    const limited = await app.inject({ method: 'GET', url: '/health', remoteAddress: '203.0.113.5' });
+    expect(limited.statusCode).toBe(429);
+
+    // A different IP is unaffected — proves the bucket is keyed per-IP, not shared globally.
+    const otherIp = await app.inject({ method: 'GET', url: '/health', remoteAddress: '203.0.113.6' });
+    expect(otherIp.statusCode).toBe(200);
+  }, 10000);
 });
 
 describe('GET /me', () => {

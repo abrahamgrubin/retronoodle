@@ -30,6 +30,7 @@ interface FakeOpts {
   openItemTitles?: string[];
   latestVersion?: number | null;
   insertError?: unknown;
+  aiUsageCostUsd?: string | null;
 }
 
 function fakeSupabase(opts: FakeOpts = {}) {
@@ -42,6 +43,7 @@ function fakeSupabase(opts: FakeOpts = {}) {
     openItemTitles = [],
     latestVersion = null,
     insertError = null,
+    aiUsageCostUsd = null,
   } = opts;
 
   return {
@@ -64,6 +66,12 @@ function fakeSupabase(opts: FakeOpts = {}) {
                   : { data: { id: insertedId, created_at: '2026-01-01T00:00:00.000Z', ...row }, error: null },
             }),
           }),
+        };
+      }
+      if (table === 'ai_usage') {
+        return {
+          ...thenable({ data: aiUsageCostUsd === null ? null : { total_cost_usd: aiUsageCostUsd } }),
+          upsert: vi.fn().mockResolvedValue({ data: null, error: null }),
         };
       }
       throw new Error(`unexpected table ${table}`);
@@ -97,6 +105,7 @@ function baseDeps(overrides: Partial<SummarizeTopicDeps> = {}): SummarizeTopicDe
     supabaseAdmin: fakeSupabase(),
     realtimeBus: { broadcastRetro: vi.fn() },
     anthropicApiKey: 'sk-test',
+    monthlyCapUsd: undefined,
     logger: { info: vi.fn(), error: vi.fn() },
     ...overrides,
   };
@@ -107,6 +116,16 @@ describe('runSummarizeTopicJob', () => {
     const supabaseAdmin = fakeSupabase();
     await runSummarizeTopicJob({ topicId }, baseDeps({ supabaseAdmin, anthropicApiKey: undefined }));
     expect(supabaseAdmin.from).not.toHaveBeenCalled();
+  });
+
+  it('skips the Anthropic call and reports "Summary unavailable" when the monthly spend cap is reached', async () => {
+    const anthropic = fakeAnthropic(validSummaryJson());
+    const supabaseAdmin = fakeSupabase({ aiUsageCostUsd: '5.0000' });
+    const deps = baseDeps({ supabaseAdmin, monthlyCapUsd: 5, createAnthropicClient: () => anthropic });
+    await runSummarizeTopicJob({ topicId }, deps);
+
+    expect(anthropic.messages.create).not.toHaveBeenCalled();
+    expect(deps.realtimeBus.broadcastRetro).toHaveBeenCalledWith(retroId, { type: 'topic.summaryFailed', payload: { topicId } });
   });
 
   it('does nothing when the topic has no cards', async () => {

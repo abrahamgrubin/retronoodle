@@ -4,6 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { AI_GROUPING_MODEL, type Database } from '@retronoodle/shared';
 import type { WorkerLogger } from '../logger.js';
 import { loadAgent } from '../agents/loadAgent.js';
+import { isOverMonthlyCap, recordAiUsage } from '../aiSpendCap.js';
 
 /** The one shape RealtimeBus actually needs here — a structural subset, not the concrete class,
  * so this job (and its tests) don't depend on apps/api's RealtimeBus at all. */
@@ -29,6 +30,8 @@ export interface GroupCardsDeps {
   supabaseAdmin: SupabaseClient<Database>;
   realtimeBus: RealtimeBusLike;
   anthropicApiKey: string | undefined;
+  // RN-027: "on cap, AI features fall back silently" — undefined means no cap configured at all.
+  monthlyCapUsd: number | undefined;
   logger: WorkerLogger;
   /** Injected in tests; defaults to a real Anthropic client (same seam as startWorker's own
    * `createQueue`). */
@@ -55,19 +58,21 @@ function extractJsonArrayText(text: string): string {
  * "failure shows nothing and manual grouping still works" is the story's own framing, so nothing
  * here ever throws in a way that would reach the caller as an error.
  *
- * Deliberately has no monthly-spend-cap check: that needs persisted usage tracking this story's
- * own ACs don't ask for (none of them mention a cap), so it's left for whoever first needs
- * `AI_MONTHLY_CAP_USD` to actually block a call — likely RN-021, which uses the same model family
- * for summaries and would want the same enforcement either way.
+ * RN-027: checks the shared monthly spend cap before ever calling Anthropic — same silent-no-op
+ * fallback as the "no API key" case just below it.
  */
 export async function runGroupCardsJob(data: GroupCardsJobData, deps: GroupCardsDeps): Promise<void> {
   const { retroId } = data;
-  const { supabaseAdmin, realtimeBus, anthropicApiKey, logger } = deps;
+  const { supabaseAdmin, realtimeBus, anthropicApiKey, monthlyCapUsd, logger } = deps;
   const createAnthropicClient: (apiKey: string) => AnthropicMessagesClient =
     deps.createAnthropicClient ?? ((apiKey) => new Anthropic({ apiKey }));
 
   if (!anthropicApiKey) {
     logger.info(`ai.groupCards: skipped for retro ${retroId} (no ANTHROPIC_API_KEY)`);
+    return;
+  }
+  if (monthlyCapUsd !== undefined && (await isOverMonthlyCap(supabaseAdmin, monthlyCapUsd))) {
+    logger.info(`ai.groupCards: skipped for retro ${retroId} (monthly AI spend cap reached)`);
     return;
   }
 
@@ -105,6 +110,7 @@ export async function runGroupCardsJob(data: GroupCardsJobData, deps: GroupCards
       logger.info(
         `ai usage: retro=${retroId} job=ai.groupCards model=${AI_GROUPING_MODEL} in=${response.usage.input_tokens} out=${response.usage.output_tokens}`,
       );
+      await recordAiUsage(supabaseAdmin, AI_GROUPING_MODEL, response.usage.input_tokens, response.usage.output_tokens);
 
       const text = response.content.find((block) => block.type === 'text')?.text ?? '';
       const parsed = SuggestionsShape.safeParse(JSON.parse(extractJsonArrayText(text)));

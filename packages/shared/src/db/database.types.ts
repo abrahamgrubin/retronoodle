@@ -449,6 +449,24 @@ export interface Database {
         };
         Relationships: [];
       };
+      ai_usage: {
+        Row: {
+          month: string;
+          total_cost_usd: string;
+          updated_at: string;
+        };
+        Insert: {
+          month: string;
+          total_cost_usd?: string | number;
+          updated_at?: string;
+        };
+        Update: {
+          month?: string;
+          total_cost_usd?: string | number;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       action_item_status_changes: {
         Row: {
           id: string;
