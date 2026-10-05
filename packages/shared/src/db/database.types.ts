@@ -449,6 +449,33 @@ export interface Database {
         };
         Relationships: [];
       };
+      action_item_status_changes: {
+        Row: {
+          id: string;
+          action_item_id: string;
+          from_status: string;
+          to_status: string;
+          actor_id: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          action_item_id: string;
+          from_status: string;
+          to_status: string;
+          actor_id?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          action_item_id?: string;
+          from_status?: string;
+          to_status?: string;
+          actor_id?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
       topic_notes: {
         Row: {
           topic_id: string;
