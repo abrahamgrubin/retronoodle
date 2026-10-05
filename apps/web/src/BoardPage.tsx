@@ -2242,9 +2242,17 @@ function Board({
   // The single decision point both the center-drop path and the "Group with…" menu route
   // through: joining a card that's already grouped adds to its group, otherwise a brand-new one
   // is created from just the two cards involved.
+  // Bug found live: this used to only check whether the *target* already had a topic, so
+  // dragging an already-grouped card onto an ungrouped one (the reverse direction) fell through
+  // to createTopicFromCards — which rejects with "One or more cards already belong to a group"
+  // since the dragged card's own topic_id is already set. Whichever side already has a topic is
+  // the one that wins; the other one joins it. Two cards already in *different* groups has no
+  // backing "merge" mutation, so that combination is a deliberate no-op rather than a crash.
   function groupCardWith(draggedCard: BoardCard, targetCard: BoardCard) {
     if (draggedCard.topicId && draggedCard.topicId === targetCard.topicId) return; // already grouped together
+    if (draggedCard.topicId && targetCard.topicId) return; // different groups — no merge mutation exists
     if (targetCard.topicId) addToTopic(draggedCard.id, targetCard.topicId);
+    else if (draggedCard.topicId) addToTopic(targetCard.id, draggedCard.topicId);
     else createTopicFromCards(draggedCard.id, targetCard.id);
   }
 
