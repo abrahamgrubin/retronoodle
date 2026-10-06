@@ -18,5 +18,10 @@
   // have pnpm on PATH (same lesson as apps/api's own build fix).
   "build": {
     "command": "corepack enable && pnpm install --frozen-lockfile && pnpm --filter @retronoodle/web build"
-  }
+  },
+  // For any branch other than the production one, Workers Builds deploys with `wrangler preview`
+  // instead of `wrangler deploy` — found live, every non-main branch's build was failing at the
+  // deploy step with "Your Wrangler configuration is missing a `previews` block to run this
+  // command." The block can be empty; this repo has nothing preview-specific to configure.
+  "previews": {}
 }
