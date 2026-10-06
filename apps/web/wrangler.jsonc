@@ -1,0 +1,22 @@
+{
+  // RN-027: Cloudflare now points new projects at Workers' own static-assets hosting rather
+  // than classic Pages — this is that config, read by Cloudflare's "Workers Builds" Git
+  // integration on every push to main. "name" is the Worker's name as it'll appear in the
+  // dashboard; it isn't the custom domain, which is bound separately in Workers & Pages >
+  // (this project) > Custom domains.
+  "name": "retronoodle",
+  "compatibility_date": "2026-01-01",
+  "assets": {
+    "directory": "./dist",
+    // This app does its own client-side routing after load (main.tsx inspects
+    // window.location.pathname once, on first render) — every path (/retros/:id,
+    // /teams/:id/actions, ...) is a full page load of the same index.html, not a distinct
+    // server-rendered route. Without this, anything but "/" 404s.
+    "not_found_handling": "single-page-application"
+  },
+  // corepack enable first: Cloudflare's build image, like Render's, isn't guaranteed to already
+  // have pnpm on PATH (same lesson as apps/api's own build fix).
+  "build": {
+    "command": "corepack enable && pnpm install --frozen-lockfile && pnpm --filter @retronoodle/web build"
+  }
+}
