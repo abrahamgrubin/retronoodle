@@ -13,8 +13,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Dump and compress
+        # Bug found live: without pipefail, `pg_dump ... | gzip > file` only reports *gzip's* exit
+        # code — pg_dump failing (e.g. an empty/wrong PRODUCTION_DATABASE_URL) still let the step,
+        # and the whole run, show green while silently uploading a useless empty-gzip artifact.
         run: |
-          which pg_dump || sudo apt-get update && sudo apt-get install -y postgresql-client
+          set -euo pipefail
+          if [ -z "${{ secrets.PRODUCTION_DATABASE_URL }}" ]; then
+            echo "::error::PRODUCTION_DATABASE_URL is not set"
+            exit 1
+          fi
+          which pg_dump || (sudo apt-get update && sudo apt-get install -y postgresql-client)
           pg_dump "${{ secrets.PRODUCTION_DATABASE_URL }}" | gzip > "retronoodle-$(date -u +%F).sql.gz"
       - uses: actions/upload-artifact@v4
         with:
