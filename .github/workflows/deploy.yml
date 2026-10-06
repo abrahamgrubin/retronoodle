@@ -4,15 +4,22 @@ name: Deploy
 # deliberately — by the time a push lands on main, the PR that put it there already passed CI
 # (branch protection), so this workflow's only job is shipping it, not re-verifying it.
 #
+# The web app is NOT deployed here. Cloudflare moved new projects from Pages to Workers' own
+# static-assets hosting, which runs its own Git-integrated CI ("Workers Builds") straight from
+# GitHub pushes — see apps/web/wrangler.jsonc. That's a deliberate choice, not a gap: the one
+# real tradeoff is the web deploy no longer strictly waits for this workflow's own migration
+# step, which is an acceptable risk for a single-user portfolio site (worst case, a few seconds
+# of API errors right after a push) rather than fighting two separate deploy mechanisms.
+#
 # Required repo secrets (Settings > Secrets and variables > Actions):
-#   PRODUCTION_DATABASE_URL   — Postgres connection string (Supabase Project Settings > Database)
+#   PRODUCTION_DATABASE_URL   — Postgres connection string (Supabase Project Settings > Database).
+#                               Use the Session pooler string (port 5432 on the pooler hostname),
+#                               not Direct connection (IPv6-only, often unreachable) or Transaction
+#                               pooler (port 6543 — breaks pg-boss's session-level features).
 #   RENDER_DEPLOY_HOOK_URL    — Render service > Settings > Deploy Hook
-#   CLOUDFLARE_API_TOKEN      — Cloudflare dashboard > My Profile > API Tokens (Pages:Edit)
-#   CLOUDFLARE_ACCOUNT_ID     — Cloudflare dashboard > right sidebar of any domain overview
-#   VITE_SUPABASE_URL         — same value as SUPABASE_URL, exposed to the browser bundle
-#   VITE_SUPABASE_ANON_KEY    — Supabase Project Settings > API > anon/public key
-# The Cloudflare Pages project ("retronoodle") and its retronoodle.com domain binding, and the
-# Render service itself, are created once by hand — this workflow only ever pushes to them.
+# Cloudflare's own env vars (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, VITE_API_URL) are
+# configured on its own project, not here — see wrangler.jsonc's own comment. The Render service
+# itself is created once by hand — this workflow only ever pushes to it.
 on:
   push:
     branches: [main]
@@ -36,26 +43,3 @@ jobs:
     steps:
       - name: Trigger Render deploy
         run: curl -fsS -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
-
-  deploy-web:
-    needs: migrate
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @retronoodle/web build
-        env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-          VITE_API_URL: https://api.retronoodle.com
-      - uses: cloudflare/pages-action@v1
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: retronoodle
-          directory: apps/web/dist
