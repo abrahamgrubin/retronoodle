@@ -1,0 +1,24 @@
+name: One-off migration history repair
+
+# Production's schema already has all 14 migrations applied (created manually before deploy.yml
+# existed), but the CLI's own migration-history table never recorded that, so `supabase db push`
+# tried to re-run migration 1 and hit "relation already exists". This marks all 14 as already
+# applied without re-running their SQL. Manual-only, single use — delete after running once.
+on:
+  workflow_dispatch:
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - run: |
+          supabase migration repair --status applied \
+            20260930090000 20260930090100 20260930090200 20260930090300 \
+            20260930090400 20260930090500 20260930090600 20260930090700 \
+            20260930090800 20260930091000 20260930100000 20261002160000 \
+            20261005090000 20261006090000 \
+            --db-url "${{ secrets.PRODUCTION_DATABASE_URL }}"
