@@ -10,7 +10,8 @@ export interface RedactContext {
 
 /** During Write, before reveal, a card is hidden from everyone but its author. */
 export function isCardCurrentlyHidden(ctx: Pick<RedactContext, 'phase' | 'cardsRevealed'>): boolean {
-  return ctx.phase === 'write' && !ctx.cardsRevealed;
+  // THROWAWAY: temporarily disabled to verify the Playwright suite actually catches a leak.
+  return false && (ctx.phase === 'write' && !ctx.cardsRevealed);
 }
 
 export function toHiddenCard(card: VisibleBoardCard): HiddenBoardCard {

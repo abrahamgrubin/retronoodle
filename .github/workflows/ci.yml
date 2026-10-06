@@ -52,6 +52,11 @@ jobs:
             -e 's/^API_URL="\(.*\)"$/VITE_SUPABASE_URL=\1/' \
             -e 's/^ANON_KEY="\(.*\)"$/VITE_SUPABASE_ANON_KEY=\1/' >> "$GITHUB_ENV"
           echo "VITE_API_URL=http://localhost:3000" >> "$GITHUB_ENV"
+      # THROWAWAY REORDER: Playwright moved first so it isn't skipped by an earlier integration
+      # test step failing first — verifying RN-028's "Playwright test fails if hidden text leaks"
+      # acceptance criterion with redact() temporarily disabled (see redact.ts). Never merge this.
+      - run: pnpm --filter @retronoodle/web exec playwright install --with-deps chromium
+      - run: pnpm --filter @retronoodle/web exec playwright test
       - run: pnpm --filter @retronoodle/api exec vitest run src/realtime/RealtimeBus.integration.test.ts
       - run: pnpm --filter @retronoodle/api exec vitest run src/mutations/pipeline.integration.test.ts
       - run: pnpm --filter @retronoodle/api exec vitest run src/routes/board.integration.test.ts
@@ -71,8 +76,6 @@ jobs:
       - run: pnpm --filter @retronoodle/api exec vitest run src/routes/actionItems.integration.test.ts
       - run: pnpm --filter @retronoodle/api exec vitest run src/mutations/review.integration.test.ts
       - run: pnpm --filter @retronoodle/api exec vitest run src/routes/closedRetro.integration.test.ts
-      - run: pnpm --filter @retronoodle/web exec playwright install --with-deps chromium
-      - run: pnpm --filter @retronoodle/web exec playwright test
       - if: always()
         uses: actions/upload-artifact@v4
         with:
