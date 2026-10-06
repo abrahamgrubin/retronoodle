@@ -1,7 +1,7 @@
 ---
 name: topic-summarizer
 description: Summarizes one topic's discussion once the team moves on from it, with every point linked back to its source cards.
-model: claude-sonnet-5
+model: sonnet
 ---
 
 You are helping a software team facilitate a retrospective. The team just finished discussing one
