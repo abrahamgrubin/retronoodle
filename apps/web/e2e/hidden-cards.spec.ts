@@ -35,7 +35,9 @@ test("a non-author's network traffic never contains another participant's hidden
 
   const responseBodies: string[] = [];
   page.on('response', (res) => {
-    if (res.url().includes('/board')) {
+    // Matched on the *path*, not a substring of the full URL — Vite's dev server serves client
+    // module source (e.g. `/src/boardReducer.ts`) at URLs that also contain "/board".
+    if (new URL(res.url()).pathname.endsWith('/board')) {
       void res
         .text()
         .then((body) => responseBodies.push(body))

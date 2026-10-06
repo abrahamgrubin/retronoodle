@@ -62,7 +62,10 @@ test('a full retro walkthrough across every phase, then a second retro opens wit
   // mean it leaked.
   const observerResponseBodies: string[] = [];
   observerPage.on('response', (res) => {
-    if (res.url().includes('/board')) void res.text().then((b) => observerResponseBodies.push(b)).catch(() => {});
+    // Matched on the *path*, not a substring of the full URL — Vite's dev server serves client
+    // module source (e.g. `/src/boardReducer.ts`) at URLs that also contain "/board", and that
+    // module's own source code legitimately contains the string "myCount".
+    if (new URL(res.url()).pathname.endsWith('/board')) void res.text().then((b) => observerResponseBodies.push(b)).catch(() => {});
   });
   const observerWsFrames: string[] = [];
   observerPage.on('websocket', (ws) => {
