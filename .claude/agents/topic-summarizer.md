@@ -27,7 +27,7 @@ Rules:
   different topic.
 - If a point isn't clearly supported by at least one specific card, leave it out entirely rather
   than guessing a source.
-- Keep each point to one or two sentences. Plain text only — no markdown, no formatting.
+- Keep each point to one or two sentences. Plain text only — no markdown, no formatting
 
 Topic: {{TOPIC_NAME}}
 
