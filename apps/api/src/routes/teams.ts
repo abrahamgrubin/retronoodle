@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { CreateTeamRequest, TeamResponse, type Database } from '@retronoodle/shared';
+import { CreateTeamRequest, TeamResponse, UpdateTeamRequest, type Database } from '@retronoodle/shared';
 import { can } from '../auth/can.js';
 import { getTeamRole } from '../auth/membership.js';
 import type { RealtimeBus } from '../realtime/RealtimeBus.js';
@@ -11,7 +11,8 @@ export interface TeamRoutesDeps {
   realtimeBus: RealtimeBus;
 }
 
-/** Routes: POST /teams, GET /teams/:id, GET /me/teams, DELETE /teams/:id/members/:userId (RN-005). */
+/** Routes: POST /teams, GET /teams/:id, PATCH /teams/:id (RN-031), GET /me/teams,
+ * DELETE /teams/:id/members/:userId (RN-005). */
 export function registerTeamRoutes(app: FastifyInstance, deps: TeamRoutesDeps): void {
   const { supabaseAdmin, requireAuth, realtimeBus } = deps;
 
@@ -47,6 +48,7 @@ export function registerTeamRoutes(app: FastifyInstance, deps: TeamRoutesDeps): 
         name: team.name,
         createdBy: team.created_by,
         retroCadenceDays: team.retro_cadence_days,
+        transcriptRetentionDays: team.transcript_retention_days,
         role: 'admin',
         createdAt: team.created_at,
       }),
@@ -75,6 +77,42 @@ export function registerTeamRoutes(app: FastifyInstance, deps: TeamRoutesDeps): 
       name: team.name,
       createdBy: team.created_by,
       retroCadenceDays: team.retro_cadence_days,
+      transcriptRetentionDays: team.transcript_retention_days,
+      role,
+      createdAt: team.created_at,
+    });
+  });
+
+  app.patch<{ Params: { id: string } }>('/teams/:id', { preHandler: requireAuth }, async (request, reply) => {
+    const user = request.user;
+    if (!user) return reply.code(401).send({ error: 'unauthorized' });
+
+    const teamId = request.params.id;
+    const role = await getTeamRole(supabaseAdmin, teamId, user.id);
+    if (!can(user, 'team.update', { type: 'team', role })) {
+      return reply.code(403).send({ error: 'forbidden' });
+    }
+
+    const body = UpdateTeamRequest.parse(request.body);
+
+    const { data: team, error } = await supabaseAdmin
+      .from('teams')
+      .update({ transcript_retention_days: body.transcriptRetentionDays })
+      .eq('id', teamId)
+      .select()
+      .maybeSingle();
+    if (error) {
+      request.log.error({ err: error }, 'failed to update team');
+      return reply.code(500).send({ error: 'team_update_failed' });
+    }
+    if (!team) return reply.code(404).send({ error: 'not_found' });
+
+    return TeamResponse.parse({
+      id: team.id,
+      name: team.name,
+      createdBy: team.created_by,
+      retroCadenceDays: team.retro_cadence_days,
+      transcriptRetentionDays: team.transcript_retention_days,
       role,
       createdAt: team.created_at,
     });
@@ -108,6 +146,7 @@ export function registerTeamRoutes(app: FastifyInstance, deps: TeamRoutesDeps): 
         name: team.name,
         createdBy: team.created_by,
         retroCadenceDays: team.retro_cadence_days,
+        transcriptRetentionDays: team.transcript_retention_days,
         role: roleByTeamId.get(team.id),
         createdAt: team.created_at,
       }),

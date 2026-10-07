@@ -4,6 +4,7 @@ import {
   AI_SUGGEST_QUESTIONS_QUEUE,
   AI_SUMMARIZE_GROUP_QUEUE,
   AI_SUMMARIZE_TOPIC_QUEUE,
+  TRANSCRIPT_RETENTION_QUEUE,
   startWorker,
   type JobQueue,
 } from './index.js';
@@ -20,6 +21,7 @@ function fakeQueue(): JobQueue & { started: boolean } {
     on: vi.fn(),
     createQueue: vi.fn(async () => {}),
     work: vi.fn(async () => 'subscription-id'),
+    schedule: vi.fn(async () => {}),
   };
   return q;
 }
@@ -77,5 +79,21 @@ describe('startWorker', () => {
     await startWorker({ databaseUrl: 'x', logger, createQueue: () => queue, ai });
     expect(queue.createQueue).toHaveBeenCalledWith(AI_SUMMARIZE_TOPIC_QUEUE);
     expect(queue.work).toHaveBeenCalledWith(AI_SUMMARIZE_TOPIC_QUEUE, expect.any(Function));
+  });
+
+  // RN-031
+  it('does not register the transcript-retention job when `transcriptRetention` deps are absent', async () => {
+    const queue = fakeQueue();
+    await startWorker({ databaseUrl: 'x', logger, createQueue: () => queue });
+    expect(queue.schedule).not.toHaveBeenCalled();
+  });
+
+  it('registers and schedules the nightly transcript-retention job when deps are provided', async () => {
+    const queue = fakeQueue();
+    const transcriptRetention = { supabaseAdmin: {} as never };
+    await startWorker({ databaseUrl: 'x', logger, createQueue: () => queue, transcriptRetention });
+    expect(queue.createQueue).toHaveBeenCalledWith(TRANSCRIPT_RETENTION_QUEUE);
+    expect(queue.work).toHaveBeenCalledWith(TRANSCRIPT_RETENTION_QUEUE, expect.any(Function));
+    expect(queue.schedule).toHaveBeenCalledWith(TRANSCRIPT_RETENTION_QUEUE, expect.any(String));
   });
 });
