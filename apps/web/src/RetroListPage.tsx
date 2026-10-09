@@ -1,5 +1,20 @@
 import { useQuery } from '@tanstack/react-query';
 import type { RetroPhase } from '@retronoodle/shared';
+import {
+  Alert,
+  Button,
+  Chip,
+  Link,
+  Skeleton,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  Typography,
+} from '@mui/material';
+import { AppShell } from './AppShell';
 import { fetchTeamRetros } from './retros';
 import { useSession } from './useSession';
 
@@ -7,6 +22,17 @@ import { useSession } from './useSession';
 function phaseLabel(phase: RetroPhase): string {
   return phase.replace('_', ' ');
 }
+
+const PHASE_COLOR: Record<RetroPhase, 'default' | 'info' | 'warning' | 'success'> = {
+  setup: 'default',
+  review: 'info',
+  write: 'info',
+  group: 'info',
+  vote: 'info',
+  discuss: 'info',
+  wrap_up: 'warning',
+  closed: 'success',
+};
 
 /** RN-026: `/teams/:id/retros` — "retro list ... links to it [a closed retro's recap]." A plain
  * TanStack-Query list page, the same category as RN-024's Action items page: no phase, no seq,
@@ -23,76 +49,86 @@ export function RetroListPage({ teamId }: { teamId: string }) {
   });
 
   const nav = (
-    <p>
-      <strong>Retros</strong> · <a href={`/teams/${teamId}/actions`}>Action items</a>
-    </p>
+    <Typography variant="body2">
+      <strong>Retros</strong> · <Link href={`/teams/${teamId}/actions`}>Action items</Link>
+    </Typography>
   );
 
   if (!accessToken) {
     return (
-      <main style={{ fontFamily: 'system-ui, sans-serif', padding: 32 }}>
-        {nav}
-        <p>Sign in to see this team's retros.</p>
-      </main>
+      <AppShell nav={nav}>
+        <Typography>Sign in to see this team's retros.</Typography>
+      </AppShell>
     );
   }
 
   if (retros.isPending) {
     return (
-      <main style={{ fontFamily: 'system-ui, sans-serif', padding: 32 }}>
-        {nav}
-        <h1>Retros</h1>
-        {[0, 1, 2].map((i) => (
-          <div key={i} style={{ height: 20, background: '#f0f0f0', borderRadius: 4, marginBottom: 8 }} />
-        ))}
-      </main>
+      <AppShell nav={nav}>
+        <Typography variant="h4" gutterBottom>
+          Retros
+        </Typography>
+        <Stack spacing={1}>
+          {[0, 1, 2].map((i) => (
+            <Skeleton key={i} variant="rounded" height={32} />
+          ))}
+        </Stack>
+      </AppShell>
     );
   }
 
   if (retros.isError) {
     return (
-      <main style={{ fontFamily: 'system-ui, sans-serif', padding: 32 }}>
-        {nav}
-        <h1>Retros</h1>
-        <p role="alert" style={{ color: 'crimson' }}>
+      <AppShell nav={nav}>
+        <Typography variant="h4" gutterBottom>
+          Retros
+        </Typography>
+        <Alert
+          severity="error"
+          action={
+            <Button color="inherit" size="small" onClick={() => void retros.refetch()}>
+              Retry
+            </Button>
+          }
+        >
           Failed to load retros.
-        </p>
-        <button type="button" onClick={() => void retros.refetch()}>
-          Retry
-        </button>
-      </main>
+        </Alert>
+      </AppShell>
     );
   }
 
   return (
-    <main style={{ fontFamily: 'system-ui, sans-serif', padding: 32 }}>
-      {nav}
-      <h1>Retros</h1>
-      {retros.data.length === 0 && <p>No retros yet.</p>}
+    <AppShell nav={nav}>
+      <Typography variant="h4" gutterBottom>
+        Retros
+      </Typography>
+      {retros.data.length === 0 && <Typography>No retros yet.</Typography>}
       {retros.data.length > 0 && (
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ textAlign: 'left', borderBottom: '2px solid #ddd' }}>
-              <th style={{ padding: 8 }}>Name</th>
-              <th style={{ padding: 8 }}>Status</th>
-              <th style={{ padding: 8 }}>Created</th>
-              <th style={{ padding: 8 }}>Closed</th>
-            </tr>
-          </thead>
-          <tbody>
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>Name</TableCell>
+              <TableCell>Status</TableCell>
+              <TableCell>Created</TableCell>
+              <TableCell>Closed</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
             {retros.data.map((retro) => (
-              <tr key={retro.id} style={{ borderBottom: '1px solid #eee' }}>
-                <td style={{ padding: 8 }}>
-                  <a href={`/retros/${retro.id}`}>{retro.name}</a>
-                </td>
-                <td style={{ padding: 8 }}>{phaseLabel(retro.phase)}</td>
-                <td style={{ padding: 8 }}>{new Date(retro.createdAt).toLocaleDateString()}</td>
-                <td style={{ padding: 8 }}>{retro.closedAt ? new Date(retro.closedAt).toLocaleDateString() : '—'}</td>
-              </tr>
+              <TableRow key={retro.id} hover>
+                <TableCell>
+                  <Link href={`/retros/${retro.id}`}>{retro.name}</Link>
+                </TableCell>
+                <TableCell>
+                  <Chip size="small" label={phaseLabel(retro.phase)} color={PHASE_COLOR[retro.phase]} />
+                </TableCell>
+                <TableCell>{new Date(retro.createdAt).toLocaleDateString()}</TableCell>
+                <TableCell>{retro.closedAt ? new Date(retro.closedAt).toLocaleDateString() : '—'}</TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       )}
-    </main>
+    </AppShell>
   );
 }
