@@ -70,6 +70,7 @@ const running = await startProcess(config.role, {
     // groupCards.ts), not by skipping registration entirely, so turning on a key later doesn't
     // need a restart-with-different-config story.
     let ai: Parameters<typeof startWorker>[0]['ai'];
+    let transcriptRetention: Parameters<typeof startWorker>[0]['transcriptRetention'];
     if (config.supabaseUrl && config.supabaseServiceRoleKey) {
       const supabaseAdmin = createSupabaseAdmin(config.supabaseUrl, config.supabaseServiceRoleKey);
       ai = {
@@ -78,8 +79,11 @@ const running = await startProcess(config.role, {
         anthropicApiKey: config.anthropicApiKey,
         monthlyCapUsd: config.aiMonthlyCapUsd,
       };
+      // RN-031: deletion needs no decryption, so this runs whenever Supabase is configured —
+      // unlike `ai`, it never depends on TRANSCRIPT_MASTER_KEY being set.
+      transcriptRetention = { supabaseAdmin };
     }
-    return startWorker({ databaseUrl: config.databaseUrl, logger: log, ai });
+    return startWorker({ databaseUrl: config.databaseUrl, logger: log, ai, transcriptRetention });
   },
 });
 

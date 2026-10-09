@@ -31,6 +31,7 @@ describe('team routes (RN-005)', () => {
         name: 'Platform Team',
         created_by: claims.sub,
         retro_cadence_days: 14,
+        transcript_retention_days: 1,
         created_at: new Date().toISOString(),
       };
       const teamsCalls: unknown[][] = [];
@@ -71,6 +72,7 @@ describe('team routes (RN-005)', () => {
       name: 'Platform Team',
       created_by: '00000000-0000-4000-8000-000000000099',
       retro_cadence_days: 14,
+      transcript_retention_days: 1,
       created_at: new Date().toISOString(),
     };
 
@@ -103,6 +105,57 @@ describe('team routes (RN-005)', () => {
     });
   });
 
+  describe('PATCH /teams/:id (RN-031)', () => {
+    const teamId = '00000000-0000-4000-8000-0000000000cc';
+    const updatedRow = {
+      id: teamId,
+      name: 'Platform Team',
+      created_by: '00000000-0000-4000-8000-000000000099',
+      retro_cadence_days: 14,
+      transcript_retention_days: 30,
+      created_at: new Date().toISOString(),
+    };
+
+    function build(role: 'admin' | 'member' | null) {
+      const updateCalls: unknown[][] = [];
+      const supabaseAdmin = {
+        from(table: string) {
+          if (table === 'team_members') return chain({ data: role ? { role } : null, error: null });
+          if (table === 'teams') return chain({ data: updatedRow, error: null }, updateCalls);
+          throw new Error(`unexpected table ${table}`);
+        },
+      } as unknown as SupabaseClient<Database>;
+
+      return { app: buildServer({ webOrigin: 'http://localhost:5173', auth: testAuthOptions({ verifyAccessToken, supabaseAdmin }) }), updateCalls };
+    }
+
+    it('lets an admin change transcriptRetentionDays', async () => {
+      const built = build('admin');
+      app = await built.app;
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/teams/${teamId}`,
+        headers: AUTH_HEADER,
+        payload: { transcriptRetentionDays: 30 },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({ transcriptRetentionDays: 30 });
+      expect(built.updateCalls[0]).toEqual(['update', { transcript_retention_days: 30 }]);
+    });
+
+    it('rejects a non-admin', async () => {
+      const built = build('member');
+      app = await built.app;
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/teams/${teamId}`,
+        headers: AUTH_HEADER,
+        payload: { transcriptRetentionDays: 30 },
+      });
+      expect(res.statusCode).toBe(403);
+    });
+  });
+
   describe('GET /me/teams', () => {
     it('lists every team the caller belongs to, with their role on each', async () => {
       const team1 = '00000000-0000-4000-8000-000000000101';
@@ -112,12 +165,13 @@ describe('team routes (RN-005)', () => {
         { team_id: team2, role: 'member' },
       ];
       const teams = [
-        { id: team1, name: 'Team One', created_by: claims.sub, retro_cadence_days: 14, created_at: 'now' },
+        { id: team1, name: 'Team One', created_by: claims.sub, retro_cadence_days: 14, transcript_retention_days: 1, created_at: 'now' },
         {
           id: team2,
           name: 'Team Two',
           created_by: '00000000-0000-4000-8000-000000000099',
           retro_cadence_days: 14,
+          transcript_retention_days: 1,
           created_at: 'now',
         },
       ];

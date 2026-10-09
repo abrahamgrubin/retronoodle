@@ -6,6 +6,7 @@ const team = {
   name: 'Platform Team',
   createdBy: '00000000-0000-4000-8000-000000000002',
   retroCadenceDays: 14,
+  transcriptRetentionDays: 1 as const,
   role: 'admin' as const,
   createdAt: new Date().toISOString(),
 };

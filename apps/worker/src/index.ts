@@ -6,6 +6,7 @@ import { runGroupCardsJob } from './jobs/groupCards.js';
 import { runSummarizeGroupJob } from './jobs/summarizeGroup.js';
 import { runSuggestQuestionsJob } from './jobs/suggestQuestions.js';
 import { runSummarizeTopicJob } from './jobs/summarizeTopic.js';
+import { runTranscriptRetentionJob } from './jobs/transcriptRetention.js';
 
 export type { WorkerLogger } from './logger.js';
 
@@ -15,6 +16,9 @@ export const AI_SUMMARIZE_GROUP_QUEUE = 'ai.summarizeGroup';
 export const AI_SUGGEST_QUESTIONS_QUEUE = 'ai.suggestQuestions';
 // RN-021: already enqueued since RN-019 (discussHelpers.ts), but never had a consumer until now.
 export const AI_SUMMARIZE_TOPIC_QUEUE = 'ai.summarizeTopic';
+// RN-031: nightly sweep, not per-event — registered via pg-boss's own cron scheduling
+// (queue.schedule), not queue.send like every ai.* queue above.
+export const TRANSCRIPT_RETENTION_QUEUE = 'transcript.retention';
 
 /** The union of every job's own (narrower) RealtimeBusLike requirement — groupCards.ts only ever
  * needs broadcastUser, summarizeGroup.ts/suggestQuestions.ts only ever need broadcastRetro, but
@@ -31,6 +35,9 @@ export interface JobQueue {
   on(event: 'error', handler: (err: Error) => void): unknown;
   createQueue(name: string): Promise<unknown>;
   work<T = object>(name: string, handler: (jobs: { data: T }[]) => Promise<unknown>): Promise<string>;
+  /** RN-031: cron-scheduled recurring jobs (the nightly transcript-retention sweep), distinct
+   * from the ai.* queues above which are only ever enqueued on demand via `JobSender.send`. */
+  schedule(name: string, cron: string, data?: object): Promise<unknown>;
 }
 
 /** RN-017: the shape `onTransition.ts`'s write->group effect enqueues `ai.groupCards` through —
@@ -55,6 +62,11 @@ export interface StartWorkerOptions {
     anthropicApiKey: string | undefined;
     // RN-027: "Claude spend cap $5/month in config" — undefined means no cap is configured.
     monthlyCapUsd: number | undefined;
+  };
+  /** RN-031: present whenever Supabase is configured — unlike `ai`, this never depends on an
+   * Anthropic key, so it's its own option rather than reusing `ai`'s shape. */
+  transcriptRetention?: {
+    supabaseAdmin: SupabaseClient<Database>;
   };
 }
 
@@ -106,6 +118,17 @@ export async function startWorker(options: StartWorkerOptions): Promise<RunningW
         await runSummarizeTopicJob(job.data, { supabaseAdmin, realtimeBus, anthropicApiKey, monthlyCapUsd, logger: options.logger });
       }
     });
+  }
+
+  if (options.transcriptRetention) {
+    const { supabaseAdmin } = options.transcriptRetention;
+    await queue.createQueue(TRANSCRIPT_RETENTION_QUEUE);
+    await queue.work(TRANSCRIPT_RETENTION_QUEUE, async () => {
+      await runTranscriptRetentionJob({ supabaseAdmin, logger: options.logger });
+    });
+    // 09:00 UTC — same hour as nightly-db-dump.yml's own cron, no particular reason beyond
+    // "overnight for every timezone this app's single team is likely to be in."
+    await queue.schedule(TRANSCRIPT_RETENTION_QUEUE, '0 9 * * *');
   }
 
   options.logger.info('worker started');

@@ -44,6 +44,7 @@ export interface Database {
           name: string;
           created_by: string;
           retro_cadence_days: number;
+          transcript_retention_days: number;
           created_at: string;
         };
         Insert: {
@@ -51,6 +52,7 @@ export interface Database {
           name: string;
           created_by: string;
           retro_cadence_days?: number;
+          transcript_retention_days?: number;
           created_at?: string;
         };
         Update: {
@@ -58,6 +60,7 @@ export interface Database {
           name?: string;
           created_by?: string;
           retro_cadence_days?: number;
+          transcript_retention_days?: number;
           created_at?: string;
         };
         Relationships: [];
@@ -586,6 +589,60 @@ export interface Database {
           type?: string;
           payload?: Json;
           actor_id?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      team_transcript_keys: {
+        Row: {
+          team_id: string;
+          wrapped_key: string;
+          iv: string;
+          auth_tag: string;
+          created_at: string;
+        };
+        Insert: {
+          team_id: string;
+          wrapped_key: string;
+          iv: string;
+          auth_tag: string;
+          created_at?: string;
+        };
+        Update: {
+          team_id?: string;
+          wrapped_key?: string;
+          iv?: string;
+          auth_tag?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      transcript_segments: {
+        Row: {
+          id: string;
+          retro_id: string;
+          team_id: string;
+          ciphertext: string;
+          iv: string;
+          auth_tag: string;
+          created_at: string;
+        };
+        Insert: {
+          id: string;
+          retro_id: string;
+          team_id: string;
+          ciphertext: string;
+          iv: string;
+          auth_tag: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          retro_id?: string;
+          team_id?: string;
+          ciphertext?: string;
+          iv?: string;
+          auth_tag?: string;
           created_at?: string;
         };
         Relationships: [];
