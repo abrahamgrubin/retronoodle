@@ -1,6 +1,26 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import type { ActionItemStatus, TeamActionItem } from '@retronoodle/shared';
+import {
+  Alert,
+  Box,
+  Button,
+  Checkbox,
+  Collapse,
+  FormControlLabel,
+  Link,
+  MenuItem,
+  Select,
+  Skeleton,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  Typography,
+} from '@mui/material';
+import { AppShell } from './AppShell';
 import { fetchMe } from './auth';
 import { fetchActionItemHistory, fetchTeamActions, postActionItemStatus } from './teamActions';
 import { useSession } from './useSession';
@@ -29,32 +49,47 @@ function isOverdue(item: TeamActionItem): boolean {
 
 /** Row expand (RN-024): "who changed what, when" — fetched lazily, only once a row is actually
  * expanded, rather than eagerly loading every item's history up front. */
-function StatusHistoryRow({ teamId, itemId, accessToken }: { teamId: string; itemId: string; accessToken: string }) {
+function StatusHistoryRow({ teamId, itemId, accessToken, open }: { teamId: string; itemId: string; accessToken: string; open: boolean }) {
   const history = useQuery({
     queryKey: ['actionItemHistory', teamId, itemId],
     queryFn: () => fetchActionItemHistory(accessToken, teamId, itemId),
+    enabled: open,
   });
 
   return (
-    <tr>
-      <td colSpan={6} style={{ background: '#fafafa', padding: 8 }}>
-        {history.isPending && <p style={{ margin: 0, fontSize: 12, color: '#666' }}>Loading history…</p>}
-        {history.isError && <p style={{ margin: 0, fontSize: 12, color: 'crimson' }}>Failed to load history.</p>}
-        {history.data && history.data.entries.length === 0 && (
-          <p style={{ margin: 0, fontSize: 12, color: '#666' }}>No status changes yet.</p>
-        )}
-        {history.data && history.data.entries.length > 0 && (
-          <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12 }}>
-            {history.data.entries.map((e) => (
-              <li key={e.id}>
-                {e.actorName ?? 'Someone'} changed {STATUS_LABEL[e.fromStatus]} → {STATUS_LABEL[e.toStatus]} on{' '}
-                {new Date(e.createdAt).toLocaleString()}
-              </li>
-            ))}
-          </ul>
-        )}
-      </td>
-    </tr>
+    <TableRow>
+      <TableCell colSpan={6} sx={{ p: 0, borderBottom: open ? undefined : 'none' }}>
+        <Collapse in={open} unmountOnExit>
+          <Box sx={{ bgcolor: 'grey.50', p: 2 }}>
+            {history.isPending && (
+              <Typography variant="caption" color="text.secondary">
+                Loading history…
+              </Typography>
+            )}
+            {history.isError && (
+              <Typography variant="caption" color="error">
+                Failed to load history.
+              </Typography>
+            )}
+            {history.data && history.data.entries.length === 0 && (
+              <Typography variant="caption" color="text.secondary">
+                No status changes yet.
+              </Typography>
+            )}
+            {history.data && history.data.entries.length > 0 && (
+              <Stack component="ul" spacing={0.5} sx={{ m: 0, pl: 2 }}>
+                {history.data.entries.map((e) => (
+                  <Typography component="li" variant="caption" key={e.id}>
+                    {e.actorName ?? 'Someone'} changed {STATUS_LABEL[e.fromStatus]} → {STATUS_LABEL[e.toStatus]} on{' '}
+                    {new Date(e.createdAt).toLocaleString()}
+                  </Typography>
+                ))}
+              </Stack>
+            )}
+          </Box>
+        </Collapse>
+      </TableCell>
+    </TableRow>
   );
 }
 
@@ -76,32 +111,35 @@ function ActionItemTableRow({
   const overdue = isOverdue(item);
   return (
     <>
-      <tr onClick={onToggleExpand} style={{ cursor: 'pointer', borderBottom: '1px solid #eee' }}>
-        <td style={{ padding: 8 }}>{item.title}</td>
-        <td style={{ padding: 8 }}>{item.ownerName ?? 'Unassigned'}</td>
-        <td style={{ padding: 8, color: overdue ? 'crimson' : undefined }}>{item.dueDate ?? '—'}</td>
-        <td style={{ padding: 8 }} onClick={(e) => e.stopPropagation()}>
-          <select
+      <TableRow onClick={onToggleExpand} hover sx={{ cursor: 'pointer' }}>
+        <TableCell>{item.title}</TableCell>
+        <TableCell>{item.ownerName ?? 'Unassigned'}</TableCell>
+        <TableCell sx={{ color: overdue ? 'error.main' : undefined }}>{item.dueDate ?? '—'}</TableCell>
+        <TableCell onClick={(e) => e.stopPropagation()}>
+          <Select
+            size="small"
+            variant="standard"
             aria-label={`Status for ${item.title}`}
             value={item.status}
             onChange={(e) => onStatusChange(e.target.value as ActionItemStatus)}
-            style={{ color: STATUS_COLOR[item.status], textDecoration: item.status === 'dropped' ? 'line-through' : undefined }}
+            sx={{
+              color: STATUS_COLOR[item.status],
+              textDecoration: item.status === 'dropped' ? 'line-through' : undefined,
+            }}
           >
             {ALL_STATUSES.map((s) => (
-              <option key={s} value={s}>
+              <MenuItem key={s} value={s}>
                 {STATUS_LABEL[s]}
-              </option>
+              </MenuItem>
             ))}
-          </select>
-        </td>
-        <td style={{ padding: 8 }}>
-          <a href={`/retros/${item.sourceRetroId}`} onClick={(e) => e.stopPropagation()}>
-            {item.sourceRetroName}
-          </a>
-        </td>
-        <td style={{ padding: 8 }}>{new Date(item.updatedAt).toLocaleDateString()}</td>
-      </tr>
-      {expanded && <StatusHistoryRow teamId={teamId} itemId={item.id} accessToken={accessToken} />}
+          </Select>
+        </TableCell>
+        <TableCell onClick={(e) => e.stopPropagation()}>
+          <Link href={`/retros/${item.sourceRetroId}`}>{item.sourceRetroName}</Link>
+        </TableCell>
+        <TableCell>{new Date(item.updatedAt).toLocaleDateString()}</TableCell>
+      </TableRow>
+      <StatusHistoryRow teamId={teamId} itemId={item.id} accessToken={accessToken} open={expanded} />
     </>
   );
 }
@@ -153,44 +191,51 @@ export function ActionsPage({ teamId }: { teamId: string }) {
   }
 
   const nav = (
-    <p>
-      <a href={`/teams/${teamId}/retros`}>Retros</a> · <strong>Action items</strong>
-    </p>
+    <Typography variant="body2">
+      <Link href={`/teams/${teamId}/retros`}>Retros</Link> · <strong>Action items</strong>
+    </Typography>
   );
 
   if (!accessToken) {
     return (
-      <main style={{ fontFamily: 'system-ui, sans-serif', padding: 32 }}>
-        {nav}
-        <p>Sign in to see this team's action items.</p>
-      </main>
+      <AppShell nav={nav}>
+        <Typography>Sign in to see this team's action items.</Typography>
+      </AppShell>
     );
   }
 
   if (actions.isPending || me.isPending) {
     return (
-      <main style={{ fontFamily: 'system-ui, sans-serif', padding: 32 }}>
-        {nav}
-        <h1>Action items</h1>
-        {[0, 1, 2].map((i) => (
-          <div key={i} style={{ height: 20, background: '#f0f0f0', borderRadius: 4, marginBottom: 8 }} />
-        ))}
-      </main>
+      <AppShell nav={nav}>
+        <Typography variant="h4" gutterBottom>
+          Action items
+        </Typography>
+        <Stack spacing={1}>
+          {[0, 1, 2].map((i) => (
+            <Skeleton key={i} variant="rounded" height={32} />
+          ))}
+        </Stack>
+      </AppShell>
     );
   }
 
   if (actions.isError || me.isError) {
     return (
-      <main style={{ fontFamily: 'system-ui, sans-serif', padding: 32 }}>
-        {nav}
-        <h1>Action items</h1>
-        <p role="alert" style={{ color: 'crimson' }}>
+      <AppShell nav={nav}>
+        <Typography variant="h4" gutterBottom>
+          Action items
+        </Typography>
+        <Alert
+          severity="error"
+          action={
+            <Button color="inherit" size="small" onClick={() => void actions.refetch()}>
+              Retry
+            </Button>
+          }
+        >
           Failed to load action items.
-        </p>
-        <button type="button" onClick={() => void actions.refetch()}>
-          Retry
-        </button>
-      </main>
+        </Alert>
+      </AppShell>
     );
   }
 
@@ -213,50 +258,60 @@ export function ActionsPage({ teamId }: { teamId: string }) {
   });
 
   return (
-    <main style={{ fontFamily: 'system-ui, sans-serif', padding: 32 }}>
-      {nav}
-      <h1>Action items</h1>
-      <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
-        <label>
-          <input type="checkbox" checked={mineOnly} onChange={(e) => setMineOnly(e.target.checked)} /> Mine
-        </label>
+    <AppShell nav={nav}>
+      <Typography variant="h4" gutterBottom>
+        Action items
+      </Typography>
+      <Stack direction="row" spacing={2} sx={{ alignItems: "center", flexWrap: "wrap", mb: 2 }}>
+        <FormControlLabel
+          control={<Checkbox checked={mineOnly} onChange={(e) => setMineOnly(e.target.checked)} />}
+          label="Mine"
+        />
         {ALL_STATUSES.map((s) => (
-          <label key={s}>
-            <input type="checkbox" checked={statusFilter.has(s)} onChange={() => toggleStatusFilter(s)} /> {STATUS_LABEL[s]}
-          </label>
+          <FormControlLabel
+            key={s}
+            control={<Checkbox checked={statusFilter.has(s)} onChange={() => toggleStatusFilter(s)} />}
+            label={STATUS_LABEL[s]}
+          />
         ))}
-        <select aria-label="Source retro" value={sourceRetroFilter} onChange={(e) => setSourceRetroFilter(e.target.value)}>
-          <option value="">All retros</option>
+        <Select
+          size="small"
+          displayEmpty
+          aria-label="Source retro"
+          value={sourceRetroFilter}
+          onChange={(e) => setSourceRetroFilter(e.target.value)}
+        >
+          <MenuItem value="">All retros</MenuItem>
           {sourceRetros.map(([id, name]) => (
-            <option key={id} value={id}>
+            <MenuItem key={id} value={id}>
               {name}
-            </option>
+            </MenuItem>
           ))}
-        </select>
-      </div>
+        </Select>
+      </Stack>
 
-      {items.length === 0 && <p>No action items yet. They'll appear after your first retro.</p>}
+      {items.length === 0 && <Typography>No action items yet. They'll appear after your first retro.</Typography>}
       {items.length > 0 && sorted.length === 0 && (
-        <p>
-          No items match these filters.{' '}
-          <button type="button" onClick={clearFilters}>
+        <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
+          <Typography>No items match these filters.</Typography>
+          <Button size="small" onClick={clearFilters}>
             Clear filters
-          </button>
-        </p>
+          </Button>
+        </Stack>
       )}
       {sorted.length > 0 && (
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ textAlign: 'left', borderBottom: '2px solid #ddd' }}>
-              <th style={{ padding: 8 }}>Title</th>
-              <th style={{ padding: 8 }}>Owner</th>
-              <th style={{ padding: 8 }}>Due</th>
-              <th style={{ padding: 8 }}>Status</th>
-              <th style={{ padding: 8 }}>Source retro</th>
-              <th style={{ padding: 8 }}>Last updated</th>
-            </tr>
-          </thead>
-          <tbody>
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>Title</TableCell>
+              <TableCell>Owner</TableCell>
+              <TableCell>Due</TableCell>
+              <TableCell>Status</TableCell>
+              <TableCell>Source retro</TableCell>
+              <TableCell>Last updated</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
             {sorted.map((item) => (
               <ActionItemTableRow
                 key={item.id}
@@ -268,9 +323,9 @@ export function ActionsPage({ teamId }: { teamId: string }) {
                 onStatusChange={(status) => statusChange.mutate({ itemId: item.id, status })}
               />
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       )}
-    </main>
+    </AppShell>
   );
 }

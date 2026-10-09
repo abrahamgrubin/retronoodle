@@ -1,3 +1,8 @@
+import '@fontsource/roboto/300.css';
+import '@fontsource/roboto/400.css';
+import '@fontsource/roboto/500.css';
+import '@fontsource/roboto/700.css';
+import { CssBaseline, ThemeProvider } from '@mui/material';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -6,6 +11,7 @@ import { App } from './App';
 import { BoardPage } from './BoardPage';
 import { JoinPage } from './JoinPage';
 import { RetroListPage } from './RetroListPage';
+import { theme } from './theme';
 
 const queryClient = new QueryClient();
 const root = document.getElementById('root');
@@ -27,6 +33,9 @@ function page() {
 
 createRoot(root).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>{page()}</QueryClientProvider>
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <QueryClientProvider client={queryClient}>{page()}</QueryClientProvider>
+    </ThemeProvider>
   </StrictMode>,
 );

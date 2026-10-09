@@ -1,4 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
+import { Alert, Button, CircularProgress, Link, Stack, Typography } from '@mui/material';
+import { AppShell } from './AppShell';
 import { signInWithGoogle } from './auth';
 import { supabase } from './supabaseClient';
 import { JoinError, joinRetro } from './retros';
@@ -16,27 +18,53 @@ export function JoinPage({ code }: { code: string }) {
     retry: false,
   });
 
-  if (!supabase) return <p>Supabase is not configured.</p>;
-
-  if (!accessToken) {
+  if (!supabase) {
     return (
-      <main style={{ fontFamily: 'system-ui, sans-serif', padding: 32 }}>
-        <p>Sign in to join this retro.</p>
-        <button onClick={() => void signInWithGoogle()}>Continue with Google</button>
-      </main>
+      <AppShell>
+        <Alert severity="error">Supabase is not configured.</Alert>
+      </AppShell>
     );
   }
 
-  if (join.isPending) return <p>Joining…</p>;
+  if (!accessToken) {
+    return (
+      <AppShell>
+        <Stack spacing={2} sx={{ alignItems: "flex-start" }}>
+          <Typography>Sign in to join this retro.</Typography>
+          <Button variant="contained" onClick={() => void signInWithGoogle()}>
+            Continue with Google
+          </Button>
+        </Stack>
+      </AppShell>
+    );
+  }
+
+  if (join.isPending) {
+    return (
+      <AppShell>
+        <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
+          <CircularProgress size={20} />
+          <Typography>Joining…</Typography>
+        </Stack>
+      </AppShell>
+    );
+  }
 
   if (join.isError) {
     const message = join.error instanceof JoinError ? join.error.message : 'Something went wrong.';
-    return <p>{message}</p>;
+    return (
+      <AppShell>
+        <Alert severity="error">{message}</Alert>
+      </AppShell>
+    );
   }
 
   return (
-    <p>
-      Joined <strong>{join.data.name}</strong>. <a href={`/retros/${join.data.retroId}`}>Go to the board</a>
-    </p>
+    <AppShell>
+      <Typography>
+        Joined <strong>{join.data.name}</strong>.{' '}
+        <Link href={`/retros/${join.data.retroId}`}>Go to the board</Link>
+      </Typography>
+    </AppShell>
   );
 }
