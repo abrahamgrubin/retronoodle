@@ -87,6 +87,7 @@ const running = await startProcess(config.role, {
         realtimeBus: new RealtimeBus(supabaseAdmin),
         anthropicApiKey: config.anthropicApiKey,
         monthlyCapUsd: config.aiMonthlyCapUsd,
+        transcriptMasterKey: config.transcriptMasterKey,
       };
       // RN-031: deletion needs no decryption, so this runs whenever Supabase is configured —
       // unlike `ai`, it never depends on TRANSCRIPT_MASTER_KEY being set.

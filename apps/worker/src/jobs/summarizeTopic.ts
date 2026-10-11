@@ -5,6 +5,8 @@ import { AI_TOPIC_SUMMARY_FALLBACK_MODEL, AI_TOPIC_SUMMARY_MODEL, AI_TOPIC_SUMMA
 import type { WorkerLogger } from '../logger.js';
 import { loadAgent } from '../agents/loadAgent.js';
 import { isOverMonthlyCap, recordAiUsage } from '../aiSpendCap.js';
+import { parseMasterKey } from '../transcriptCrypto.js';
+import { decryptForTeam } from '../transcriptKeys.js';
 import type { AnthropicMessagesClient } from './groupCards.js';
 import type { RealtimeBusLike } from './summarizeGroup.js';
 
@@ -18,7 +20,46 @@ export interface SummarizeTopicDeps {
   anthropicApiKey: string | undefined;
   monthlyCapUsd: number | undefined;
   logger: WorkerLogger;
+  // RN-037: undefined means every topic behaves exactly like "no recording" (RN-021's own
+  // behavior, unchanged) — same optionality shape as every other optional key this worker reads.
+  transcriptMasterKey?: string;
   createAnthropicClient?: (apiKey: string) => AnthropicMessagesClient;
+}
+
+interface TranscriptLine {
+  id: string;
+  speakerUserId: string | null;
+  text: string;
+}
+
+/**
+ * RN-037: this topic's transcript, decrypted — empty when there's no master key, no recording,
+ * or this topic simply has no segments (the retro wasn't being recorded when it was discussed).
+ * Gap markers (RN-033, a facilitator tab drop) carry no real text and are always skipped.
+ */
+async function fetchTranscriptLines(
+  supabaseAdmin: SupabaseClient<Database>,
+  transcriptMasterKey: string | undefined,
+  teamId: string,
+  topicId: string,
+): Promise<TranscriptLine[]> {
+  if (!transcriptMasterKey) return [];
+  const { data: rows } = await supabaseAdmin
+    .from('transcript_segments')
+    .select('id, ciphertext, iv, auth_tag, speaker_user_id, is_gap_marker')
+    .eq('topic_id', topicId)
+    .order('start_ms');
+  if (!rows || rows.length === 0) return [];
+
+  const masterKey = parseMasterKey(transcriptMasterKey);
+  const lines: TranscriptLine[] = [];
+  for (const row of rows) {
+    if (row.is_gap_marker) continue;
+    const text = await decryptForTeam(supabaseAdmin, masterKey, teamId, { ciphertext: row.ciphertext, iv: row.iv, authTag: row.auth_tag });
+    if (text === null || !text.trim()) continue;
+    lines.push({ id: row.id, speakerUserId: row.speaker_user_id, text });
+  }
+  return lines;
 }
 
 const PointShape = z.object({ text: z.string().min(1), sources: z.array(z.string()) });
@@ -38,16 +79,16 @@ function extractJsonObjectText(text: string): string {
 /** "Every rendered point has at least one valid source; invalid citations never show" (the
  * story's own AC) — an entry citing even one unknown card id is dropped entirely, same
  * "validate and drop, don't partially repair" precedent as RN-017's grouping suggestions. */
-function filterPoints(points: { text: string; sources: string[] }[], validCardIds: Set<string>): { text: string; sources: string[] }[] {
-  return points.filter((p) => p.sources.length > 0 && p.sources.every((id) => validCardIds.has(id)));
+function filterPoints(points: { text: string; sources: string[] }[], validSourceIds: Set<string>): { text: string; sources: string[] }[] {
+  return points.filter((p) => p.sources.length > 0 && p.sources.every((id) => validSourceIds.has(id)));
 }
 
-function filterSummary(raw: RawSummary, validCardIds: Set<string>): RawSummary {
+function filterSummary(raw: RawSummary, validSourceIds: Set<string>): RawSummary {
   return {
-    keyPoints: filterPoints(raw.keyPoints, validCardIds),
-    decisions: filterPoints(raw.decisions, validCardIds),
-    disagreements: filterPoints(raw.disagreements, validCardIds),
-    proposedActionItems: filterPoints(raw.proposedActionItems, validCardIds),
+    keyPoints: filterPoints(raw.keyPoints, validSourceIds),
+    decisions: filterPoints(raw.decisions, validSourceIds),
+    disagreements: filterPoints(raw.disagreements, validSourceIds),
+    proposedActionItems: filterPoints(raw.proposedActionItems, validSourceIds),
   };
 }
 
@@ -102,15 +143,19 @@ export async function runSummarizeTopicJob(data: SummarizeTopicJobData, deps: Su
   const { data: cards } = await supabaseAdmin.from('cards').select('id, body, author_id').eq('topic_id', topicId);
   if (!cards || cards.length === 0) return;
 
+  const transcriptLines = await fetchTranscriptLines(supabaseAdmin, deps.transcriptMasterKey, retro.team_id, topicId);
+
   const authorIds = [...new Set(cards.map((c) => c.author_id))];
-  const [{ data: authors }, { data: note }, { data: teamMemberRows }, { data: openItems }] = await Promise.all([
-    supabaseAdmin.from('profiles').select('id, display_name').in('id', authorIds),
+  const speakerUserIds = [...new Set(transcriptLines.map((l) => l.speakerUserId).filter((id): id is string => id !== null))];
+  const nameLookupIds = [...new Set([...authorIds, ...speakerUserIds])];
+  const [{ data: names }, { data: note }, { data: teamMemberRows }, { data: openItems }] = await Promise.all([
+    supabaseAdmin.from('profiles').select('id, display_name').in('id', nameLookupIds),
     supabaseAdmin.from('topic_notes').select('body').eq('topic_id', topicId).maybeSingle(),
     supabaseAdmin.from('team_members').select('user_id').eq('team_id', retro.team_id),
     supabaseAdmin.from('action_items').select('title').eq('team_id', retro.team_id).eq('status', 'open'),
   ]);
-  const authorNameById = new Map((authors ?? []).map((a) => [a.id, a.display_name]));
-  const validCardIds = new Set(cards.map((c) => c.id));
+  const nameById = new Map((names ?? []).map((a) => [a.id, a.display_name]));
+  const validSourceIds = new Set([...cards.map((c) => c.id), ...transcriptLines.map((l) => l.id)]);
 
   const memberUserIds = (teamMemberRows ?? []).map((m) => m.user_id);
   const { data: memberProfiles } =
@@ -119,8 +164,17 @@ export async function runSummarizeTopicJob(data: SummarizeTopicJobData, deps: Su
       : { data: [] as { display_name: string }[] };
 
   const cardLines = cards
-    .map((c) => `- id: ${c.id} | written by: ${authorNameById.get(c.author_id) ?? 'unknown'} | text: ${c.body.replace(/\n/g, ' ')}`)
+    .map((c) => `- id: ${c.id} | written by: ${nameById.get(c.author_id) ?? 'unknown'} | text: ${c.body.replace(/\n/g, ' ')}`)
     .join('\n');
+  // RN-037 AC: "with no recording, behavior matches RN-021 exactly" — an empty transcript reads
+  // "(none)", the same convention notesText/openActionItemTitles below already use, so the prompt
+  // never gains anything functionally new to work from when there isn't one.
+  const transcriptText =
+    transcriptLines.length > 0
+      ? transcriptLines
+          .map((l) => `- id: ${l.id} | speaker: ${l.speakerUserId ? (nameById.get(l.speakerUserId) ?? 'unknown') : 'unknown'} | text: ${l.text.replace(/\n/g, ' ')}`)
+          .join('\n')
+      : '(none)';
   const notesText = note?.body?.trim() ? note.body : '(none)';
   const teamMemberNames = (memberProfiles ?? []).map((m) => m.display_name).join(', ') || '(none)';
   const openActionItemTitles = (openItems ?? []).map((i) => `- ${i.title}`).join('\n') || '(none)';
@@ -128,6 +182,7 @@ export async function runSummarizeTopicJob(data: SummarizeTopicJobData, deps: Su
   const prompt = loadAgent('topic-summarizer')
     .body.replace('{{TOPIC_NAME}}', topic.name)
     .replace('{{CARDS}}', cardLines)
+    .replace('{{TRANSCRIPT}}', transcriptText)
     .replace('{{NOTES}}', notesText)
     .replace('{{TEAM_MEMBERS}}', teamMemberNames)
     .replace('{{OPEN_ACTION_ITEMS}}', openActionItemTitles);
@@ -160,7 +215,7 @@ export async function runSummarizeTopicJob(data: SummarizeTopicJobData, deps: Su
     return;
   }
 
-  const filtered = filterSummary(result.raw, validCardIds);
+  const filtered = filterSummary(result.raw, validSourceIds);
   const promptVersion = loadAgent('topic-summarizer').promptVersion;
 
   const { data: latest } = await supabaseAdmin

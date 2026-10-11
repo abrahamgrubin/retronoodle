@@ -72,6 +72,10 @@ export interface StartWorkerOptions {
     anthropicApiKey: string | undefined;
     // RN-027: "Claude spend cap $5/month in config" — undefined means no cap is configured.
     monthlyCapUsd: number | undefined;
+    // RN-037: ai.summarizeTopic's only consumer — undefined means every topic summarizes exactly
+    // as if nothing was ever recorded (RN-021's own behavior), same optionality as every other
+    // job here that reads it.
+    transcriptMasterKey?: string;
   };
   /** RN-031: present whenever Supabase is configured — unlike `ai`, this never depends on an
    * Anthropic key, so it's its own option rather than reusing `ai`'s shape. */
@@ -101,7 +105,7 @@ export async function startWorker(options: StartWorkerOptions): Promise<RunningW
   await queue.start();
 
   if (options.ai) {
-    const { supabaseAdmin, realtimeBus, anthropicApiKey, monthlyCapUsd } = options.ai;
+    const { supabaseAdmin, realtimeBus, anthropicApiKey, monthlyCapUsd, transcriptMasterKey } = options.ai;
     await queue.createQueue(AI_GROUP_CARDS_QUEUE);
     await queue.work<{ retroId: string }>(AI_GROUP_CARDS_QUEUE, async (jobs) => {
       for (const job of jobs) {
@@ -130,7 +134,7 @@ export async function startWorker(options: StartWorkerOptions): Promise<RunningW
     await queue.createQueue(AI_SUMMARIZE_TOPIC_QUEUE);
     await queue.work<{ topicId: string }>(AI_SUMMARIZE_TOPIC_QUEUE, async (jobs) => {
       for (const job of jobs) {
-        await runSummarizeTopicJob(job.data, { supabaseAdmin, realtimeBus, anthropicApiKey, monthlyCapUsd, logger: options.logger });
+        await runSummarizeTopicJob(job.data, { supabaseAdmin, realtimeBus, anthropicApiKey, monthlyCapUsd, transcriptMasterKey, logger: options.logger });
       }
     });
   }
