@@ -39,6 +39,25 @@ import {
   type TopicSummaryPoint,
   type VisibleBoardCard,
 } from '@retronoodle/shared';
+import {
+  Alert,
+  Box,
+  Button,
+  Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  IconButton,
+  MenuItem,
+  Select,
+  Skeleton,
+  Stack,
+  TextField,
+  Typography,
+} from '@mui/material';
+import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
+import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
 import { signInWithGoogle } from './auth';
 import { fetchBoard } from './board';
 import { reduceBoard, toggleReaction, type BoardState } from './boardReducer';
@@ -67,8 +86,12 @@ function AddCardForm({ onAdd }: { onAdd: (body: string) => void }) {
   }
 
   return (
-    <div style={{ marginTop: 8 }}>
-      <textarea
+    <Box sx={{ mt: 1 }}>
+      <TextField
+        multiline
+        minRows={2}
+        fullWidth
+        size="small"
         value={body}
         onChange={(e) => setBody(e.target.value)}
         onKeyDown={(e) => {
@@ -82,15 +105,13 @@ function AddCardForm({ onAdd }: { onAdd: (body: string) => void }) {
         }}
         placeholder="+ Add a card"
         aria-label="Add a card"
-        rows={2}
-        style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical' }}
       />
       {error && (
-        <p role="alert" style={{ color: 'crimson', margin: '4px 0', fontSize: 13 }}>
+        <Typography role="alert" color="error" sx={{ my: 0.5 }} variant="caption" component="p">
           {error}
-        </p>
+        </Typography>
       )}
-    </div>
+    </Box>
   );
 }
 
@@ -143,8 +164,12 @@ function AddActionItemForm({
   }
 
   return (
-    <div style={{ marginTop: 8 }}>
-      <textarea
+    <Box sx={{ mt: 1 }}>
+      <TextField
+        multiline
+        minRows={2}
+        fullWidth
+        size="small"
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         onKeyDown={(e) => {
@@ -155,24 +180,22 @@ function AddActionItemForm({
         }}
         placeholder="+ Add an action item"
         aria-label="Add an action item"
-        rows={2}
-        style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical' }}
       />
-      <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-        <select aria-label="Owner" value={ownerId} onChange={(e) => setOwnerId(e.target.value)} style={{ flex: 1 }}>
-          <option value="">Unassigned</option>
+      <Stack direction="row" spacing={1} sx={{ mt: 0.5 }}>
+        <Select size="small" aria-label="Owner" value={ownerId} onChange={(e) => setOwnerId(e.target.value)} sx={{ flex: 1 }}>
+          <MenuItem value="">Unassigned</MenuItem>
           {teamMembers.map((m) => (
-            <option key={m.id} value={m.id}>
+            <MenuItem key={m.id} value={m.id}>
               {m.displayName}
-            </option>
+            </MenuItem>
           ))}
-        </select>
-        <input aria-label="Due date" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
-        <button type="button" onClick={submit}>
+        </Select>
+        <TextField size="small" aria-label="Due date" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+        <Button size="small" variant="contained" type="button" onClick={submit}>
           Add
-        </button>
-      </div>
-    </div>
+        </Button>
+      </Stack>
+    </Box>
   );
 }
 
@@ -211,54 +234,61 @@ function ActionItemRow({
 }) {
   const ownerName = teamMembers.find((m) => m.id === item.ownerId)?.displayName ?? 'Unassigned';
   return (
-    <div style={{ border: '1px solid #ddd', borderRadius: 6, padding: 8, marginBottom: 8 }}>
-      <p style={{ margin: '0 0 6px', fontSize: 13 }}>{item.title}</p>
+    <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1.5, p: 1, mb: 1 }}>
+      <Typography variant="body2" sx={{ mb: 0.75 }}>
+        {item.title}
+      </Typography>
       {canEdit ? (
-        <div style={{ display: 'flex', gap: 8, fontSize: 12 }}>
-          <select
+        <Stack direction="row" spacing={1}>
+          <Select
+            size="small"
+            variant="standard"
             aria-label={`Owner for ${item.title}`}
             value={item.ownerId ?? ''}
             onChange={(e) => onUpdate({ ownerId: e.target.value || null })}
           >
-            <option value="">Unassigned</option>
+            <MenuItem value="">Unassigned</MenuItem>
             {teamMembers.map((m) => (
-              <option key={m.id} value={m.id}>
+              <MenuItem key={m.id} value={m.id}>
                 {m.displayName}
-              </option>
+              </MenuItem>
             ))}
-          </select>
-          <input
+          </Select>
+          <TextField
+            size="small"
+            variant="standard"
             aria-label={`Due date for ${item.title}`}
             type="date"
             value={item.dueDate ?? ''}
             onChange={(e) => onUpdate({ dueDate: e.target.value || null })}
           />
-        </div>
+        </Stack>
       ) : (
-        <p style={{ margin: 0, fontSize: 12, color: '#666' }}>
+        <Typography variant="caption" color="text.secondary" component="p">
           {ownerName}
           {item.dueDate && ` · due ${formatDueDate(item.dueDate)}`}
-        </p>
+        </Typography>
       )}
       {isCarriedOver && (
-        <div style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'wrap' }}>
+        <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', mt: 0.75 }}>
           {REVIEW_OUTCOMES.map((outcome) => (
-            <button
+            <Button
               key={outcome}
+              size="small"
               type="button"
               onClick={() => onReview(outcome)}
-              style={{
+              sx={{
                 fontSize: 11,
                 fontWeight: reviewOutcome === outcome ? 'bold' : 'normal',
                 textDecoration: reviewOutcome === outcome ? 'underline' : undefined,
               }}
             >
               {REVIEW_OUTCOME_LABEL[outcome]}
-            </button>
+            </Button>
           ))}
-        </div>
+        </Stack>
       )}
-    </div>
+    </Box>
   );
 }
 
@@ -304,65 +334,73 @@ function CloseRetroDialog({
   }
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={`Close ${retroName}?`}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10 }}
-    >
-      <div style={{ width: 520, background: '#fff', borderRadius: 8, padding: 20 }}>
-        <h2 style={{ marginTop: 0 }}>Close {retroName}?</h2>
-        <label style={{ display: 'block', marginBottom: 12, fontSize: 13 }}>
-          Next retro{' '}
-          <input type="date" value={nextRetroAt} onChange={(e) => setNextRetroAt(e.target.value)} />
-        </label>
-        <p style={{ fontSize: 13 }}>
+    <Dialog open onClose={onCancel} aria-label={`Close ${retroName}?`} slotProps={{ paper: { sx: { width: 520 } } }}>
+      <DialogTitle>Close {retroName}?</DialogTitle>
+      <DialogContent>
+        <TextField
+          size="small"
+          type="date"
+          label="Next retro"
+          value={nextRetroAt}
+          onChange={(e) => setNextRetroAt(e.target.value)}
+          sx={{ mb: 1.5, display: 'block' }}
+          slotProps={{ inputLabel: { shrink: true } }}
+        />
+        <Typography variant="body2">
           {actionItems.length} action item{actionItems.length === 1 ? '' : 's'}
-        </p>
+        </Typography>
         {ownerless.length > 0 && (
-          <div style={{ background: '#fff8e1', border: '1px solid #f0c000', borderRadius: 6, padding: 8, marginBottom: 12 }}>
-            <p style={{ margin: '0 0 6px', fontSize: 13, fontWeight: 'bold' }}>
+          <Box sx={{ bgcolor: '#fff8e1', border: '1px solid #f0c000', borderRadius: 1.5, p: 1, my: 1.5 }}>
+            <Typography variant="body2" sx={{ mb: 0.75, fontWeight: 'bold' }}>
               {ownerless.length} item{ownerless.length === 1 ? '' : 's'} missing an owner
-            </p>
+            </Typography>
             {ownerless.map((item) => (
-              <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                <span style={{ flex: 1, fontSize: 13 }}>{item.title}</span>
-                <select
+              <Stack key={item.id} direction="row" spacing={1} sx={{ alignItems: 'center', mb: 0.5 }}>
+                <Typography variant="body2" sx={{ flex: 1 }}>
+                  {item.title}
+                </Typography>
+                <Select
+                  size="small"
                   aria-label={`Owner for ${item.title}`}
                   value={item.ownerId ?? ''}
                   onChange={(e) => onUpdateOwner(item.id, e.target.value || null)}
                 >
-                  <option value="">Unassigned</option>
+                  <MenuItem value="">Unassigned</MenuItem>
                   {teamMembers.map((m) => (
-                    <option key={m.id} value={m.id}>
+                    <MenuItem key={m.id} value={m.id}>
                       {m.displayName}
-                    </option>
+                    </MenuItem>
                   ))}
-                </select>
-              </div>
+                </Select>
+              </Stack>
             ))}
-          </div>
+          </Box>
         )}
         {error && (
-          <p role="alert" style={{ color: 'crimson', fontSize: 13 }}>
+          <Alert severity="error" sx={{ mt: 1 }}>
             {error}
-          </p>
+          </Alert>
         )}
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
-          <button type="button" onClick={onCancel} disabled={submitting !== null}>
-            Cancel
-          </button>
-          {ownerless.length > 0 && (
-            <button type="button" style={{ color: 'crimson' }} onClick={() => submit(true)} disabled={submitting !== null}>
-              {submitting === 'override' ? 'Closing…' : 'Close anyway'}
-            </button>
-          )}
-          <button type="button" onClick={() => submit(false)} disabled={ownerless.length > 0 || submitting !== null}>
-            {submitting === 'close' ? 'Closing…' : 'Close retro'}
-          </button>
-        </div>
-      </div>
-    </div>
+      </DialogContent>
+      <DialogActions>
+        <Button type="button" onClick={onCancel} disabled={submitting !== null}>
+          Cancel
+        </Button>
+        {ownerless.length > 0 && (
+          <Button type="button" color="error" onClick={() => submit(true)} disabled={submitting !== null}>
+            {submitting === 'override' ? 'Closing…' : 'Close anyway'}
+          </Button>
+        )}
+        <Button
+          type="button"
+          variant="contained"
+          onClick={() => submit(false)}
+          disabled={ownerless.length > 0 || submitting !== null}
+        >
+          {submitting === 'close' ? 'Closing…' : 'Close retro'}
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }
 
@@ -371,20 +409,20 @@ function CloseRetroDialog({
  * generic marker instead. Never receives body/authorName — the server never sent them. */
 function HiddenCardPlaceholder({ columnColor }: { columnColor: string }) {
   return (
-    <div
-      style={{
+    <Box
+      sx={{
         border: `1px dashed ${columnColor}`,
-        borderRadius: 6,
-        padding: 8,
-        marginBottom: 8,
-        background: '#f4f4f4',
-        color: '#999',
+        borderRadius: 1.5,
+        p: 1,
+        mb: 1,
+        bgcolor: 'grey.100',
+        color: 'text.disabled',
         fontStyle: 'italic',
         fontSize: 13,
       }}
     >
       Hidden until reveal
-    </div>
+    </Box>
   );
 }
 
@@ -434,9 +472,13 @@ function CardView({
 
   if (editing) {
     return (
-      <div style={{ border: '1px solid #ccc', borderRadius: 6, padding: 8, marginBottom: 8 }}>
-        <textarea
+      <Box sx={{ border: '1px solid', borderColor: 'grey.400', borderRadius: 1.5, p: 1, mb: 1 }}>
+        <TextField
           autoFocus
+          multiline
+          minRows={2}
+          fullWidth
+          size="small"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
@@ -461,53 +503,54 @@ function CardView({
             }
           }}
           aria-label="Edit card"
-          rows={2}
-          style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical' }}
         />
         {error && (
-          <p role="alert" style={{ color: 'crimson', margin: '4px 0', fontSize: 13 }}>
+          <Typography role="alert" color="error" variant="caption" component="p" sx={{ my: 0.5 }}>
             {error}
-          </p>
+          </Typography>
         )}
-      </div>
+      </Box>
     );
   }
 
   return (
-    <div
+    <Box
       // RN-021 layout spec: "hovering [a summary source chip] outlines those cards on the board
       // and scrolls them into view" — this id is the one thing that makes the "scrolls into view"
       // half possible; the outline half already exists via `highlighted` above.
       id={`board-card-${card.id}`}
-      style={{
-        border: '1px solid #ccc',
-        borderRadius: 6,
-        padding: 8,
-        marginBottom: 8,
+      sx={{
+        border: '1px solid',
+        borderColor: 'grey.400',
+        borderRadius: 1.5,
+        p: 1,
+        mb: 1,
         outline: highlighted ? '2px solid #f59e0b' : discussCurrent ? '2px solid #2563eb' : undefined,
         outlineOffset: highlighted || discussCurrent ? -1 : undefined,
       }}
       {...dragHandleProps}
     >
-      <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{card.body}</p>
-      <p style={{ margin: '4px 0 0', fontSize: 12, color: '#666' }}>{card.authorName}</p>
+      <Typography sx={{ whiteSpace: 'pre-wrap' }}>{card.body}</Typography>
+      <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 0.5 }}>
+        {card.authorName}
+      </Typography>
       <ReactionBar {...reactionProps} />
       {(canEdit || menu) && (
-        <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+        <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', mt: 0.5 }}>
           {canEdit && (
             <>
-              <button type="button" onClick={() => setEditing(true)}>
+              <Button size="small" type="button" onClick={() => setEditing(true)}>
                 Edit
-              </button>
-              <button type="button" onClick={onDelete}>
+              </Button>
+              <Button size="small" type="button" onClick={onDelete}>
                 Delete
-              </button>
+              </Button>
             </>
           )}
           {menu}
-        </div>
+        </Stack>
       )}
-    </div>
+    </Box>
   );
 }
 
@@ -539,29 +582,58 @@ function ReactionPicker({ onPick }: { onPick: (emoji: Emoji) => void }) {
   const results = trimmedQuery ? EMOJI_QUICK_SET.filter((emoji) => EMOJI_NAMES[emoji].includes(trimmedQuery)) : EMOJI_QUICK_SET;
 
   return (
-    <details ref={detailsRef} style={{ position: 'relative' }}>
-      <summary
-        style={{ cursor: 'pointer', listStyle: 'none', fontSize: 12, color: '#666', border: '1px dashed #ccc', borderRadius: 999, padding: '1px 6px' }}
+    <Box component="details" ref={detailsRef} sx={{ position: 'relative' }}>
+      <Box
+        component="summary"
+        sx={{
+          cursor: 'pointer',
+          listStyle: 'none',
+          fontSize: 12,
+          color: 'text.secondary',
+          border: '1px dashed',
+          borderColor: 'grey.400',
+          borderRadius: 999,
+          px: 0.75,
+          py: '1px',
+        }}
         aria-label="Add reaction"
       >
         + react
-      </summary>
-      <div
-        style={{ position: 'absolute', zIndex: 1, background: '#fff', border: '1px solid #ccc', borderRadius: 6, padding: 8, marginTop: 4, width: 180 }}
+      </Box>
+      <Box
+        sx={{
+          position: 'absolute',
+          zIndex: 1,
+          bgcolor: 'background.paper',
+          border: '1px solid',
+          borderColor: 'grey.400',
+          borderRadius: 1.5,
+          p: 1,
+          mt: 0.5,
+          width: 180,
+          boxShadow: 3,
+        }}
       >
-        <input
+        <TextField
           autoFocus
+          fullWidth
+          size="small"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search emoji"
           aria-label="Search emoji"
-          style={{ width: '100%', boxSizing: 'border-box', marginBottom: 6 }}
+          sx={{ mb: 0.75 }}
         />
-        {results.length === 0 && <p style={{ fontSize: 12, color: '#999', margin: 0 }}>No matches</p>}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+        {results.length === 0 && (
+          <Typography variant="caption" color="text.disabled">
+            No matches
+          </Typography>
+        )}
+        <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap' }}>
           {results.map((emoji) => (
-            <button
+            <IconButton
               key={emoji}
+              size="small"
               type="button"
               onClick={() => {
                 onPick(emoji);
@@ -569,14 +641,14 @@ function ReactionPicker({ onPick }: { onPick: (emoji: Emoji) => void }) {
                 if (detailsRef.current) detailsRef.current.open = false;
               }}
               aria-label={`React with ${EMOJI_NAMES[emoji]}`}
-              style={{ fontSize: 18, border: 'none', background: 'none', cursor: 'pointer', padding: 2 }}
+              sx={{ fontSize: 18 }}
             >
               {emoji}
-            </button>
+            </IconButton>
           ))}
-        </div>
-      </div>
-    </details>
+        </Stack>
+      </Box>
+    </Box>
   );
 }
 
@@ -589,31 +661,25 @@ function ReactionBar({ reactions, viewerId, canReact, onToggleReaction }: Reacti
   const visible = reactions.filter((r) => r.userIds.length > 0);
   if (visible.length === 0 && !canReact) return null;
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4, alignItems: 'center' }}>
+    <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', mt: 0.5, alignItems: 'center' }}>
       {visible.map((r) => {
         const mine = r.userIds.includes(viewerId);
         return (
-          <button
+          <Chip
             key={r.emoji}
-            type="button"
             disabled={!canReact}
             aria-pressed={mine}
             onClick={() => onToggleReaction(r.emoji)}
-            style={{
-              border: mine ? '1px solid #3b82f6' : '1px solid #ccc',
-              background: mine ? '#eff6ff' : '#fff',
-              borderRadius: 999,
-              padding: '1px 8px',
-              fontSize: 12,
-              cursor: canReact ? 'pointer' : 'default',
-            }}
-          >
-            {r.emoji} {r.userIds.length}
-          </button>
+            size="small"
+            label={`${r.emoji} ${r.userIds.length}`}
+            variant={mine ? 'filled' : 'outlined'}
+            color={mine ? 'primary' : 'default'}
+            sx={{ cursor: canReact ? 'pointer' : 'default' }}
+          />
         );
       })}
       {canReact && <ReactionPicker onPick={onToggleReaction} />}
-    </div>
+    </Stack>
   );
 }
 
@@ -637,43 +703,51 @@ function CardMenu({
   const results = trimmedQuery ? candidates.filter((c) => c.body.toLowerCase().includes(trimmedQuery)) : candidates;
 
   return (
-    <details style={{ position: 'relative' }}>
-      <summary style={{ cursor: 'pointer', listStyle: 'none', fontSize: 14, color: '#666' }} aria-label="Card menu">
-        ⋯
-      </summary>
-      <div
-        style={{
+    <Box component="details" sx={{ position: 'relative' }}>
+      <Box component="summary" sx={{ cursor: 'pointer', listStyle: 'none', fontSize: 14, color: 'text.secondary' }} aria-label="Card menu">
+        <MoreHorizIcon fontSize="small" />
+      </Box>
+      <Box
+        sx={{
           position: 'absolute',
           zIndex: 1,
-          background: '#fff',
-          border: '1px solid #ccc',
-          borderRadius: 6,
-          padding: 8,
-          marginTop: 4,
+          bgcolor: 'background.paper',
+          border: '1px solid',
+          borderColor: 'grey.400',
+          borderRadius: 1.5,
+          p: 1,
+          mt: 0.5,
           width: 220,
+          boxShadow: 3,
         }}
       >
-        <input
+        <TextField
           autoFocus
+          fullWidth
+          size="small"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Group with…"
           aria-label="Search cards to group with"
-          style={{ width: '100%', boxSizing: 'border-box', marginBottom: 6 }}
+          sx={{ mb: 0.75 }}
         />
-        {results.length === 0 && <p style={{ fontSize: 12, color: '#999', margin: 0 }}>No matching cards</p>}
+        {results.length === 0 && (
+          <Typography variant="caption" color="text.disabled">
+            No matching cards
+          </Typography>
+        )}
         {results.map((c) => (
-          <button
+          <Button
             key={c.id}
             type="button"
             onClick={() => onGroupWith(c.id)}
-            style={{ display: 'block', width: '100%', textAlign: 'left', padding: '4px 0', border: 'none', background: 'none', cursor: 'pointer' }}
+            sx={{ display: 'block', width: '100%', textAlign: 'left', py: 0.5, justifyContent: 'flex-start' }}
           >
             {c.body.slice(0, 40)}
-          </button>
+          </Button>
         ))}
-      </div>
-    </details>
+      </Box>
+    </Box>
   );
 }
 
@@ -714,10 +788,7 @@ function SortableCardView({
     disabled: !canDrag,
   });
   return (
-    <div
-      ref={setNodeRef}
-      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : dimmed ? 0.4 : 1 }}
-    >
+    <Box ref={setNodeRef} sx={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : dimmed ? 0.4 : 1 }}>
       <CardView
         card={card}
         canEdit={canEdit}
@@ -729,7 +800,7 @@ function SortableCardView({
         menu={menu}
         reactionProps={reactionProps}
       />
-    </div>
+    </Box>
   );
 }
 
@@ -753,17 +824,23 @@ function VoteControls({
   onRemove: () => void;
 }) {
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
-      <button type="button" onClick={onAdd} disabled={remaining <= 0} aria-label={`Add vote to ${topicName || 'this group'}`}>
+    <Stack direction="row" spacing={0.5} component="span" sx={{ alignItems: 'center', fontSize: 13 }}>
+      <IconButton
+        size="small"
+        type="button"
+        onClick={onAdd}
+        disabled={remaining <= 0}
+        aria-label={`Add vote to ${topicName || 'this group'}`}
+      >
         +
-      </button>
-      <span>{myCount}</span>
+      </IconButton>
+      <Typography component="span">{myCount}</Typography>
       {myCount > 0 && (
-        <button type="button" onClick={onRemove} aria-label={`Remove vote from ${topicName || 'this group'}`}>
+        <IconButton size="small" type="button" onClick={onRemove} aria-label={`Remove vote from ${topicName || 'this group'}`}>
           −
-        </button>
+        </IconButton>
       )}
-    </span>
+    </Stack>
   );
 }
 
@@ -801,51 +878,59 @@ function GroupSummaryView({
 
   if (editing) {
     return (
-      <div style={{ padding: 4 }}>
-        <input
+      <Box sx={{ p: 0.5 }}>
+        <TextField
           autoFocus
+          fullWidth
+          size="small"
           value={draftTitle}
           onChange={(e) => setDraftTitle(e.target.value)}
           placeholder="Summary title"
           aria-label="Summary title"
-          style={{ display: 'block', width: '100%', boxSizing: 'border-box', fontWeight: 'bold', marginBottom: 4 }}
+          sx={{ mb: 0.5, '& input': { fontWeight: 'bold' } }}
         />
-        <textarea
+        <TextField
+          multiline
+          fullWidth
+          minRows={3}
+          size="small"
           value={draftSummary}
           onChange={(e) => setDraftSummary(e.target.value)}
           placeholder="Summary"
           aria-label="Summary text"
-          rows={3}
-          style={{ display: 'block', width: '100%', boxSizing: 'border-box' }}
         />
-        <div style={{ marginTop: 4, display: 'flex', gap: 4 }}>
-          <button type="button" onClick={save}>
+        <Stack direction="row" spacing={0.5} sx={{ mt: 0.5 }}>
+          <Button size="small" type="button" onClick={save}>
             Save
-          </button>
-          <button type="button" onClick={() => setEditing(false)}>
+          </Button>
+          <Button size="small" type="button" onClick={() => setEditing(false)}>
             Cancel
-          </button>
-        </div>
-      </div>
+          </Button>
+        </Stack>
+      </Box>
     );
   }
 
   return (
-    <div style={{ padding: 4 }}>
+    <Box sx={{ p: 0.5 }}>
       {topic.groupSummary ? (
         <>
-          <p style={{ margin: '0 0 4px', fontWeight: 'bold' }}>{topic.groupSummaryTitle}</p>
-          <p style={{ margin: 0 }}>{topic.groupSummary}</p>
+          <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 0.5 }}>
+            {topic.groupSummaryTitle}
+          </Typography>
+          <Typography variant="body2">{topic.groupSummary}</Typography>
         </>
       ) : (
-        <p style={{ margin: 0, color: '#666', fontStyle: 'italic' }}>Summarizing…</p>
+        <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+          Summarizing…
+        </Typography>
       )}
       {canEdit && (
-        <button type="button" onClick={startEditing} style={{ marginTop: 4, fontSize: 12 }}>
+        <Button size="small" type="button" onClick={startEditing} sx={{ mt: 0.5 }}>
           Edit
-        </button>
+        </Button>
       )}
-    </div>
+    </Box>
   );
 }
 
@@ -914,19 +999,20 @@ function TopicGroupView({
   }
 
   return (
-    <div
-      style={{
+    <Box
+      sx={{
         background: `color-mix(in srgb, ${columnColor} 15%, white)`,
         border: `2px solid ${columnColor}`,
-        borderRadius: 8,
-        padding: 8,
-        marginBottom: 8,
+        borderRadius: 2,
+        p: 1,
+        mb: 1,
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 8 }}>
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 0.75 }}>
         {editingName ? (
-          <input
+          <TextField
             autoFocus
+            variant="standard"
             value={draftName}
             onChange={(e) => setDraftName(e.target.value)}
             onKeyDown={(e) => {
@@ -939,10 +1025,11 @@ function TopicGroupView({
             onBlur={commitRename}
             placeholder="Name this group"
             aria-label="Group name"
-            style={{ fontWeight: 'bold', flex: 1, minWidth: 0 }}
+            sx={{ flex: 1, minWidth: 0, '& input': { fontWeight: 'bold' } }}
           />
         ) : (
-          <strong
+          <Typography
+            component="strong"
             role={canRename ? 'button' : undefined}
             tabIndex={canRename ? 0 : undefined}
             onClick={() => canRename && setEditingName(true)}
@@ -952,17 +1039,23 @@ function TopicGroupView({
                 setEditingName(true);
               }
             }}
-            style={{ cursor: canRename ? 'pointer' : undefined, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            sx={{
+              fontWeight: 'bold',
+              cursor: canRename ? 'pointer' : undefined,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
           >
             {topic.name || 'Name this group'}
-          </strong>
+          </Typography>
         )}
         {voteControls}
         {voteCountBadge}
-        <span style={{ fontSize: 12, color: '#666', flexShrink: 0 }}>
+        <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
           {cards.length} card{cards.length === 1 ? '' : 's'}
-        </span>
-      </div>
+        </Typography>
+      </Stack>
       {summaryView ?? (
         <>
           {visibleCards.map((card) =>
@@ -985,13 +1078,13 @@ function TopicGroupView({
             ),
           )}
           {hiddenCount > 0 && (
-            <button type="button" onClick={() => setExpanded(true)} style={{ fontSize: 12 }}>
+            <Button size="small" type="button" onClick={() => setExpanded(true)}>
               +{hiddenCount} more
-            </button>
+            </Button>
           )}
         </>
       )}
-    </div>
+    </Box>
   );
 }
 
@@ -1043,45 +1136,44 @@ function UpNextRow({
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: topic.id, disabled: !canManage });
   return (
-    <div
+    <Stack
+      direction="row"
+      spacing={0.75}
       ref={setNodeRef}
-      style={{
+      sx={{
         transform: CSS.Transform.toString(transform),
         transition,
         opacity: isDragging ? 0.4 : 1,
-        display: 'flex',
         alignItems: 'center',
-        gap: 6,
-        padding: '4px 0',
+        py: 0.5,
       }}
     >
       {canManage && (
-        <span {...attributes} {...listeners} style={{ cursor: 'grab', color: '#999' }} aria-label={`Reorder ${topic.name || 'this topic'}`}>
-          ⠿
-        </span>
+        <Box
+          component="span"
+          {...attributes}
+          {...listeners}
+          sx={{ cursor: 'grab', color: 'text.disabled', display: 'flex' }}
+          aria-label={`Reorder ${topic.name || 'this topic'}`}
+        >
+          <DragIndicatorIcon fontSize="small" />
+        </Box>
       )}
-      <span style={{ fontSize: 12, color: '#666', width: 14, flexShrink: 0 }}>{rank}</span>
-      <button
+      <Typography variant="caption" color="text.secondary" sx={{ width: 14, flexShrink: 0 }}>
+        {rank}
+      </Typography>
+      <Button
         type="button"
         onClick={canManage ? onJump : undefined}
         disabled={!canManage}
-        style={{
-          flex: 1,
-          textAlign: 'left',
-          fontSize: 13,
-          border: 'none',
-          background: 'none',
-          padding: 0,
-          cursor: canManage ? 'pointer' : 'default',
-          color: 'inherit',
-        }}
+        sx={{ flex: 1, textAlign: 'left', justifyContent: 'flex-start', color: 'inherit' }}
       >
         {topic.name || 'Untitled group'}
-      </button>
-      <span style={{ fontSize: 12, color: '#666', flexShrink: 0 }}>
+      </Button>
+      <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
         {topic.voteCount} vote{topic.voteCount === 1 ? '' : 's'}
-      </span>
-    </div>
+      </Typography>
+    </Stack>
   );
 }
 
@@ -1114,18 +1206,24 @@ function NotesEditor({
   }, [draft, topicId, onSave]);
 
   if (!canEdit) {
-    return draft ? <p style={{ margin: 0, fontSize: 12, whiteSpace: 'pre-wrap' }}>{draft}</p> : null;
+    return draft ? (
+      <Typography variant="caption" component="p" sx={{ whiteSpace: 'pre-wrap' }}>
+        {draft}
+      </Typography>
+    ) : null;
   }
 
   return (
-    <textarea
+    <TextField
+      multiline
+      fullWidth
+      size="small"
+      minRows={3}
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
       placeholder="Type notes…"
       aria-label="Topic notes"
-      rows={3}
-      maxLength={4000}
-      style={{ width: '100%', boxSizing: 'border-box', fontSize: 12 }}
+      slotProps={{ htmlInput: { maxLength: 4000 } }}
     />
   );
 }
@@ -1144,36 +1242,44 @@ function SummaryPointList({
   // list (SummaryCard), never key points/decisions/disagreements.
   renderAction?: (point: TopicSummaryPoint, index: number) => ReactNode;
 }) {
-  if (points.length === 0) return <p style={{ margin: '0 0 8px', fontSize: 12, color: '#999' }}>None.</p>;
+  if (points.length === 0)
+    return (
+      <Typography variant="caption" color="text.disabled" component="p" sx={{ mb: 1 }}>
+        None.
+      </Typography>
+    );
   return (
-    <ul style={{ margin: '0 0 8px', paddingLeft: 16 }}>
+    <Box component="ul" sx={{ m: 0, mb: 1, pl: 2 }}>
       {points.map((p, i) => (
-        <li key={i} style={{ fontSize: 13, marginBottom: 4 }}>
+        <Typography component="li" variant="body2" key={i} sx={{ mb: 0.5 }}>
           {p.text}
           {renderAction?.(p, i)}
           {p.sources.length > 0 && (
-            <button
+            <Box
+              component="button"
               type="button"
               onMouseEnter={() => onHoverSources(p.sources)}
               onMouseLeave={() => onHoverSources(null)}
               onFocus={() => onHoverSources(p.sources)}
               onBlur={() => onHoverSources(null)}
-              style={{
-                marginLeft: 6,
+              sx={{
+                ml: 0.75,
                 fontSize: 11,
-                border: '1px solid #ddd',
+                border: '1px solid',
+                borderColor: 'divider',
                 borderRadius: 999,
-                padding: '0 6px',
-                background: 'none',
+                px: 0.75,
+                py: 0,
+                bgcolor: 'transparent',
                 cursor: 'default',
               }}
             >
               {p.sources.length} card{p.sources.length === 1 ? '' : 's'}
-            </button>
+            </Box>
           )}
-        </li>
+        </Typography>
       ))}
-    </ul>
+    </Box>
   );
 }
 
@@ -1253,56 +1359,74 @@ function SummaryCard({
     onRegenerate();
   }
 
-  const cardStyle = { border: '1px solid #ddd', borderRadius: 8, padding: 8, marginBottom: 12 };
+  const cardSx = { border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 1, mb: 1.5 };
 
   if (!topic.startedAt) {
     return (
-      <div id={`summary-card-${topic.id}`} style={cardStyle}>
-        <p style={{ margin: 0, fontSize: 13, fontWeight: 'bold' }}>{topic.name || 'Untitled group'}</p>
-        <p style={{ margin: '4px 0 0', fontSize: 12, color: '#999' }}>Not discussed</p>
-      </div>
+      <Box id={`summary-card-${topic.id}`} sx={cardSx}>
+        <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+          {topic.name || 'Untitled group'}
+        </Typography>
+        <Typography variant="caption" color="text.disabled" component="p" sx={{ mt: 0.5 }}>
+          Not discussed
+        </Typography>
+      </Box>
     );
   }
 
   return (
-    <div id={`summary-card-${topic.id}`} style={cardStyle}>
-      <p style={{ margin: '0 0 2px', fontSize: 13, fontWeight: 'bold' }}>{topic.name || 'Untitled group'}</p>
-      <p style={{ margin: '0 0 8px', fontSize: 12, color: '#666' }}>
+    <Box id={`summary-card-${topic.id}`} sx={cardSx}>
+      <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 0.25 }}>
+        {topic.name || 'Untitled group'}
+      </Typography>
+      <Typography variant="caption" color="text.secondary" component="p" sx={{ mb: 1 }}>
         {topic.voteCount} vote{topic.voteCount === 1 ? '' : 's'}
-      </p>
+      </Typography>
 
       {/* "States: summarizing (skeleton and spinner)" — a topic that's ended (or is still the
           current one — generation only ever starts once it ends, see summarizeTopic.ts) with
           nothing stored and no failure reported yet. */}
       {!summary && !unavailable && (
         <>
-          <p style={{ fontSize: 12, color: '#666', margin: '0 0 8px' }}>Summarizing…</p>
+          <Typography variant="caption" color="text.secondary" component="p" sx={{ mb: 1 }}>
+            Summarizing…
+          </Typography>
           {[0, 1].map((i) => (
-            <div key={i} style={{ height: 14, background: '#f0f0f0', borderRadius: 4, marginBottom: 6 }} />
+            <Skeleton key={i} variant="rounded" height={14} sx={{ mb: 0.75 }} />
           ))}
         </>
       )}
 
       {!summary && unavailable && (
-        <div>
-          <p style={{ fontSize: 12, color: '#b00020', margin: '0 0 8px' }}>Summary unavailable.</p>
+        <Box>
+          <Alert severity="error" sx={{ mb: 1 }}>
+            Summary unavailable.
+          </Alert>
           {canManage && (
-            <button type="button" onClick={regenerate}>
+            <Button size="small" type="button" onClick={regenerate}>
               Retry
-            </button>
+            </Button>
           )}
-        </div>
+        </Box>
       )}
 
       {summary && !editing && (
         <>
-          <p style={{ margin: '8px 0 2px', fontWeight: 'bold', fontSize: 12 }}>Key points</p>
+          <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mt: 1, mb: 0.25 }}>
+            Key points
+          </Typography>
           <SummaryPointList points={summary.keyPoints} onHoverSources={onHoverSources} />
-          <p style={{ margin: '8px 0 2px', fontWeight: 'bold', fontSize: 12 }}>Decisions</p>
+          <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mt: 1, mb: 0.25 }}>
+            Decisions
+          </Typography>
           <SummaryPointList points={summary.decisions} onHoverSources={onHoverSources} />
-          <p style={{ margin: '8px 0 2px', fontWeight: 'bold', fontSize: 12 }}>Disagreements</p>
+          <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mt: 1, mb: 0.25 }}>
+            Disagreements
+          </Typography>
           <SummaryPointList points={summary.disagreements} onHoverSources={onHoverSources} />
-          <p style={{ margin: '8px 0 2px', fontWeight: 'bold', fontSize: 12 }}>Proposed action items</p>
+          <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mt: 1, mb: 0.25 }}>
+            Proposed action items
+          </Typography>
           <SummaryPointList
             points={summary.proposedActionItems}
             onHoverSources={onHoverSources}
@@ -1310,85 +1434,112 @@ function SummaryCard({
               canAddActionItem
                 ? (p, i) =>
                     addedIndices.has(i) ? (
-                      <span style={{ marginLeft: 6, fontSize: 11, color: '#666' }}>Added</span>
+                      <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 0.75 }}>
+                        Added
+                      </Typography>
                     ) : (
-                      <button
+                      <Button
+                        size="small"
                         type="button"
                         onClick={() => {
                           onAddActionItem(p.text);
                           setAddedIndices((s) => new Set(s).add(i));
                         }}
-                        style={{ marginLeft: 6, fontSize: 11 }}
+                        sx={{ ml: 0.75, fontSize: 11 }}
                       >
                         Add as action item
-                      </button>
+                      </Button>
                     )
                 : undefined
             }
           />
 
-          <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: '#666' }}>
-            <span>v{summary.version}</span>
-            {summary.edited && <span style={{ border: '1px solid #ddd', borderRadius: 999, padding: '0 6px' }}>Edited</span>}
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mt: 1, fontSize: 11, color: 'text.secondary' }}>
+            <Typography variant="caption">v{summary.version}</Typography>
+            {summary.edited && (
+              <Box component="span" sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 999, px: 0.75, fontSize: 11 }}>
+                Edited
+              </Box>
+            )}
             {canManage && (
               <>
-                <button type="button" onClick={startEditing}>
+                <Button size="small" type="button" onClick={startEditing}>
                   Edit
-                </button>
-                <button type="button" onClick={regenerate}>
+                </Button>
+                <Button size="small" type="button" onClick={regenerate}>
                   Regenerate
-                </button>
+                </Button>
               </>
             )}
-          </div>
+          </Stack>
         </>
       )}
 
       {summary && editing && (
         <>
-          <p style={{ margin: '0 0 2px', fontWeight: 'bold', fontSize: 12 }}>Key points</p>
-          <textarea
+          <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mb: 0.25 }}>
+            Key points
+          </Typography>
+          <TextField
+            multiline
+            fullWidth
+            size="small"
+            minRows={3}
             value={draftKeyPoints}
             onChange={(e) => setDraftKeyPoints(e.target.value)}
-            rows={3}
             aria-label="Key points (one per line)"
-            style={{ width: '100%', boxSizing: 'border-box', fontSize: 12, marginBottom: 8 }}
+            sx={{ mb: 1 }}
           />
-          <p style={{ margin: '0 0 2px', fontWeight: 'bold', fontSize: 12 }}>Decisions</p>
-          <textarea
+          <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mb: 0.25 }}>
+            Decisions
+          </Typography>
+          <TextField
+            multiline
+            fullWidth
+            size="small"
+            minRows={3}
             value={draftDecisions}
             onChange={(e) => setDraftDecisions(e.target.value)}
-            rows={3}
             aria-label="Decisions (one per line)"
-            style={{ width: '100%', boxSizing: 'border-box', fontSize: 12, marginBottom: 8 }}
+            sx={{ mb: 1 }}
           />
-          <p style={{ margin: '0 0 2px', fontWeight: 'bold', fontSize: 12 }}>Disagreements</p>
-          <textarea
+          <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mb: 0.25 }}>
+            Disagreements
+          </Typography>
+          <TextField
+            multiline
+            fullWidth
+            size="small"
+            minRows={3}
             value={draftDisagreements}
             onChange={(e) => setDraftDisagreements(e.target.value)}
-            rows={3}
             aria-label="Disagreements (one per line)"
-            style={{ width: '100%', boxSizing: 'border-box', fontSize: 12, marginBottom: 8 }}
+            sx={{ mb: 1 }}
           />
-          <p style={{ margin: '0 0 2px', fontWeight: 'bold', fontSize: 12 }}>Proposed action items</p>
-          <textarea
+          <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mb: 0.25 }}>
+            Proposed action items
+          </Typography>
+          <TextField
+            multiline
+            fullWidth
+            size="small"
+            minRows={3}
             value={draftProposedActionItems}
             onChange={(e) => setDraftProposedActionItems(e.target.value)}
-            rows={3}
             aria-label="Proposed action items (one per line)"
-            style={{ width: '100%', boxSizing: 'border-box', fontSize: 12, marginBottom: 8 }}
+            sx={{ mb: 1 }}
           />
-          <div style={{ display: 'flex', gap: 4 }}>
-            <button type="button" onClick={save}>
+          <Stack direction="row" spacing={0.5}>
+            <Button size="small" type="button" onClick={save}>
               Save
-            </button>
-            <button type="button" onClick={() => setEditing(false)}>
+            </Button>
+            <Button size="small" type="button" onClick={() => setEditing(false)}>
               Cancel
-            </button>
-          </div>
+            </Button>
+          </Stack>
         </>
       )}
-    </div>
+    </Box>
   );
 }
 
@@ -1481,43 +1632,49 @@ function DiscussQueuePanel({
   const sortedTopics = [...topics].sort((a, b) => (a.discussionOrder ?? '').localeCompare(b.discussionOrder ?? ''));
 
   return (
-    <div style={{ width: 320, flexShrink: 0 }}>
-      <div style={{ border: '1px solid #ddd', borderRadius: 8, padding: 8 }}>
-        <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
-          <button
+    <Box sx={{ width: 320, flexShrink: 0 }}>
+      <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 1 }}>
+        <Stack direction="row" spacing={0.5} sx={{ mb: 1 }}>
+          <Button
+            size="small"
             type="button"
             onClick={() => onTabChange('queue')}
-            style={{ fontWeight: tab === 'queue' ? 'bold' : 'normal', textDecoration: tab === 'queue' ? 'underline' : undefined }}
+            sx={{ fontWeight: tab === 'queue' ? 'bold' : 'normal', textDecoration: tab === 'queue' ? 'underline' : undefined }}
           >
             Queue
-          </button>
-          <button
+          </Button>
+          <Button
+            size="small"
             type="button"
             onClick={() => onTabChange('summaries')}
-            style={{ fontWeight: tab === 'summaries' ? 'bold' : 'normal', textDecoration: tab === 'summaries' ? 'underline' : undefined }}
+            sx={{ fontWeight: tab === 'summaries' ? 'bold' : 'normal', textDecoration: tab === 'summaries' ? 'underline' : undefined }}
           >
             Summaries
-          </button>
-        </div>
+          </Button>
+        </Stack>
 
         {tab === 'queue' && current && (
-          <div style={{ border: '2px solid #2563eb', borderRadius: 6, padding: 8, marginBottom: 12 }}>
-            <p style={{ margin: '0 0 2px', fontSize: 11, color: '#2563eb', fontWeight: 'bold' }}>Now discussing</p>
-            <p style={{ margin: '0 0 4px', fontSize: 13, fontWeight: 'bold' }}>{current.name || 'Untitled group'}</p>
-            <p style={{ margin: '0 0 8px', fontSize: 12, color: '#666' }}>
+          <Box sx={{ border: '2px solid #2563eb', borderRadius: 1.5, p: 1, mb: 1.5 }}>
+            <Typography variant="caption" sx={{ color: '#2563eb', fontWeight: 'bold', display: 'block', mb: 0.25 }}>
+              Now discussing
+            </Typography>
+            <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 0.5 }}>
+              {current.name || 'Untitled group'}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" component="p" sx={{ mb: 1 }}>
               {current.voteCount} vote{current.voteCount === 1 ? '' : 's'} · {cardCountByTopic.get(current.id) ?? 0} card
               {(cardCountByTopic.get(current.id) ?? 0) === 1 ? '' : 's'}
-            </p>
+            </Typography>
             {/* Homework: question-suggester's output — written the moment this topic became
                 current (discussHelpers.ts's startTopic); null until it runs. */}
             {current.discussionQuestions && current.discussionQuestions.length > 0 && (
-              <ul style={{ margin: '0 0 8px', paddingLeft: 16, fontSize: 12 }}>
+              <Box component="ul" sx={{ m: 0, mb: 1, pl: 2, fontSize: 12 }}>
                 {current.discussionQuestions.map((q, i) => (
                   <li key={i}>{q}</li>
                 ))}
-              </ul>
+              </Box>
             )}
-            <div style={{ marginBottom: 8 }}>
+            <Box sx={{ mb: 1 }}>
               <NotesEditor
                 key={current.id}
                 topicId={current.id}
@@ -1525,18 +1682,20 @@ function DiscussQueuePanel({
                 canEdit={canEditNotes}
                 onSave={onNotesChange}
               />
-            </div>
+            </Box>
             {canManage && (
-              <button type="button" onClick={isLastTopic ? onFinish : onNext}>
+              <Button size="small" type="button" onClick={isLastTopic ? onFinish : onNext}>
                 {isLastTopic ? 'Finish discussion' : 'Next topic'}
-              </button>
+              </Button>
             )}
-          </div>
+          </Box>
         )}
 
         {tab === 'queue' && phase === 'discuss' && upNext.length > 0 && (
-          <div style={{ marginBottom: 12 }}>
-            <p style={{ margin: '0 0 4px', fontWeight: 'bold', fontSize: 12, color: '#666' }}>Up next</p>
+          <Box sx={{ mb: 1.5 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold', display: 'block', mb: 0.5 }}>
+              Up next
+            </Typography>
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
               <SortableContext items={upNext.map((t) => t.id)} strategy={verticalListSortingStrategy}>
                 {upNext.map((t, i) => (
@@ -1544,13 +1703,19 @@ function DiscussQueuePanel({
                 ))}
               </SortableContext>
             </DndContext>
-          </div>
+          </Box>
         )}
 
         {tab === 'queue' && (
-          <div style={{ marginBottom: phase === 'wrap_up' ? 12 : 0 }}>
-            <p style={{ margin: '0 0 4px', fontWeight: 'bold', fontSize: 12, color: '#666' }}>Discussed</p>
-            {discussed.length === 0 && <p style={{ margin: 0, fontSize: 12, color: '#666' }}>Nothing discussed yet.</p>}
+          <Box sx={{ mb: phase === 'wrap_up' ? 1.5 : 0 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold', display: 'block', mb: 0.5 }}>
+              Discussed
+            </Typography>
+            {discussed.length === 0 && (
+              <Typography variant="caption" color="text.secondary">
+                Nothing discussed yet.
+              </Typography>
+            )}
             {discussed.map((t) => {
               // RN-021: "Clicking a discussed topic in the Queue opens its summary there" — a
               // read-only navigation available to everyone, not the facilitator-only queue jump
@@ -1561,9 +1726,11 @@ function DiscussQueuePanel({
                   ? 'Unavailable'
                   : 'Summarizing…';
               return (
-                <div
+                <Stack
                   key={t.id}
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0', cursor: 'pointer' }}
+                  direction="row"
+                  spacing={0.75}
+                  sx={{ alignItems: 'center', py: 0.5, cursor: 'pointer' }}
                   role="button"
                   tabIndex={0}
                   onClick={() => {
@@ -1578,35 +1745,43 @@ function DiscussQueuePanel({
                     }
                   }}
                 >
-                  <span aria-hidden="true">✓</span>
-                  <span style={{ flex: 1, fontSize: 13 }}>{t.name || 'Untitled group'}</span>
-                  <span style={{ fontSize: 11, color: '#666', border: '1px solid #ddd', borderRadius: 999, padding: '1px 6px' }}>{status}</span>
-                </div>
+                  <Box component="span" aria-hidden="true">
+                    ✓
+                  </Box>
+                  <Typography variant="body2" sx={{ flex: 1 }}>
+                    {t.name || 'Untitled group'}
+                  </Typography>
+                  <Chip size="small" variant="outlined" label={status} />
+                </Stack>
               );
             })}
-          </div>
+          </Box>
         )}
 
         {/* "Undiscussed topics are labeled 'not discussed' in Wrap up" — during Discuss itself
             the exact same topics already render above as "Up next"; this section only exists
             once that list stops being meaningful (reordering/jumping both end with Discuss). */}
         {tab === 'queue' && phase === 'wrap_up' && upNext.length > 0 && (
-          <div>
-            <p style={{ margin: '0 0 4px', fontWeight: 'bold', fontSize: 12, color: '#666' }}>Not discussed</p>
+          <Box>
+            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold', display: 'block', mb: 0.5 }}>
+              Not discussed
+            </Typography>
             {upNext.map((t) => (
-              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0', color: '#999' }}>
-                <span style={{ flex: 1, fontSize: 13 }}>{t.name || 'Untitled group'}</span>
-                <span style={{ fontSize: 11 }}>Not discussed</span>
-              </div>
+              <Stack key={t.id} direction="row" spacing={0.75} sx={{ alignItems: 'center', py: 0.5, color: 'text.disabled' }}>
+                <Typography variant="body2" sx={{ flex: 1 }}>
+                  {t.name || 'Untitled group'}
+                </Typography>
+                <Typography variant="caption">Not discussed</Typography>
+              </Stack>
             ))}
-          </div>
+          </Box>
         )}
 
         {/* RN-021: "the Summaries tab ... showing every topic stacked in vote order" — every
             topic, not just discussed ones (SummaryCard itself renders the right state for
             not-yet-started, in-progress, ready, or failed). */}
         {tab === 'summaries' && (
-          <div>
+          <Box>
             {sortedTopics.map((t) => (
               <SummaryCard
                 key={t.id}
@@ -1626,17 +1801,19 @@ function DiscussQueuePanel({
             {/* RN-026: "attendance" — only ever shown once the retro's actually closed, the one
                 new thing this story's summaries panel adds beyond what RN-021 already built. */}
             {phase === 'closed' && (
-              <div style={{ marginTop: 12, fontSize: 12, color: '#666' }}>
-                <p style={{ margin: '0 0 2px', fontWeight: 'bold' }}>Attendance</p>
-                <p style={{ margin: 0 }}>
+              <Box sx={{ mt: 1.5, fontSize: 12, color: 'text.secondary' }}>
+                <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block' }}>
+                  Attendance
+                </Typography>
+                <Typography variant="caption">
                   {attendees.length > 0 ? attendees.map((a) => a.displayName).join(', ') : 'No attendance recorded.'}
-                </p>
-              </div>
+                </Typography>
+              </Box>
             )}
-          </div>
+          </Box>
         )}
-      </div>
-    </div>
+      </Box>
+    </Box>
   );
 }
 
@@ -1648,20 +1825,21 @@ function DiscussQueuePanel({
 function DroppableColumn({ column, children }: { column: BoardColumn; children: ReactNode }) {
   const { setNodeRef, isOver } = useDroppable({ id: column.id, disabled: column.kind === 'action_items' });
   return (
-    <section
+    <Box
+      component="section"
       ref={setNodeRef}
-      style={{
+      sx={{
         width: 260,
         flexShrink: 0,
         borderTop: `4px solid ${column.color}`,
         outline: isOver ? '2px solid #3b82f6' : undefined,
-        background: '#fafafa',
-        borderRadius: 8,
-        padding: 8,
+        bgcolor: 'grey.50',
+        borderRadius: 2,
+        p: 1,
       }}
     >
       {children}
-    </section>
+    </Box>
   );
 }
 
@@ -1685,31 +1863,37 @@ function SuggestionRow({
 }) {
   if (justAccepted) {
     return (
-      <div style={{ border: '1px solid #ccc', borderRadius: 6, padding: 8, marginBottom: 8, color: '#666', fontSize: 13 }}>Grouped</div>
+      <Box sx={{ border: '1px solid', borderColor: 'grey.400', borderRadius: 1.5, p: 1, mb: 1, color: 'text.secondary', fontSize: 13 }}>
+        Grouped
+      </Box>
     );
   }
   return (
-    <div
-      style={{ border: '1px solid #ccc', borderRadius: 6, padding: 8, marginBottom: 8 }}
+    <Box
+      sx={{ border: '1px solid', borderColor: 'grey.400', borderRadius: 1.5, p: 1, mb: 1 }}
       onMouseEnter={() => onHover(true)}
       onMouseLeave={() => onHover(false)}
     >
-      <p style={{ margin: '0 0 2px', fontWeight: 'bold', fontSize: 13 }}>{suggestion.name}</p>
-      <p style={{ margin: '0 0 6px', fontSize: 11, color: '#666' }}>{columnTitle}</p>
+      <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 0.25 }}>
+        {suggestion.name}
+      </Typography>
+      <Typography variant="caption" color="text.secondary" component="p" sx={{ mb: 0.75 }}>
+        {columnTitle}
+      </Typography>
       {suggestion.cardIds.map((cardId) => (
-        <p key={cardId} style={{ margin: '0 0 2px', fontSize: 12, color: '#444' }}>
+        <Typography key={cardId} variant="caption" component="p" sx={{ mb: 0.25, color: '#444' }}>
           • card {cardId.slice(0, 8)}
-        </p>
+        </Typography>
       ))}
-      <div style={{ marginTop: 6, display: 'flex', gap: 4 }}>
-        <button type="button" onClick={onAccept}>
+      <Stack direction="row" spacing={0.5} sx={{ mt: 0.75 }}>
+        <Button size="small" type="button" onClick={onAccept}>
           Accept
-        </button>
-        <button type="button" onClick={onReject} style={{ border: 'none', background: 'none', color: '#666', cursor: 'pointer' }}>
+        </Button>
+        <Button size="small" type="button" onClick={onReject} color="inherit">
           Reject
-        </button>
-      </div>
-    </div>
+        </Button>
+      </Stack>
+    </Box>
   );
 }
 
@@ -1737,28 +1921,32 @@ function SuggestionsPanel({
   onAcceptAll: () => void;
 }) {
   return (
-    <div style={{ width: 320, flexShrink: 0 }}>
-      <button type="button" onClick={onToggleOpen}>
+    <Box sx={{ width: 320, flexShrink: 0 }}>
+      <Button size="small" type="button" onClick={onToggleOpen}>
         Suggestions ({suggestions.length})
-      </button>
+      </Button>
       {open && (
-        <div style={{ marginTop: 8, border: '1px solid #ddd', borderRadius: 8, padding: 8 }}>
+        <Box sx={{ mt: 1, border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 1 }}>
           {loading && (
             <>
-              <p style={{ fontSize: 13, color: '#666', margin: '0 0 8px' }}>Finding similar cards…</p>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                Finding similar cards…
+              </Typography>
               {[0, 1, 2].map((i) => (
-                <div key={i} style={{ height: 48, background: '#f0f0f0', borderRadius: 6, marginBottom: 8 }} />
+                <Skeleton key={i} variant="rounded" height={48} sx={{ mb: 1 }} />
               ))}
             </>
           )}
           {!loading && suggestions.length === 0 && (
-            <p style={{ fontSize: 13, color: '#666', margin: 0 }}>No suggestions. Group cards by dragging.</p>
+            <Typography variant="body2" color="text.secondary">
+              No suggestions. Group cards by dragging.
+            </Typography>
           )}
           {!loading && suggestions.length > 0 && (
             <>
-              <button type="button" onClick={onAcceptAll} style={{ marginBottom: 8 }}>
+              <Button size="small" type="button" onClick={onAcceptAll} sx={{ mb: 1 }}>
                 Accept all
-              </button>
+              </Button>
               {suggestions.map((s) => (
                 <SuggestionRow
                   key={s.id}
@@ -1772,9 +1960,9 @@ function SuggestionsPanel({
               ))}
             </>
           )}
-        </div>
+        </Box>
       )}
-    </div>
+    </Box>
   );
 }
 
@@ -1824,18 +2012,20 @@ function PhaseTimer({ phaseDeadline, clockOffsetMs }: { phaseDeadline: string | 
   if (remaining === null) return null;
 
   return (
-    <span
-      style={{
+    <Box
+      component="span"
+      sx={{
         display: 'inline-block',
-        padding: '2px 10px',
-        borderRadius: 4,
+        px: 1.25,
+        py: 0.25,
+        borderRadius: 1,
         fontVariantNumeric: 'tabular-nums',
-        background: isExpired ? undefined : '#eee',
+        bgcolor: isExpired ? undefined : 'grey.200',
         animation: isExpired ? 'rn-timer-flash 1s linear infinite' : undefined,
       }}
     >
       {formatCountdown(remaining)}
-    </span>
+    </Box>
   );
 }
 
@@ -2776,83 +2966,89 @@ function Board({
   const currentPillIndex = PHASE_PILLS.indexOf(board.phase);
 
   return (
-    <main style={{ fontFamily: 'system-ui, sans-serif', padding: 32 }}>
+    <Box sx={{ fontFamily: 'system-ui, sans-serif', p: 4 }}>
       <style>{'@keyframes rn-timer-flash { 0%, 100% { background: #c00; color: #fff; } 50% { background: #fff; color: #c00; } }'}</style>
-      <h1 style={{ marginBottom: 4 }}>{initialBoard.retro.name}</h1>
+      <Typography variant="h4" sx={{ mb: 0.5 }}>
+        {initialBoard.retro.name}
+      </Typography>
       {isReconnecting && (
-        <p role="status" style={{ margin: '0 0 4px', color: '#a66a00', fontSize: 13 }}>
+        <Typography role="status" variant="caption" component="p" sx={{ color: '#a66a00', mb: 0.5 }}>
           Reconnecting…
-        </p>
+        </Typography>
       )}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+      <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', mb: 0.5 }}>
         {PHASE_PILLS.map((phase, index) => (
-          <span
+          <Chip
             key={phase}
-            style={{
-              padding: '4px 10px',
-              borderRadius: 999,
-              fontSize: 12,
-              background: phase === board.phase ? '#222' : '#eee',
+            size="small"
+            label={phase.replace('_', ' ')}
+            sx={{
+              bgcolor: phase === board.phase ? '#222' : 'grey.200',
               color: phase === board.phase ? '#fff' : index < currentPillIndex ? '#aaa' : '#888',
             }}
-          >
-            {phase.replace('_', ' ')}
-          </span>
+          />
         ))}
         <PhaseTimer phaseDeadline={board.phaseDeadline} clockOffsetMs={clockOffsetMs} />
-      </div>
-      <p style={{ margin: '0 0 8px', color: '#666' }}>{phaseSubtitle(board.phase)}</p>
+      </Stack>
+      <Typography color="text.secondary" sx={{ mb: 1 }}>
+        {phaseSubtitle(board.phase)}
+      </Typography>
       {board.phase === 'vote' && (
-        <p style={{ margin: '0 0 8px', fontSize: 13 }}>
+        <Typography variant="body2" sx={{ mb: 1 }}>
           {votesRemaining} vote{votesRemaining === 1 ? '' : 's'} remaining
           {board.votingProgress && ` · ${board.votingProgress.done} of ${board.votingProgress.total} done voting`}
-        </p>
+        </Typography>
       )}
       {isFacilitator && (
-        <p style={{ margin: '0 0 16px' }}>
+        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', mb: 2 }}>
           {previousPhase(board.phase) && (
-            <button type="button" onClick={() => changePhase('back')}>
+            <Button size="small" type="button" onClick={() => changePhase('back')}>
               Back
-            </button>
-          )}{' '}
+            </Button>
+          )}
           {/* RN-023: wrap_up's "Skip" is replaced by this dialog-opening button — phase.skip (same
               mutation type as phase.next) is rejected server-side for that specific target now,
               so this is the only door from here to Closed. */}
           {board.phase === 'wrap_up' ? (
-            <button type="button" onClick={() => setCloseDialogOpen(true)}>
+            <Button size="small" variant="contained" type="button" onClick={() => setCloseDialogOpen(true)}>
               Close retro
-            </button>
+            </Button>
           ) : (
             nextPhase(board.phase) && (
-              <button type="button" onClick={() => changePhase('skip')}>
+              <Button size="small" type="button" onClick={() => changePhase('skip')}>
                 Skip
-              </button>
+              </Button>
             )
-          )}{' '}
+          )}
           {board.phaseDeadline &&
             [1, 2, 5].map((minutes) => (
-              <button key={minutes} type="button" onClick={() => extendPhase(minutes as 1 | 2 | 5)}>
+              <Button size="small" key={minutes} type="button" onClick={() => extendPhase(minutes as 1 | 2 | 5)}>
                 +{minutes}
-              </button>
-            ))}{' '}
+              </Button>
+            ))}
           {board.phase === 'write' && !board.cardsRevealed && (
-            <button type="button" onClick={revealCards}>
+            <Button size="small" type="button" onClick={revealCards}>
               Reveal cards
-            </button>
+            </Button>
           )}
-        </p>
+        </Stack>
       )}
       {lastError && (
-        <p role="alert" style={{ color: 'crimson' }}>
-          {lastError}{' '}
-          <button type="button" onClick={clearError}>
-            Dismiss
-          </button>
-        </p>
+        <Alert
+          severity="error"
+          sx={{ mb: 2 }}
+          action={
+            <Button color="inherit" size="small" type="button" onClick={clearError}>
+              Dismiss
+            </Button>
+          }
+        >
+          {lastError}
+        </Alert>
       )}
-      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+      <Stack direction="row" spacing={2} sx={{ alignItems: 'flex-start' }}>
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-          <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flex: 1, minWidth: 0 }}>
+          <Stack direction="row" spacing={2} sx={{ alignItems: 'flex-start', flex: 1, minWidth: 0 }}>
             {board.columns
               .slice()
               .sort((a, b) => a.position - b.position)
@@ -2864,10 +3060,14 @@ function Board({
                   const items = [...board.actionItems].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
                   return (
                     <DroppableColumn key={column.id} column={column}>
-                      <h2 style={{ fontSize: 16, margin: '0 0 4px' }}>
-                        {column.title} <span style={{ fontWeight: 'normal', color: '#666' }}>({items.length})</span>
-                      </h2>
-                      {column.prompt && <p style={{ fontSize: 12, color: '#666', margin: '0 0 8px' }}>{column.prompt}</p>}
+                      <Typography variant="subtitle1" sx={{ mb: 0.5 }}>
+                        {column.title} <Typography component="span" sx={{ fontWeight: 'normal', color: 'text.secondary' }}>({items.length})</Typography>
+                      </Typography>
+                      {column.prompt && (
+                        <Typography variant="caption" color="text.secondary" component="p" sx={{ mb: 1 }}>
+                          {column.prompt}
+                        </Typography>
+                      )}
                       {items.map((item) => (
                         <ActionItemRow
                           key={item.id}
@@ -2932,10 +3132,14 @@ function Board({
                 }
                 return (
                   <DroppableColumn key={column.id} column={column}>
-                    <h2 style={{ fontSize: 16, margin: '0 0 4px' }}>
-                      {column.title} <span style={{ fontWeight: 'normal', color: '#666' }}>({cards.length})</span>
-                    </h2>
-                    {column.prompt && <p style={{ fontSize: 12, color: '#666', margin: '0 0 8px' }}>{column.prompt}</p>}
+                    <Typography variant="subtitle1" sx={{ mb: 0.5 }}>
+                      {column.title} <Typography component="span" sx={{ fontWeight: 'normal', color: 'text.secondary' }}>({cards.length})</Typography>
+                    </Typography>
+                    {column.prompt && (
+                      <Typography variant="caption" color="text.secondary" component="p" sx={{ mb: 1 }}>
+                        {column.prompt}
+                      </Typography>
+                    )}
                     <SortableContext items={sortableIds} strategy={noSortPreview}>
                       {displayRows.map((row) =>
                         row.kind === 'card' ? (
@@ -3002,9 +3206,9 @@ function Board({
                             }
                             voteCountBadge={
                               votesRevealed ? (
-                                <span style={{ fontSize: 12, color: '#666' }}>
+                                <Typography variant="caption" color="text.secondary">
                                   {row.topic.voteCount} vote{row.topic.voteCount === 1 ? '' : 's'}
-                                </span>
+                                </Typography>
                               ) : undefined
                             }
                           />
@@ -3015,10 +3219,10 @@ function Board({
                   </DroppableColumn>
                 );
               })}
-          </div>
+          </Stack>
           <DragOverlay>
             {activeCard && (
-              <div style={{ transform: 'rotate(2deg)', boxShadow: '0 4px 12px rgba(0,0,0,0.2)' }}>
+              <Box sx={{ transform: 'rotate(2deg)', boxShadow: 3 }}>
                 <CardView
                   card={activeCard}
                   canEdit={false}
@@ -3026,7 +3230,7 @@ function Board({
                   onDelete={() => {}}
                   reactionProps={{ reactions: activeCard.reactions, viewerId: userId, canReact: false, onToggleReaction: () => {} }}
                 />
-              </div>
+              </Box>
             )}
           </DragOverlay>
         </DndContext>
@@ -3070,8 +3274,12 @@ function Board({
             attendees={board.attendees}
           />
         )}
-      </div>
-      {footerHint(board.phase) && <p style={{ marginTop: 24, color: '#666', fontSize: 13 }}>{footerHint(board.phase)}</p>}
+      </Stack>
+      {footerHint(board.phase) && (
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 3 }}>
+          {footerHint(board.phase)}
+        </Typography>
+      )}
       {closeDialogOpen && (
         <CloseRetroDialog
           retroName={initialBoard.retro.name}
@@ -3083,7 +3291,7 @@ function Board({
           onCancel={() => setCloseDialogOpen(false)}
         />
       )}
-    </main>
+    </Box>
   );
 }
 
@@ -3096,21 +3304,21 @@ export function BoardPage({ retroId }: { retroId: string }) {
     enabled: !!accessToken,
   });
 
-  if (!supabase) return <p>Supabase is not configured.</p>;
+  if (!supabase) return <Alert severity="error">Supabase is not configured.</Alert>;
 
   if (!accessToken) {
     return (
-      <main style={{ fontFamily: 'system-ui, sans-serif', padding: 32 }}>
-        <p>Sign in to view this board.</p>
-        <button type="button" onClick={() => void signInWithGoogle()}>
+      <Box sx={{ fontFamily: 'system-ui, sans-serif', p: 4 }}>
+        <Typography sx={{ mb: 1 }}>Sign in to view this board.</Typography>
+        <Button variant="contained" type="button" onClick={() => void signInWithGoogle()}>
           Continue with Google
-        </button>
-      </main>
+        </Button>
+      </Box>
     );
   }
 
-  if (board.isPending) return <p>Loading board…</p>;
-  if (board.isError) return <p>Failed to load board.</p>;
+  if (board.isPending) return <Typography sx={{ p: 4 }}>Loading board…</Typography>;
+  if (board.isError) return <Alert severity="error" sx={{ m: 4 }}>Failed to load board.</Alert>;
 
   return <Board retroId={retroId} accessToken={accessToken} userId={session.user.id} initialBoard={board.data} />;
 }
