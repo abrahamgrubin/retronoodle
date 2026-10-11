@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { parseMasterKey, wrapDataKey } from '@retronoodle/shared';
+import { parseMasterKey, wrapDataKey } from './transcriptCrypto.js';
 import { decryptForTeam, destroyTeamDataKey, encryptForTeam, getOrCreateTeamDataKey } from './transcriptKeys.js';
 
 const masterKey = parseMasterKey(Buffer.alloc(32, 7).toString('base64'));
