@@ -2828,6 +2828,13 @@ function Board({
     // never gets a topic in this client's board state, so it renders as a bare, vote-control-less
     // card forever — resync once to pick up whatever topics actually exist now.
     if (previousPhaseRef.current === 'group' && board.phase === 'vote') resyncRef.current(false);
+    // RN-019: "reveal counts ... first topic becomes current" — vote->discuss (onTransition.ts)
+    // ranks every topic and sets the top one's started_at directly in the DB, but — same gap as
+    // the two resyncs above — its own broadcast only carries the new phase, never the updated
+    // topics. Without this, nobody's board ever shows a "Now discussing" topic until something
+    // else happens to trigger a resync (e.g. a reload) — found live, the queue panel stayed
+    // empty on entering Discuss.
+    if (previousPhaseRef.current === 'vote' && board.phase === 'discuss') resyncRef.current(false);
     // RN-017: "Within 5s of entering Group, the facilitator sees suggested groups" — a live
     // transition (not a reload that happens to land already in Group — see this state's own
     // declaration comment) starts the "Finding similar cards…" window. The fallback timeout
