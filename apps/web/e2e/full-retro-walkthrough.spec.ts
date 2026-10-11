@@ -141,6 +141,14 @@ test('a full retro walkthrough across every phase, then a second retro opens wit
     await sendMutation(retroId, facilitator.accessToken, 'phase.next', {}); // vote -> discuss (ranks + starts the top topic)
     await expect(observerPage.getByText('Discussing topics')).toBeVisible();
 
+    // RN-019: "first topic becomes current" — checked against the *live, already-connected*
+    // browser page, not a fresh GET /board (found live: vote->discuss's own broadcast never
+    // carries the updated topics, same gap write->group/group->vote already had a resync for;
+    // a fresh fetch would hide this bug since the server-side ranking is correct either way).
+    // "Grouped topic" (the current topic's own name) isn't asserted here too — it also renders
+    // as that group's header on the main board, so it's not a unique match on this page.
+    await expect(observerPage.getByText('Now discussing')).toBeVisible();
+
     // Only now does vote_count become accurate (the vote->discuss sweep computes it from `votes`)
     // — and it's a plain aggregate, safe for the observer to see.
     const boardAfterRanking = await getBoard(retroId, observer.accessToken);

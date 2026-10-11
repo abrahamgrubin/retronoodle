@@ -15,5 +15,4 @@ export * from './votes.js';
 export * from './topicSummaries.js';
 export * from './actionItems.js';
 export * from './teamActionItems.js';
-export * from './transcriptCrypto.js';
 export * from './recording.js';
