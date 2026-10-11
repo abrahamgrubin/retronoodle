@@ -7,6 +7,7 @@ import { VotingProgress } from './votes.js';
 import { TopicSummary } from './topicSummaries.js';
 import { ActionItem, ActionItemReviewOutcome } from './actionItems.js';
 import { RecordingSession } from './recording.js';
+import { TranscriptSegment, UnmatchedSpeaker } from './transcription.js';
 
 export const BoardColumn = z.object({
   id: z.string().uuid(),
@@ -121,6 +122,14 @@ export const BoardResponse = z.object({
   // none exists yet, or the last one already stopped. Visible to everyone, not redacted: the
   // whole point of all-party consent is that participants can see who hasn't answered yet.
   recordingSession: RecordingSession.nullable(),
+  // RN-033/034: every transcript line captured so far this retro, decrypted and tagged to its
+  // topic — visible to everyone on the retro (every listener already consented to the recording,
+  // RN-032), same as recordingSession above.
+  transcriptSegments: z.array(TranscriptSegment),
+  // RN-036: diarized voices still waiting on a "Who is this?" fix, facilitator only — null for
+  // every other viewer, same "facilitator-only, absent for everyone else" convention as
+  // `suggestions` above.
+  unmatchedSpeakers: z.array(UnmatchedSpeaker).nullable(),
   seq: z.number().int().nonnegative(),
   // RN-012: "every API response includes serverTime" — the client compares this to its own
   // clock once, at load, to get a stable offset, then counts the phase timer down locally

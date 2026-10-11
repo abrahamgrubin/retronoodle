@@ -59,12 +59,14 @@ import {
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
 import { signInWithGoogle } from './auth';
-import { fetchBoard, sendHeartbeat } from './board';
+import { audioGatewayUrl, fetchBoard, sendHeartbeat } from './board';
 import { reduceBoard, toggleReaction, type BoardState } from './boardReducer';
 import { computeClockOffsetMs, formatCountdown, remainingMs } from './clock';
 import { postMutation } from './mutations';
 import { createRetroStore } from './retroStore';
 import { supabase } from './supabaseClient';
+import type { AudioCaptureHandle } from './transcription/audioCapture';
+import type { SpeechDetectionHandle } from './transcription/speechDetection';
 import { useSession } from './useSession';
 
 const MAX_CARD_LENGTH = 500;
@@ -2071,6 +2073,8 @@ function Board({
         teamMembers: initialBoard.teamMembers,
         attendees: initialBoard.attendees,
         recordingSession: initialBoard.recordingSession,
+        transcriptSegments: initialBoard.transcriptSegments,
+        unmatchedSpeakers: initialBoard.unmatchedSpeakers,
       },
       initialSeq: initialBoard.seq,
       reduce: reduceBoard,
@@ -2695,6 +2699,8 @@ function Board({
               teamMembers: fresh.teamMembers,
               attendees: fresh.attendees,
               recordingSession: fresh.recordingSession,
+              transcriptSegments: fresh.transcriptSegments,
+              unmatchedSpeakers: fresh.unmatchedSpeakers,
             },
             fresh.seq,
           );
@@ -2780,6 +2786,14 @@ function Board({
       if (message.event === 'recording.sessionUpdated') {
         const { session } = message.payload as { session: BoardState['recordingSession'] };
         applyLocalPatch((b) => ({ ...b, recordingSession: session }));
+        return;
+      }
+      // RN-033: the audio gateway's own broadcast (routes/audioGateway.ts), not the mutation
+      // pipeline — a transcript line has no seq of its own, same reasoning as recording.
+      // sessionUpdated above.
+      if (message.event === 'transcript.line') {
+        const { segment } = message.payload as { segment: BoardState['transcriptSegments'][number] };
+        applyLocalPatch((b) => ({ ...b, transcriptSegments: [...b.transcriptSegments, segment] }));
         return;
       }
       const { seq, result } = message.payload as { seq: number; result: unknown };
@@ -2879,6 +2893,89 @@ function Board({
     const id = setInterval(() => void sendHeartbeat(accessToken, retroId), 12_000);
     return () => clearInterval(id);
   }, [accessToken, retroId]);
+
+  // RN-033: "Stream only during Discuss and Wrap up" — and only while there's an active,
+  // fully-agreed recording session (RN-032's consent gate). The gateway itself re-enforces both
+  // of these at connect time; this is what makes sure a facilitator's open capture socket from an
+  // earlier phase actually gets torn down once either condition stops holding.
+  const captureAllowed =
+    board.recordingSession?.status === 'recording' && (board.phase === 'discuss' || board.phase === 'wrap_up');
+  const [captureActive, setCaptureActive] = useState(false);
+  const [transcriptionUnavailable, setTranscriptionUnavailable] = useState(false);
+  const captureHandleRef = useRef<AudioCaptureHandle | null>(null);
+
+  function startCapture() {
+    setTranscriptionUnavailable(false);
+    // Dynamically imported so it's not part of the bundle every board visitor loads — only the
+    // facilitator, and only once they actually click this, ever needs it.
+    void import('./transcription/audioCapture')
+      .then(({ startAudioCapture }) =>
+        startAudioCapture(audioGatewayUrl(accessToken, retroId), {
+          onUnavailable: () => {
+            setTranscriptionUnavailable(true);
+            setCaptureActive(false);
+            captureHandleRef.current = null;
+          },
+        }),
+      )
+      .then((handle) => {
+        captureHandleRef.current = handle;
+        setCaptureActive(true);
+      })
+      .catch(() => setTranscriptionUnavailable(true));
+  }
+
+  function stopCapture() {
+    captureHandleRef.current?.stop();
+    captureHandleRef.current = null;
+    setCaptureActive(false);
+  }
+
+  useEffect(() => {
+    if (!captureAllowed && captureHandleRef.current) stopCapture();
+  }, [captureAllowed]);
+
+  // RN-035: on-device speech detection — any participant, not just the facilitator. Starts
+  // automatically whenever audio capture would be allowed (same phase/session gate as the
+  // facilitator's own capture above) and the participant hasn't turned it off; "Mic permission
+  // requested only after consent" holds because captureAllowed can only ever be true once a
+  // recording session has reached `recording`, which itself requires every online participant's
+  // consent (RN-032).
+  const [speechDetectionEnabled, setSpeechDetectionEnabled] = useState(true);
+  const speechHandleRef = useRef<SpeechDetectionHandle | null>(null);
+  useEffect(() => {
+    if (!captureAllowed || !speechDetectionEnabled) return;
+    let cancelled = false;
+    // Dynamically imported: @ricky0123/vad-web pulls in onnxruntime-web, which alone is several
+    // hundred KB — statically importing it here once made it part of every board visitor's
+    // initial bundle (found live: it roughly doubled the bundle size and delayed this page's
+    // Realtime channel subscription enough to miss a broadcast in e2e). Nobody needs any of this
+    // until a recording session is actually live during Discuss/Wrap up.
+    void import('./transcription/speechDetection').then(({ startSpeechDetection }) =>
+      startSpeechDetection(accessToken, retroId, clockOffsetMs).then((handle) => {
+        if (cancelled) {
+          void handle.stop();
+          return;
+        }
+        speechHandleRef.current = handle;
+      }),
+    );
+    return () => {
+      cancelled = true;
+      void speechHandleRef.current?.stop();
+      speechHandleRef.current = null;
+    };
+  }, [captureAllowed, speechDetectionEnabled, accessToken, retroId, clockOffsetMs]);
+
+  function assignSpeaker(topicId: string, speakerTag: number, assignedUserId: string) {
+    const mutationId = uuidv7();
+    void sendMutation({
+      mutationId,
+      optimisticReduce: (b) => b,
+      send: () =>
+        postMutation(accessToken, retroId, { mutationId, type: 'topic.assignSpeaker', payload: { topicId, speakerTag, userId: assignedUserId } }),
+    });
+  }
 
   function startRecording() {
     const sessionId = uuidv7();
@@ -3122,7 +3219,81 @@ function Board({
               {board.recordingSession.status !== 'recording' && ` (${board.recordingSession.status})`}
             </Button>
           )}
+          {/* RN-033: facilitator-only, and only once recording has actually started (not merely
+              `pending`) — there is no capture without the consent gate having already passed. */}
+          {captureAllowed && !captureActive && (
+            <Button size="small" type="button" onClick={startCapture}>
+              Start transcription
+            </Button>
+          )}
+          {captureAllowed && captureActive && (
+            <Button size="small" type="button" color="error" onClick={stopCapture}>
+              Stop transcription
+            </Button>
+          )}
         </Stack>
+      )}
+      {transcriptionUnavailable && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          Transcription unavailable. The retro continues on cards and notes.
+        </Alert>
+      )}
+      {captureAllowed && (
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 2 }}>
+          <Typography variant="body2" color="text.secondary">
+            Speaker detection (your mic, timestamps only — never audio):
+          </Typography>
+          <Button size="small" type="button" onClick={() => setSpeechDetectionEnabled((v) => !v)}>
+            {speechDetectionEnabled ? 'Turn off' : 'Turn on'}
+          </Button>
+        </Stack>
+      )}
+      {board.transcriptSegments.length > 0 && (
+        <Box sx={{ mb: 2, maxHeight: 200, overflowY: 'auto', border: 1, borderColor: 'divider', borderRadius: 1, p: 1 }}>
+          <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+            Transcript
+          </Typography>
+          {board.transcriptSegments.map((segment) =>
+            segment.isGapMarker ? (
+              <Typography key={segment.id} variant="caption" component="p" sx={{ fontStyle: 'italic', color: 'text.secondary' }}>
+                — gap in recording —
+              </Typography>
+            ) : (
+              <Typography key={segment.id} variant="body2" component="p">
+                {segment.text}
+              </Typography>
+            ),
+          )}
+        </Box>
+      )}
+      {isFacilitator && board.phase === 'wrap_up' && board.unmatchedSpeakers && board.unmatchedSpeakers.length > 0 && (
+        <Box sx={{ mb: 2, border: 1, borderColor: 'divider', borderRadius: 1, p: 1 }}>
+          <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+            Who is this?
+          </Typography>
+          {board.unmatchedSpeakers.map((speaker) => (
+            <Stack key={`${speaker.topicId}-${speaker.speakerTag}`} direction="row" spacing={1} sx={{ alignItems: 'center', mb: 0.5 }}>
+              <Typography variant="body2" sx={{ fontStyle: 'italic', flex: 1 }}>
+                "{speaker.sampleText}"
+              </Typography>
+              <Select
+                size="small"
+                displayEmpty
+                value=""
+                onChange={(e) => assignSpeaker(speaker.topicId, speaker.speakerTag, e.target.value)}
+              >
+                <MenuItem value="" disabled>
+                  Assign to…
+                </MenuItem>
+                {board.teamMembers.map((member) => (
+                  <MenuItem key={member.id} value={member.id}>
+                    {member.displayName}
+                  </MenuItem>
+                ))}
+              </Select>
+            </Stack>
+          ))}
+        </Box>
       )}
       {lastError && (
         <Alert

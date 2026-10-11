@@ -422,3 +422,21 @@ export const RecordingStopResult = z.object({
   session: RecordingSession,
 });
 export type RecordingStopResult = z.infer<typeof RecordingStopResult>;
+
+/** `topic.assignSpeaker` (RN-036): facilitator-only, "Who is this?" one-click fix — assigns every
+ * transcript segment in `topicId` tagged with the diarizer's `speakerTag` to `userId`, the same
+ * grouping "Who is this?" lists them by (one diarized voice may span many segments). */
+export const TopicAssignSpeakerPayload = z.object({
+  topicId: z.string().uuid(),
+  speakerTag: z.number().int(),
+  userId: z.string().uuid(),
+});
+export type TopicAssignSpeakerPayload = z.infer<typeof TopicAssignSpeakerPayload>;
+
+export const TopicAssignSpeakerResult = z.object({
+  topicId: z.string().uuid(),
+  speakerTag: z.number().int(),
+  userId: z.string().uuid(),
+  segmentIds: z.array(z.string().uuid()),
+});
+export type TopicAssignSpeakerResult = z.infer<typeof TopicAssignSpeakerResult>;

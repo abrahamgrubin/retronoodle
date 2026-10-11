@@ -84,6 +84,15 @@ export async function endCurrentTopic(client: PoolClient, retroId: string, jobs?
     } catch {
       // Swallowed deliberately — see above.
     }
+    // RN-036: a topic ending is also when its transcript_segments/speech_activity are complete
+    // enough to match speakers — same best-effort, never-block-the-transition handling as
+    // ai.summarizeTopic above (no transcript at all, e.g. no recording this retro, just means the
+    // job finds nothing to do, per matchSpeakers.ts's own early return).
+    try {
+      await jobs.send('transcription.matchSpeakers', { topicId: row.id });
+    } catch {
+      // Swallowed deliberately — see above.
+    }
   }
 
   return toTopic(ended.rows[0]!);

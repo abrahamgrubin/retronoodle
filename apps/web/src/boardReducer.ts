@@ -30,6 +30,9 @@ import type {
   VoteRemoveResult,
   VotingProgress,
   RecordingSession,
+  TopicAssignSpeakerResult,
+  TranscriptSegment,
+  UnmatchedSpeaker,
 } from '@retronoodle/shared';
 import type { RetroEvent } from './retroStore';
 
@@ -78,6 +81,14 @@ export interface BoardState {
   // RN-032: the current recording session (and everyone's consent) — null when none exists yet,
   // or the last one already stopped.
   recordingSession: RecordingSession | null;
+  // RN-033/034: every transcript line captured so far, in arrival order. New lines (`transcript.
+  // line`, no seq of its own — a server-authored broadcast like recording.sessionUpdated) are
+  // folded directly in BoardPage.tsx's channel handler via applyLocalPatch, not through this
+  // reducer; topic.assignSpeaker (RN-036) is the only mutation that touches this array here.
+  transcriptSegments: TranscriptSegment[];
+  // RN-036: diarized voices still waiting on a "Who is this?" fix — null for anyone but the
+  // facilitator, same convention as suggestions.
+  unmatchedSpeakers: UnmatchedSpeaker[] | null;
 }
 
 function isHiddenPayload(payload: unknown): payload is HiddenBoardCard {
@@ -378,6 +389,21 @@ export function reduceBoard(board: BoardState, event: RetroEvent): BoardState {
     case 'recording.stop': {
       const result = event.payload as { session: RecordingSession };
       return { ...board, recordingSession: result.session };
+    }
+    // topic.assignSpeaker (RN-036): "Who is this?" one-click fix — every segment this voice said
+    // in this topic gets the chosen participant; the same (topic, speakerTag) pair disappears
+    // from unmatchedSpeakers, wherever it was fixed from (a different viewer might not even have
+    // it — unmatchedSpeakers is facilitator-only, so board.unmatchedSpeakers can be null here).
+    case 'topic.assignSpeaker': {
+      const result = event.payload as TopicAssignSpeakerResult;
+      const segmentIds = new Set(result.segmentIds);
+      return {
+        ...board,
+        transcriptSegments: board.transcriptSegments.map((s) => (segmentIds.has(s.id) ? { ...s, speakerUserId: result.userId } : s)),
+        unmatchedSpeakers: board.unmatchedSpeakers
+          ? board.unmatchedSpeakers.filter((u) => !(u.topicId === result.topicId && u.speakerTag === result.speakerTag))
+          : null,
+      };
     }
     default:
       return board;

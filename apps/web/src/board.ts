@@ -1,4 +1,4 @@
-import { BoardResponse } from '@retronoodle/shared';
+import { BoardResponse, type SpeechActivityInterval } from '@retronoodle/shared';
 import { API_URL } from './api';
 
 export async function fetchBoard(
@@ -21,4 +21,30 @@ export async function sendHeartbeat(accessToken: string, retroId: string, fetchI
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}` },
   });
+}
+
+/** RN-035: uploads a batch of already clock-corrected on-device VAD intervals — never audio, only
+ * timestamps (see speechDetection.ts, which computes them). Best-effort, same shape as the
+ * heartbeat above: a dropped batch just means those few seconds of speaking intervals never
+ * reached speaker matching, not a reason to surface an error to the participant. */
+export async function uploadSpeechActivity(
+  accessToken: string,
+  retroId: string,
+  intervals: SpeechActivityInterval[],
+  fetchImpl: typeof fetch = fetch,
+): Promise<void> {
+  if (intervals.length === 0) return;
+  await fetchImpl(`${API_URL}/retros/${retroId}/speech-activity`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ intervals }),
+  });
+}
+
+/** RN-033: the audio gateway's WebSocket URL — ws(s) is derived from API_URL's own http(s), and
+ * the access token travels as a query param (a browser can't set an Authorization header on a
+ * WebSocket upgrade request). */
+export function audioGatewayUrl(accessToken: string, retroId: string): string {
+  const wsUrl = API_URL.replace(/^http/, 'ws');
+  return `${wsUrl}/retros/${retroId}/audio-gateway?token=${encodeURIComponent(accessToken)}`;
 }
