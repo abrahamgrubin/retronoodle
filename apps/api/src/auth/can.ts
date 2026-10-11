@@ -31,6 +31,7 @@ export type Resource = TeamResource | RetroResource | CardResource | null;
 export type Action =
   | 'team.create'
   | 'team.read'
+  | 'team.update'
   | 'team.member.remove'
   | 'retro.create'
   | 'retro.read'
@@ -67,6 +68,9 @@ export function can(user: CanUser, action: Action, resource: Resource): boolean 
       return true;
     case 'team.read':
       return resource?.type === 'team' && resource.role !== null;
+    case 'team.update':
+      // RN-031: "admins can switch to 30 or 90 days" — same admin-only shape as member removal.
+      return resource?.type === 'team' && resource.role === 'admin';
     case 'team.member.remove':
       return resource?.type === 'team' && resource.role === 'admin';
     case 'retro.create':
