@@ -49,6 +49,7 @@ export function registerTeamRoutes(app: FastifyInstance, deps: TeamRoutesDeps): 
         createdBy: team.created_by,
         retroCadenceDays: team.retro_cadence_days,
         transcriptRetentionDays: team.transcript_retention_days,
+        recordingFacilitatorOnlyConfirmation: team.recording_facilitator_only_confirmation,
         role: 'admin',
         createdAt: team.created_at,
       }),
@@ -78,6 +79,7 @@ export function registerTeamRoutes(app: FastifyInstance, deps: TeamRoutesDeps): 
       createdBy: team.created_by,
       retroCadenceDays: team.retro_cadence_days,
       transcriptRetentionDays: team.transcript_retention_days,
+      recordingFacilitatorOnlyConfirmation: team.recording_facilitator_only_confirmation,
       role,
       createdAt: team.created_at,
     });
@@ -95,12 +97,11 @@ export function registerTeamRoutes(app: FastifyInstance, deps: TeamRoutesDeps): 
 
     const body = UpdateTeamRequest.parse(request.body);
 
-    const { data: team, error } = await supabaseAdmin
-      .from('teams')
-      .update({ transcript_retention_days: body.transcriptRetentionDays })
-      .eq('id', teamId)
-      .select()
-      .maybeSingle();
+    const patch: { transcript_retention_days?: number; recording_facilitator_only_confirmation?: boolean } = {};
+    if (body.transcriptRetentionDays !== undefined) patch.transcript_retention_days = body.transcriptRetentionDays;
+    if (body.recordingFacilitatorOnlyConfirmation !== undefined) patch.recording_facilitator_only_confirmation = body.recordingFacilitatorOnlyConfirmation;
+
+    const { data: team, error } = await supabaseAdmin.from('teams').update(patch).eq('id', teamId).select().maybeSingle();
     if (error) {
       request.log.error({ err: error }, 'failed to update team');
       return reply.code(500).send({ error: 'team_update_failed' });
@@ -113,6 +114,7 @@ export function registerTeamRoutes(app: FastifyInstance, deps: TeamRoutesDeps): 
       createdBy: team.created_by,
       retroCadenceDays: team.retro_cadence_days,
       transcriptRetentionDays: team.transcript_retention_days,
+      recordingFacilitatorOnlyConfirmation: team.recording_facilitator_only_confirmation,
       role,
       createdAt: team.created_at,
     });
@@ -147,6 +149,7 @@ export function registerTeamRoutes(app: FastifyInstance, deps: TeamRoutesDeps): 
         createdBy: team.created_by,
         retroCadenceDays: team.retro_cadence_days,
         transcriptRetentionDays: team.transcript_retention_days,
+        recordingFacilitatorOnlyConfirmation: team.recording_facilitator_only_confirmation,
         role: roleByTeamId.get(team.id),
         createdAt: team.created_at,
       }),

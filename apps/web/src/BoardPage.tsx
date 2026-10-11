@@ -40,7 +40,7 @@ import {
   type VisibleBoardCard,
 } from '@retronoodle/shared';
 import { signInWithGoogle } from './auth';
-import { fetchBoard } from './board';
+import { fetchBoard, sendHeartbeat } from './board';
 import { reduceBoard, toggleReaction, type BoardState } from './boardReducer';
 import { computeClockOffsetMs, formatCountdown, remainingMs } from './clock';
 import { postMutation } from './mutations';
@@ -2576,6 +2576,13 @@ function Board({
         }));
         return;
       }
+      // RN-032: board.ts's heartbeat route, not the mutation pipeline — a late joiner's pause has
+      // no seq of its own, same reasoning as the homework agents' one-shot broadcasts above.
+      if (message.event === 'recording.sessionUpdated') {
+        const { session } = message.payload as { session: BoardState['recordingSession'] };
+        applyLocalPatch((b) => ({ ...b, recordingSession: session }));
+        return;
+      }
       const { seq, result } = message.payload as { seq: number; result: unknown };
       applyServerEvent({ seq, type: message.event, payload: result });
     });
@@ -2657,6 +2664,50 @@ function Board({
     const timeout = setTimeout(() => setSuggestionsLoading(false), 6000);
     return () => clearTimeout(timeout);
   }, [suggestionsLoading]);
+
+  // RN-032: presence heartbeat — also how the server notices a late joiner once a recording
+  // session is already active. Fires once immediately (don't wait 12s to register as "online"),
+  // then every 12s for as long as this board stays mounted.
+  useEffect(() => {
+    void sendHeartbeat(accessToken, retroId);
+    const id = setInterval(() => void sendHeartbeat(accessToken, retroId), 12_000);
+    return () => clearInterval(id);
+  }, [accessToken, retroId]);
+
+  function startRecording() {
+    const sessionId = uuidv7();
+    const mutationId = uuidv7();
+    void sendMutation({
+      mutationId,
+      // No optimistic shortcut — whether this starts 'recording' immediately or stays 'pending'
+      // depends on who else is online right now, something only the server actually knows.
+      optimisticReduce: (b) => b,
+      send: () =>
+        postMutation(accessToken, retroId, {
+          mutationId,
+          type: 'recording.start',
+          payload: { sessionId, confirmedExternalNotice: true },
+        }),
+    });
+  }
+
+  function respondToRecording(sessionId: string, agree: boolean) {
+    const mutationId = uuidv7();
+    void sendMutation({
+      mutationId,
+      optimisticReduce: (b) => b,
+      send: () => postMutation(accessToken, retroId, { mutationId, type: 'recording.respond', payload: { sessionId, agree } }),
+    });
+  }
+
+  function stopRecording(sessionId: string) {
+    const mutationId = uuidv7();
+    void sendMutation({
+      mutationId,
+      optimisticReduce: (b) => b,
+      send: () => postMutation(accessToken, retroId, { mutationId, type: 'recording.stop', payload: { sessionId } }),
+    });
+  }
 
   function addCard(columnId: string, body: string) {
     const cardId = uuidv7();

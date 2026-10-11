@@ -117,7 +117,7 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
     registerTeamRoutes(app, { supabaseAdmin, requireAuth, realtimeBus });
     registerRetroRoutes(app, { supabaseAdmin, requireAuth });
     registerTemplateRoutes(app, { supabaseAdmin, requireAuth });
-    registerBoardRoutes(app, { supabaseAdmin, requireAuth });
+    registerBoardRoutes(app, { supabaseAdmin, requireAuth, realtimeBus });
     registerActionItemRoutes(app, { supabaseAdmin, requireAuth });
     await registerMutationRoutes(app, { pool, registry: mutationRegistry, realtimeBus, requireAuth, jobs });
   }

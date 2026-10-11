@@ -18,6 +18,10 @@ export const TeamResponse = z.object({
   createdBy: z.string().uuid(),
   retroCadenceDays: z.number().int(),
   transcriptRetentionDays: TranscriptRetentionDays,
+  // RN-032: "Admin setting for facilitator-only confirmation, off by default" — when true,
+  // recording.start skips asking every online participant and starts as soon as the facilitator
+  // confirms.
+  recordingFacilitatorOnlyConfirmation: z.boolean(),
   role: z.enum(['admin', 'member']),
   createdAt: z.string(),
 });
@@ -26,9 +30,11 @@ export type TeamResponse = z.infer<typeof TeamResponse>;
 export const MyTeamsResponse = z.array(TeamResponse);
 export type MyTeamsResponse = z.infer<typeof MyTeamsResponse>;
 
-/** `PATCH /teams/:id` (RN-031): admin-only, currently the one team setting anyone can change
- * after creation. */
+/** `PATCH /teams/:id`: admin-only. Every field optional — only the ones actually being changed
+ * are sent, same partial-update shape as actionItem.update (RN-031 added the first field here;
+ * RN-032 adds the second). */
 export const UpdateTeamRequest = z.object({
-  transcriptRetentionDays: TranscriptRetentionDays,
+  transcriptRetentionDays: TranscriptRetentionDays.optional(),
+  recordingFacilitatorOnlyConfirmation: z.boolean().optional(),
 });
 export type UpdateTeamRequest = z.infer<typeof UpdateTeamRequest>;
