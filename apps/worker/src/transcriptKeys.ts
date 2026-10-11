@@ -1,13 +1,13 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '@retronoodle/shared';
 import {
   decryptTranscriptText,
   encryptTranscriptText,
   generateDataKey,
   unwrapDataKey,
   wrapDataKey,
-  type Database,
   type EncryptedPayload,
-} from '@retronoodle/shared';
+} from './transcriptCrypto.js';
 
 /**
  * RN-031: looks up a team's wrapped AES-256-GCM data key in `team_transcript_keys`, unwrapping it
