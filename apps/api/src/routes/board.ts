@@ -16,17 +16,20 @@ import {
 import { can } from '../auth/can.js';
 import { getTeamRole } from '../auth/membership.js';
 import { redactCard } from '../realtime/redact.js';
+import { fetchActiveRecordingSession } from '../recordingSession.js';
+import type { RealtimeBus } from '../realtime/RealtimeBus.js';
 
 export interface BoardRoutesDeps {
   supabaseAdmin: SupabaseClient<Database>;
   requireAuth: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
+  realtimeBus: RealtimeBus;
 }
 
 /** GET /retros/:id/board (RN-009): the initial snapshot plus its seq; the client applies any
  * events broadcast after that seq on top (RN-008's retroStore), rather than re-fetching. Each
  * card is passed through redact() (RN-011) for the requesting viewer before going out. */
 export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps): void {
-  const { supabaseAdmin, requireAuth } = deps;
+  const { supabaseAdmin, requireAuth, realtimeBus } = deps;
 
   app.get<{ Params: { id: string } }>('/retros/:id/board', { preHandler: requireAuth }, async (request, reply) => {
     const user = request.user;
@@ -287,6 +290,14 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
       votingProgress = { done, total: (participantRows ?? []).length };
     }
 
+    // RN-032: the current recording session (if any), with everyone's consent — visible to
+    // every viewer (the whole point of all-party consent is seeing who hasn't answered yet).
+    const { data: recordingSession, error: recordingSessionError } = await fetchActiveRecordingSession(supabaseAdmin, retroId);
+    if (recordingSessionError) {
+      request.log.error({ err: recordingSessionError }, 'failed to read recording session');
+      return reply.code(500).send({ error: 'board_read_failed' });
+    }
+
     const redactCtx = { viewerId: user.id, phase: retro.phase as RetroPhase, cardsRevealed: retro.cards_revealed };
 
     return BoardResponse.parse({
@@ -366,11 +377,99 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
       })),
       teamMembers,
       attendees,
+      recordingSession,
       seq: lastEventResult.data?.seq ?? 0,
       // RN-012: this specific response is what a late joiner's clock-offset calculation anchors
       // to, so it's set explicitly here rather than relying solely on the global serverTime hook
       // (server.ts) — that hook still covers every other response, this one just can't risk it.
       serverTime: new Date().toISOString(),
     });
+  });
+
+  // RN-032: "a late joiner pauses recording until they agree" — nothing before this story ever
+  // tracked who's *currently* connected to a retro (retro_participants.joined_at is set once and
+  // never touched again), so this doubles as the presence heartbeat and the late-joiner detector:
+  // a recording session already in progress with no consent row yet for this user means they
+  // just arrived, so one is inserted (pending) and an actively-recording session pauses.
+  app.post<{ Params: { id: string } }>('/retros/:id/heartbeat', { preHandler: requireAuth }, async (request, reply) => {
+    const user = request.user;
+    if (!user) return reply.code(401).send({ error: 'unauthorized' });
+
+    const retroId = request.params.id;
+    const { data: retro, error: retroError } = await supabaseAdmin
+      .from('retros')
+      .select('team_id, facilitator_id')
+      .eq('id', retroId)
+      .maybeSingle();
+    if (retroError) {
+      request.log.error({ err: retroError }, 'failed to read retro for heartbeat');
+      return reply.code(500).send({ error: 'heartbeat_failed' });
+    }
+    if (!retro) return reply.code(404).send({ error: 'not_found' });
+
+    const role = await getTeamRole(supabaseAdmin, retro.team_id, user.id);
+    if (!can(user, 'retro.read', { type: 'retro', teamRole: role, facilitatorId: retro.facilitator_id })) {
+      return reply.code(403).send({ error: 'forbidden' });
+    }
+
+    const now = new Date().toISOString();
+    const { error: upsertError } = await supabaseAdmin
+      .from('retro_participants')
+      .upsert({ retro_id: retroId, user_id: user.id, last_seen_at: now }, { onConflict: 'retro_id,user_id' });
+    if (upsertError) {
+      request.log.error({ err: upsertError }, 'failed to record heartbeat');
+      return reply.code(500).send({ error: 'heartbeat_failed' });
+    }
+
+    const { data: session, error: sessionError } = await supabaseAdmin
+      .from('recording_sessions')
+      .select('id, status')
+      .eq('retro_id', retroId)
+      .neq('status', 'stopped')
+      .maybeSingle();
+    if (sessionError) {
+      request.log.error({ err: sessionError }, 'failed to read recording session for heartbeat');
+      return reply.code(500).send({ error: 'heartbeat_failed' });
+    }
+
+    if (session) {
+      const { data: existingConsent, error: consentError } = await supabaseAdmin
+        .from('recording_consents')
+        .select('user_id')
+        .eq('session_id', session.id)
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (consentError) {
+        request.log.error({ err: consentError }, 'failed to read recording consent for heartbeat');
+        return reply.code(500).send({ error: 'heartbeat_failed' });
+      }
+
+      if (!existingConsent) {
+        const { error: insertConsentError } = await supabaseAdmin
+          .from('recording_consents')
+          .insert({ session_id: session.id, user_id: user.id });
+        if (insertConsentError) {
+          request.log.error({ err: insertConsentError }, 'failed to insert late-joiner recording consent');
+          return reply.code(500).send({ error: 'heartbeat_failed' });
+        }
+
+        if (session.status === 'recording') {
+          const { error: pauseError } = await supabaseAdmin.from('recording_sessions').update({ status: 'paused' }).eq('id', session.id);
+          if (pauseError) {
+            request.log.error({ err: pauseError }, 'failed to pause recording session for late joiner');
+            return reply.code(500).send({ error: 'heartbeat_failed' });
+          }
+        }
+
+        const { data: updatedSession, error: updatedSessionError } = await fetchActiveRecordingSession(supabaseAdmin, retroId);
+        if (updatedSessionError) {
+          request.log.error({ err: updatedSessionError }, 'failed to read recording session after late-joiner pause');
+          return reply.code(500).send({ error: 'heartbeat_failed' });
+        }
+        await realtimeBus.broadcastRetro(retroId, { type: 'recording.sessionUpdated', payload: { session: updatedSession } });
+      }
+    }
+
+    return reply.code(204).send();
   });
 }

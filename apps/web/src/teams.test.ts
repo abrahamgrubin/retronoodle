@@ -7,6 +7,7 @@ const team = {
   createdBy: '00000000-0000-4000-8000-000000000002',
   retroCadenceDays: 14,
   transcriptRetentionDays: 1 as const,
+  recordingFacilitatorOnlyConfirmation: false,
   role: 'admin' as const,
   createdAt: new Date().toISOString(),
 };

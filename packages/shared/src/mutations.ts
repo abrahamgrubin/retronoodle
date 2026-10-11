@@ -5,6 +5,7 @@ import { Topic } from './topics.js';
 import { Emoji } from './reactions.js';
 import { TopicSummary, TopicSummaryPoint } from './topicSummaries.js';
 import { ActionItem, ActionItemOrigin, ActionItemReviewOutcome } from './actionItems.js';
+import { RecordingSession } from './recording.js';
 
 /** POST /retros/:id/mutations body (RN-008). Every mutation type has its own payload schema
  * below; the envelope itself only knows the type name and a client-generated mutationId used
@@ -379,3 +380,45 @@ export const ActionItemReviewResult = z.object({
   outcome: ActionItemReviewOutcome,
 });
 export type ActionItemReviewResult = z.infer<typeof ActionItemReviewResult>;
+
+/** `recording.start` (RN-032): facilitator-only. `confirmedExternalNotice` must be `true` —
+ * there's no way to call this without checking "I've told everyone outside the app" first, the
+ * same way a checkbox the dialog disables its own submit button on would work client-side, just
+ * enforced server-side too. Rejected (409) if a non-stopped session already exists for this
+ * retro — stop the current one first. */
+export const RecordingStartPayload = z.object({
+  sessionId: z.string().uuid(),
+  confirmedExternalNotice: z.literal(true),
+});
+export type RecordingStartPayload = z.infer<typeof RecordingStartPayload>;
+
+export const RecordingStartResult = z.object({
+  session: RecordingSession,
+});
+export type RecordingStartResult = z.infer<typeof RecordingStartResult>;
+
+/** `recording.respond` (RN-032): any participant with a `pending` consent row on the active
+ * session — "Allow recording?" answered. Rejected (404) if the caller has no pending row (either
+ * they already answered, or no session is asking them anything). */
+export const RecordingRespondPayload = z.object({
+  sessionId: z.string().uuid(),
+  agree: z.boolean(),
+});
+export type RecordingRespondPayload = z.infer<typeof RecordingRespondPayload>;
+
+export const RecordingRespondResult = z.object({
+  session: RecordingSession,
+});
+export type RecordingRespondResult = z.infer<typeof RecordingRespondResult>;
+
+/** `recording.stop` (RN-032): facilitator-only, manual stop — the other way a session reaches
+ * `stopped` besides a decline. */
+export const RecordingStopPayload = z.object({
+  sessionId: z.string().uuid(),
+});
+export type RecordingStopPayload = z.infer<typeof RecordingStopPayload>;
+
+export const RecordingStopResult = z.object({
+  session: RecordingSession,
+});
+export type RecordingStopResult = z.infer<typeof RecordingStopResult>;

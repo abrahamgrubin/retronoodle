@@ -45,6 +45,7 @@ export interface Database {
           created_by: string;
           retro_cadence_days: number;
           transcript_retention_days: number;
+          recording_facilitator_only_confirmation: boolean;
           created_at: string;
         };
         Insert: {
@@ -53,6 +54,7 @@ export interface Database {
           created_by: string;
           retro_cadence_days?: number;
           transcript_retention_days?: number;
+          recording_facilitator_only_confirmation?: boolean;
           created_at?: string;
         };
         Update: {
@@ -61,6 +63,7 @@ export interface Database {
           created_by?: string;
           retro_cadence_days?: number;
           transcript_retention_days?: number;
+          recording_facilitator_only_confirmation?: boolean;
           created_at?: string;
         };
         Relationships: [];
@@ -337,16 +340,19 @@ export interface Database {
           retro_id: string;
           user_id: string;
           joined_at: string;
+          last_seen_at: string;
         };
         Insert: {
           retro_id: string;
           user_id: string;
           joined_at?: string;
+          last_seen_at?: string;
         };
         Update: {
           retro_id?: string;
           user_id?: string;
           joined_at?: string;
+          last_seen_at?: string;
         };
         Relationships: [];
       };
@@ -643,6 +649,63 @@ export interface Database {
           ciphertext?: string;
           iv?: string;
           auth_tag?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      recording_sessions: {
+        Row: {
+          id: string;
+          retro_id: string;
+          started_by: string;
+          facilitator_confirmed_at: string;
+          status: string;
+          started_at: string | null;
+          stopped_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id: string;
+          retro_id: string;
+          started_by: string;
+          facilitator_confirmed_at: string;
+          status?: string;
+          started_at?: string | null;
+          stopped_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          retro_id?: string;
+          started_by?: string;
+          facilitator_confirmed_at?: string;
+          status?: string;
+          started_at?: string | null;
+          stopped_at?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      recording_consents: {
+        Row: {
+          session_id: string;
+          user_id: string;
+          outcome: string;
+          responded_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          session_id: string;
+          user_id: string;
+          outcome?: string;
+          responded_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          session_id?: string;
+          user_id?: string;
+          outcome?: string;
+          responded_at?: string | null;
           created_at?: string;
         };
         Relationships: [];

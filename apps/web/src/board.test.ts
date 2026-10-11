@@ -33,6 +33,7 @@ describe('fetchBoard', () => {
           actionItemReviewOutcomes: [],
           teamMembers: [],
           attendees: [],
+          recordingSession: null,
           seq: 0,
           serverTime: '2026-01-01T00:00:00.000Z',
         }),

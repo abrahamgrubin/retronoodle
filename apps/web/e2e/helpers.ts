@@ -111,6 +111,15 @@ export async function sendMutation(retroId: string, accessToken: string, type: s
   return res;
 }
 
+/** RN-032: marks this user as "online" for this retro — recording.start only seeds a consent
+ * row for participants whose heartbeat is recent. */
+export async function sendHeartbeat(retroId: string, accessToken: string) {
+  await fetch(`${API_URL}/retros/${retroId}/heartbeat`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+}
+
 export async function getBoard(retroId: string, accessToken: string) {
   const res = await apiFetch(`/retros/${retroId}/board`, accessToken);
   return res.json();

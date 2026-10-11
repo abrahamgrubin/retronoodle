@@ -6,6 +6,7 @@ import { GroupSuggestion } from './ai.js';
 import { VotingProgress } from './votes.js';
 import { TopicSummary } from './topicSummaries.js';
 import { ActionItem, ActionItemReviewOutcome } from './actionItems.js';
+import { RecordingSession } from './recording.js';
 
 export const BoardColumn = z.object({
   id: z.string().uuid(),
@@ -116,6 +117,10 @@ export const BoardResponse = z.object({
   // RN-026: "attendance" in the closed-retro recap panel — whoever actually joined this retro
   // (retro_participants), not the team roster teamMembers already carries above.
   attendees: z.array(z.object({ id: z.string().uuid(), displayName: z.string() })),
+  // RN-032: the retro's current recording session (and everyone's consent state) — null when
+  // none exists yet, or the last one already stopped. Visible to everyone, not redacted: the
+  // whole point of all-party consent is that participants can see who hasn't answered yet.
+  recordingSession: RecordingSession.nullable(),
   seq: z.number().int().nonnegative(),
   // RN-012: "every API response includes serverTime" — the client compares this to its own
   // clock once, at load, to get a stable offset, then counts the phase timer down locally

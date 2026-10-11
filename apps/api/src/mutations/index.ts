@@ -30,6 +30,9 @@ import { actionItemCreateMutation } from './actionItemCreate.js';
 import { actionItemUpdateMutation } from './actionItemUpdate.js';
 import { retroCloseMutation } from './retroClose.js';
 import { actionItemReviewMutation } from './actionItemReview.js';
+import { recordingStartMutation } from './recordingStart.js';
+import { recordingRespondMutation } from './recordingRespond.js';
+import { recordingStopMutation } from './recordingStop.js';
 
 export function createDefaultMutationRegistry(): MutationRegistry {
   const registry = new MutationRegistry();
@@ -63,5 +66,8 @@ export function createDefaultMutationRegistry(): MutationRegistry {
   registry.register('phase.back', phaseBackMutation);
   registry.register('cards.reveal', cardsRevealMutation);
   registry.register('phase.extend', phaseExtendMutation);
+  registry.register('recording.start', recordingStartMutation);
+  registry.register('recording.respond', recordingRespondMutation);
+  registry.register('recording.stop', recordingStopMutation);
   return registry;
 }

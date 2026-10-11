@@ -29,6 +29,7 @@ import type {
   VoteAddResult,
   VoteRemoveResult,
   VotingProgress,
+  RecordingSession,
 } from '@retronoodle/shared';
 import type { RetroEvent } from './retroStore';
 
@@ -74,6 +75,9 @@ export interface BoardState {
   // RN-026: whoever actually joined this retro — same "no reducer case touches it" reasoning as
   // teamMembers (no mutation adds an attendee after the fact; only /join does, server-side).
   attendees: { id: string; displayName: string }[];
+  // RN-032: the current recording session (and everyone's consent) — null when none exists yet,
+  // or the last one already stopped.
+  recordingSession: RecordingSession | null;
 }
 
 function isHiddenPayload(payload: unknown): payload is HiddenBoardCard {
@@ -362,6 +366,18 @@ export function reduceBoard(board: BoardState, event: RetroEvent): BoardState {
         cardsRevealed: true,
         cards: board.cards.map((c) => (byId.has(c.id) ? { ...byId.get(c.id)!, hidden: false } : c)),
       };
+    }
+    // recording.start/respond/stop (RN-032): all three return the same {session} shape — the
+    // session's current status and every consent, which is all BoardPage.tsx's badge/prompt UI
+    // needs. recording.sessionUpdated (board.ts's heartbeat route, a late joiner's pause) carries
+    // the same {session} shape but has no seq of its own (not a mutation-pipeline event) — folded
+    // directly via applyLocalPatch in BoardPage.tsx's channel handler, same precedent as the
+    // homework agents' one-shot broadcasts (topic.groupSummaryReady etc.), not through here.
+    case 'recording.start':
+    case 'recording.respond':
+    case 'recording.stop': {
+      const result = event.payload as { session: RecordingSession };
+      return { ...board, recordingSession: result.session };
     }
     default:
       return board;

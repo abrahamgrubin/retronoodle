@@ -32,6 +32,7 @@ describe('team routes (RN-005)', () => {
         created_by: claims.sub,
         retro_cadence_days: 14,
         transcript_retention_days: 1,
+        recording_facilitator_only_confirmation: false,
         created_at: new Date().toISOString(),
       };
       const teamsCalls: unknown[][] = [];
@@ -73,6 +74,7 @@ describe('team routes (RN-005)', () => {
       created_by: '00000000-0000-4000-8000-000000000099',
       retro_cadence_days: 14,
       transcript_retention_days: 1,
+      recording_facilitator_only_confirmation: false,
       created_at: new Date().toISOString(),
     };
 
@@ -113,6 +115,7 @@ describe('team routes (RN-005)', () => {
       created_by: '00000000-0000-4000-8000-000000000099',
       retro_cadence_days: 14,
       transcript_retention_days: 30,
+      recording_facilitator_only_confirmation: false,
       created_at: new Date().toISOString(),
     };
 
@@ -165,13 +168,14 @@ describe('team routes (RN-005)', () => {
         { team_id: team2, role: 'member' },
       ];
       const teams = [
-        { id: team1, name: 'Team One', created_by: claims.sub, retro_cadence_days: 14, transcript_retention_days: 1, created_at: 'now' },
+        { id: team1, name: 'Team One', created_by: claims.sub, retro_cadence_days: 14, transcript_retention_days: 1, recording_facilitator_only_confirmation: false, created_at: 'now' },
         {
           id: team2,
           name: 'Team Two',
           created_by: '00000000-0000-4000-8000-000000000099',
           retro_cadence_days: 14,
           transcript_retention_days: 1,
+          recording_facilitator_only_confirmation: false,
           created_at: 'now',
         },
       ];
