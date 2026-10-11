@@ -34,11 +34,11 @@ function copyVadAssets(): Plugin {
         const dest = join(publicVad, file);
         if (!existsSync(dest)) copyFileSync(join(vadDist, file), dest);
       }
-      for (const file of [
-        'ort-wasm-simd-threaded.wasm',
-        'ort-wasm-simd-threaded.jsep.wasm',
-        'ort-wasm-simd-threaded.asyncify.wasm',
-      ]) {
+      // Only the plain build — speechDetection.ts forces onnxruntime-web's `numThreads` to 1,
+      // which keeps it off the jsep/asyncify/jspi variants entirely (16-28MB each, and the
+      // largest two exceed Cloudflare Workers' 25MiB static-asset limit — found live, a deploy
+      // failed on exactly this before `numThreads` was pinned).
+      for (const file of ['ort-wasm-simd-threaded.wasm']) {
         const dest = join(publicOrt, file);
         if (!existsSync(dest)) copyFileSync(join(ortDist, file), dest);
       }

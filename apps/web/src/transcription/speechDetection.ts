@@ -60,6 +60,14 @@ export async function startSpeechDetection(
     model: 'v5',
     baseAssetPath: '/vad/',
     onnxWASMBasePath: '/ort/',
+    // Forces onnxruntime-web onto its plain single-threaded WASM build rather than the
+    // multi-threaded one — which would need both a second, larger WASM file (its asyncify/jsep
+    // variants are 26-28MB, over Cloudflare Workers' 25MiB static-asset limit, so only the plain
+    // build is shipped — see vite.config.ts) and Cross-Origin-Opener/Embedder-Policy response
+    // headers this app doesn't set. A VAD model this small has no real need for threading anyway.
+    ortConfig: (ort) => {
+      ort.env.wasm.numThreads = 1;
+    },
     onSpeechStart: () => {
       speechStartedAtMs = now();
     },
