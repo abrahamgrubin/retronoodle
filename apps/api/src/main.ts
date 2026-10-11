@@ -7,6 +7,7 @@ import { createSupabaseAdmin } from './supabaseAdmin.js';
 import { RealtimeBus } from './realtime/RealtimeBus.js';
 import { createPool } from './db/pool.js';
 import { createDefaultMutationRegistry } from './mutations/index.js';
+import { DeepgramProvider } from './transcription/DeepgramProvider.js';
 
 loadDotEnv();
 const config = readConfig();
@@ -40,6 +41,13 @@ const running = await startProcess(config.role, {
         pool,
         mutationRegistry: createDefaultMutationRegistry(),
         jobs: jobSender?.sender,
+        transcriptMasterKey: config.transcriptMasterKey,
+        // RN-033: undefined when no key is configured — audioGateway.ts's own `createProvider`
+        // default (`() => null`) already closes every connection with "Transcription
+        // unavailable" in that case, same shape as every other optional-external-key feature.
+        createTranscriptionProvider: config.deepgramApiKey
+          ? () => new DeepgramProvider(config.deepgramApiKey!)
+          : undefined,
       };
     } else if (config.isProduction) {
       throw new Error('SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and DATABASE_URL are required to start the API.');
@@ -71,6 +79,7 @@ const running = await startProcess(config.role, {
     // need a restart-with-different-config story.
     let ai: Parameters<typeof startWorker>[0]['ai'];
     let transcriptRetention: Parameters<typeof startWorker>[0]['transcriptRetention'];
+    let transcription: Parameters<typeof startWorker>[0]['transcription'];
     if (config.supabaseUrl && config.supabaseServiceRoleKey) {
       const supabaseAdmin = createSupabaseAdmin(config.supabaseUrl, config.supabaseServiceRoleKey);
       ai = {
@@ -82,8 +91,11 @@ const running = await startProcess(config.role, {
       // RN-031: deletion needs no decryption, so this runs whenever Supabase is configured —
       // unlike `ai`, it never depends on TRANSCRIPT_MASTER_KEY being set.
       transcriptRetention = { supabaseAdmin };
+      // RN-036: deterministic math, no AI key needed either — same unconditional-on-Supabase
+      // shape as transcriptRetention above.
+      transcription = { supabaseAdmin };
     }
-    return startWorker({ databaseUrl: config.databaseUrl, logger: log, ai, transcriptRetention });
+    return startWorker({ databaseUrl: config.databaseUrl, logger: log, ai, transcriptRetention, transcription });
   },
 });
 

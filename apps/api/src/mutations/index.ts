@@ -33,6 +33,7 @@ import { actionItemReviewMutation } from './actionItemReview.js';
 import { recordingStartMutation } from './recordingStart.js';
 import { recordingRespondMutation } from './recordingRespond.js';
 import { recordingStopMutation } from './recordingStop.js';
+import { topicAssignSpeakerMutation } from './topicAssignSpeaker.js';
 
 export function createDefaultMutationRegistry(): MutationRegistry {
   const registry = new MutationRegistry();
@@ -69,5 +70,6 @@ export function createDefaultMutationRegistry(): MutationRegistry {
   registry.register('recording.start', recordingStartMutation);
   registry.register('recording.respond', recordingRespondMutation);
   registry.register('recording.stop', recordingStopMutation);
+  registry.register('topic.assignSpeaker', topicAssignSpeakerMutation);
   return registry;
 }

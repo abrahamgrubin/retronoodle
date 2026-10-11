@@ -18,18 +18,20 @@ import { getTeamRole } from '../auth/membership.js';
 import { redactCard } from '../realtime/redact.js';
 import { fetchActiveRecordingSession } from '../recordingSession.js';
 import type { RealtimeBus } from '../realtime/RealtimeBus.js';
+import { buildTranscriptSegments, buildUnmatchedSpeakers } from '../transcription/boardTranscript.js';
 
 export interface BoardRoutesDeps {
   supabaseAdmin: SupabaseClient<Database>;
   requireAuth: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   realtimeBus: RealtimeBus;
+  transcriptMasterKey?: string;
 }
 
 /** GET /retros/:id/board (RN-009): the initial snapshot plus its seq; the client applies any
  * events broadcast after that seq on top (RN-008's retroStore), rather than re-fetching. Each
  * card is passed through redact() (RN-011) for the requesting viewer before going out. */
 export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps): void {
-  const { supabaseAdmin, requireAuth, realtimeBus } = deps;
+  const { supabaseAdmin, requireAuth, realtimeBus, transcriptMasterKey } = deps;
 
   app.get<{ Params: { id: string } }>('/retros/:id/board', { preHandler: requireAuth }, async (request, reply) => {
     const user = request.user;
@@ -298,6 +300,21 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
       return reply.code(500).send({ error: 'board_read_failed' });
     }
 
+    // RN-033/034: every transcript line so far, decrypted and tagged to its topic — visible to
+    // everyone, same reasoning as recordingSession above (every listener already consented).
+    const { segments: transcriptSegments, error: transcriptError } = await buildTranscriptSegments(
+      supabaseAdmin,
+      transcriptMasterKey,
+      retroId,
+      retro.team_id,
+    );
+    if (transcriptError) {
+      request.log.error({ err: transcriptError }, 'failed to read transcript segments');
+      return reply.code(500).send({ error: 'board_read_failed' });
+    }
+    // RN-036: facilitator-only, same "absent for everyone else" convention as `suggestions`.
+    const unmatchedSpeakers = user.id === retro.facilitator_id ? buildUnmatchedSpeakers(transcriptSegments) : null;
+
     const redactCtx = { viewerId: user.id, phase: retro.phase as RetroPhase, cardsRevealed: retro.cards_revealed };
 
     return BoardResponse.parse({
@@ -378,6 +395,8 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
       teamMembers,
       attendees,
       recordingSession,
+      transcriptSegments,
+      unmatchedSpeakers,
       seq: lastEventResult.data?.seq ?? 0,
       // RN-012: this specific response is what a late joiner's clock-offset calculation anchors
       // to, so it's set explicitly here rather than relying solely on the global serverTime hook

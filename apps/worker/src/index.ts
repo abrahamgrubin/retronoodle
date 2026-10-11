@@ -7,8 +7,15 @@ import { runSummarizeGroupJob } from './jobs/summarizeGroup.js';
 import { runSuggestQuestionsJob } from './jobs/suggestQuestions.js';
 import { runSummarizeTopicJob } from './jobs/summarizeTopic.js';
 import { runTranscriptRetentionJob } from './jobs/transcriptRetention.js';
+import { runMatchSpeakersJob } from './jobs/matchSpeakers.js';
 
 export type { WorkerLogger } from './logger.js';
+// RN-033: apps/api's audio gateway persists encrypted transcript text through the same
+// envelope-encryption helpers RN-031 built for the worker's own retention job — re-exported here
+// since apps/worker/package.json's "exports" field is a single flat entry point
+// (`{".": "./src/index.ts"}`), the only path another workspace package can import from.
+export { encryptForTeam, decryptForTeam } from './transcriptKeys.js';
+export { parseMasterKey } from './transcriptCrypto.js';
 
 export const AI_GROUP_CARDS_QUEUE = 'ai.groupCards';
 // Homework: AI agent team.
@@ -19,6 +26,9 @@ export const AI_SUMMARIZE_TOPIC_QUEUE = 'ai.summarizeTopic';
 // RN-031: nightly sweep, not per-event — registered via pg-boss's own cron scheduling
 // (queue.schedule), not queue.send like every ai.* queue above.
 export const TRANSCRIPT_RETENTION_QUEUE = 'transcript.retention';
+// RN-036: enqueued from discussHelpers.ts's endCurrentTopic, alongside ai.summarizeTopic — a
+// topic ending is also when its transcript_segments/speech_activity are complete enough to match.
+export const TRANSCRIPTION_MATCH_SPEAKERS_QUEUE = 'transcription.matchSpeakers';
 
 /** The union of every job's own (narrower) RealtimeBusLike requirement — groupCards.ts only ever
  * needs broadcastUser, summarizeGroup.ts/suggestQuestions.ts only ever need broadcastRetro, but
@@ -66,6 +76,11 @@ export interface StartWorkerOptions {
   /** RN-031: present whenever Supabase is configured — unlike `ai`, this never depends on an
    * Anthropic key, so it's its own option rather than reusing `ai`'s shape. */
   transcriptRetention?: {
+    supabaseAdmin: SupabaseClient<Database>;
+  };
+  /** RN-036: present whenever Supabase is configured — the matching algorithm is deterministic
+   * math (no AI key needed), same optionality shape as `transcriptRetention` above. */
+  transcription?: {
     supabaseAdmin: SupabaseClient<Database>;
   };
 }
@@ -131,6 +146,16 @@ export async function startWorker(options: StartWorkerOptions): Promise<RunningW
     await queue.schedule(TRANSCRIPT_RETENTION_QUEUE, '0 9 * * *');
   }
 
+  if (options.transcription) {
+    const { supabaseAdmin } = options.transcription;
+    await queue.createQueue(TRANSCRIPTION_MATCH_SPEAKERS_QUEUE);
+    await queue.work<{ topicId: string }>(TRANSCRIPTION_MATCH_SPEAKERS_QUEUE, async (jobs) => {
+      for (const job of jobs) {
+        await runMatchSpeakersJob(job.data, { supabaseAdmin, logger: options.logger });
+      }
+    });
+  }
+
   options.logger.info('worker started');
 
   return {
@@ -158,6 +183,7 @@ export async function createJobSender(databaseUrl: string, logger: WorkerLogger)
   await boss.createQueue(AI_SUMMARIZE_GROUP_QUEUE);
   await boss.createQueue(AI_SUGGEST_QUESTIONS_QUEUE);
   await boss.createQueue(AI_SUMMARIZE_TOPIC_QUEUE);
+  await boss.createQueue(TRANSCRIPTION_MATCH_SPEAKERS_QUEUE);
   return {
     sender: { send: (queueName, data) => boss.send(queueName, data) },
     async stop() {

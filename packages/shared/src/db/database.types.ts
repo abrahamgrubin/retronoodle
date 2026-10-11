@@ -631,15 +631,27 @@ export interface Database {
           ciphertext: string;
           iv: string;
           auth_tag: string;
+          topic_id: string | null;
+          speaker_tag: number | null;
+          speaker_user_id: string | null;
+          start_ms: number;
+          end_ms: number;
+          is_gap_marker: boolean;
           created_at: string;
         };
         Insert: {
-          id: string;
+          id?: string;
           retro_id: string;
           team_id: string;
           ciphertext: string;
           iv: string;
           auth_tag: string;
+          topic_id?: string | null;
+          speaker_tag?: number | null;
+          speaker_user_id?: string | null;
+          start_ms?: number;
+          end_ms?: number;
+          is_gap_marker?: boolean;
           created_at?: string;
         };
         Update: {
@@ -649,7 +661,64 @@ export interface Database {
           ciphertext?: string;
           iv?: string;
           auth_tag?: string;
+          topic_id?: string | null;
+          speaker_tag?: number | null;
+          speaker_user_id?: string | null;
+          start_ms?: number;
+          end_ms?: number;
+          is_gap_marker?: boolean;
           created_at?: string;
+        };
+        Relationships: [];
+      };
+      speech_activity: {
+        Row: {
+          id: string;
+          retro_id: string;
+          user_id: string;
+          topic_id: string | null;
+          start_ms: number;
+          end_ms: number;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          retro_id: string;
+          user_id: string;
+          topic_id?: string | null;
+          start_ms: number;
+          end_ms: number;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          retro_id?: string;
+          user_id?: string;
+          topic_id?: string | null;
+          start_ms?: number;
+          end_ms?: number;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      transcription_usage: {
+        Row: {
+          retro_id: string;
+          audio_seconds: number;
+          cost_usd: number;
+          updated_at: string;
+        };
+        Insert: {
+          retro_id: string;
+          audio_seconds?: number;
+          cost_usd?: number;
+          updated_at?: string;
+        };
+        Update: {
+          retro_id?: string;
+          audio_seconds?: number;
+          cost_usd?: number;
+          updated_at?: string;
         };
         Relationships: [];
       };

@@ -24,6 +24,8 @@ const emptyBoard: BoardState = {
   teamMembers: [],
   attendees: [],
   recordingSession: null,
+  transcriptSegments: [],
+  unmatchedSpeakers: null,
 };
 
 function createEvent(overrides: Partial<Record<string, unknown>> = {}): RetroEvent {
@@ -770,6 +772,47 @@ describe('reduceBoard', () => {
         payload: { actionItem: carriedItem({ status: 'dropped' }), outcome: 'dropped' },
       });
       expect(updated.actionItemReviewOutcomes).toEqual([{ actionItemId: itemId, outcome: 'dropped' }]);
+    });
+  });
+
+  describe('topic.assignSpeaker (RN-036)', () => {
+    const topicId = '00000000-0000-4000-8000-000000000050';
+    const otherUserId = '00000000-0000-4000-8000-000000000051';
+    const segmentA = { id: 'seg-a', retroId: 'retro-1', topicId, speakerTag: 1, speakerUserId: null, text: 'hi', startMs: 0, endMs: 1, isGapMarker: false, createdAt: '2026-01-01T00:00:00.000Z' };
+    const segmentB = { ...segmentA, id: 'seg-b', text: 'again' };
+
+    it('assigns every matching segment to the chosen participant', () => {
+      const board: BoardState = { ...emptyBoard, transcriptSegments: [segmentA, segmentB] };
+      const updated = reduceBoard(board, {
+        seq: 1,
+        type: 'topic.assignSpeaker',
+        payload: { topicId, speakerTag: 1, userId: otherUserId, segmentIds: ['seg-a', 'seg-b'] },
+      });
+      expect(updated.transcriptSegments.every((s) => s.speakerUserId === otherUserId)).toBe(true);
+    });
+
+    it('removes the fixed (topic, speakerTag) pair from unmatchedSpeakers', () => {
+      const board: BoardState = {
+        ...emptyBoard,
+        transcriptSegments: [segmentA],
+        unmatchedSpeakers: [{ topicId, speakerTag: 1, sampleText: 'hi', segmentIds: ['seg-a'] }],
+      };
+      const updated = reduceBoard(board, {
+        seq: 1,
+        type: 'topic.assignSpeaker',
+        payload: { topicId, speakerTag: 1, userId: otherUserId, segmentIds: ['seg-a'] },
+      });
+      expect(updated.unmatchedSpeakers).toEqual([]);
+    });
+
+    it('leaves unmatchedSpeakers null for a non-facilitator viewer', () => {
+      const board: BoardState = { ...emptyBoard, transcriptSegments: [segmentA], unmatchedSpeakers: null };
+      const updated = reduceBoard(board, {
+        seq: 1,
+        type: 'topic.assignSpeaker',
+        payload: { topicId, speakerTag: 1, userId: otherUserId, segmentIds: ['seg-a'] },
+      });
+      expect(updated.unmatchedSpeakers).toBeNull();
     });
   });
 });

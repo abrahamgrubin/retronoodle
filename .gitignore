@@ -11,3 +11,6 @@ supabase/.temp/
 /apps/web/playwright-report/
 /apps/web/test-results/
 /apps/web/blob-report/
+# RN-035: copied from node_modules by vite.config.ts's copyVadAssets plugin, not committed.
+/apps/web/public/vad/
+/apps/web/public/ort/

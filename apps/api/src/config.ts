@@ -19,6 +19,11 @@ export interface Config {
   // nightly retention job (deletion, no decryption needed) runs without this; actually
   // encrypting/decrypting transcript text (RN-033's gateway) requires it.
   transcriptMasterKey: string | undefined;
+  // RN-033: undefined means the audio gateway closes every connection immediately with
+  // "Transcription unavailable" — same "AI features are optional, never required to start"
+  // precedent as anthropicApiKey above, just for the one external provider behind
+  // TranscriptionProvider instead.
+  deepgramApiKey: string | undefined;
   isProduction: boolean;
 }
 
@@ -39,6 +44,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
     anthropicApiKey: env.ANTHROPIC_API_KEY || undefined,
     aiMonthlyCapUsd: env.AI_MONTHLY_CAP_USD ? Number(env.AI_MONTHLY_CAP_USD) : undefined,
     transcriptMasterKey: env.TRANSCRIPT_MASTER_KEY || undefined,
+    deepgramApiKey: env.DEEPGRAM_API_KEY || undefined,
     isProduction: env.NODE_ENV === 'production',
   };
 }

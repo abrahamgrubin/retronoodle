@@ -1,6 +1,7 @@
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
+import websocket from '@fastify/websocket';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { HealthResponse, MeResponse, type Database } from '@retronoodle/shared';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -13,8 +14,11 @@ import { registerTemplateRoutes } from './routes/templates.js';
 import { registerMutationRoutes } from './routes/mutations.js';
 import { registerBoardRoutes } from './routes/board.js';
 import { registerActionItemRoutes } from './routes/actionItems.js';
+import { registerAudioGatewayRoutes } from './routes/audioGateway.js';
+import { registerSpeechActivityRoutes } from './routes/speechActivity.js';
 import type { RealtimeBus } from './realtime/RealtimeBus.js';
 import type { MutationRegistry, JobSender } from './mutations/index.js';
+import type { TranscriptionProvider } from './transcription/TranscriptionProvider.js';
 
 export interface ServerOptions {
   webOrigin: string;
@@ -29,6 +33,10 @@ export interface ServerOptions {
     // there's no queue to send to (same optionality as pool/supabaseAdmin's own "not configured"
     // case) — see onTransition.ts's best-effort handling.
     jobs?: JobSender;
+    // RN-033: undefined means the audio gateway closes every connection with "Transcription
+    // unavailable" (see audioGateway.ts).
+    transcriptMasterKey?: string;
+    createTranscriptionProvider?: () => TranscriptionProvider | null;
   };
 }
 
@@ -53,6 +61,8 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
   });
 
   await app.register(cors, { origin: options.webOrigin });
+  // RN-033: the audio gateway's one WebSocket route (routes/audioGateway.ts).
+  await app.register(websocket);
 
   // RN-027 security baseline: HSTS (helmet's own CSP default is fine here too — this is a JSON
   // API, not a page that loads scripts; the strict "no inline scripts, connect-src our domains +
@@ -89,7 +99,8 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
   });
 
   if (options.auth) {
-    const { verifyAccessToken, supabaseAdmin, realtimeBus, pool, mutationRegistry, jobs } = options.auth;
+    const { verifyAccessToken, supabaseAdmin, realtimeBus, pool, mutationRegistry, jobs, transcriptMasterKey, createTranscriptionProvider } =
+      options.auth;
     const requireAuth = createRequireAuth(verifyAccessToken);
 
     // First authenticated request upserts the caller's profile (RN-003). Later stories add
@@ -117,8 +128,16 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
     registerTeamRoutes(app, { supabaseAdmin, requireAuth, realtimeBus });
     registerRetroRoutes(app, { supabaseAdmin, requireAuth });
     registerTemplateRoutes(app, { supabaseAdmin, requireAuth });
-    registerBoardRoutes(app, { supabaseAdmin, requireAuth, realtimeBus });
+    registerBoardRoutes(app, { supabaseAdmin, requireAuth, realtimeBus, transcriptMasterKey });
     registerActionItemRoutes(app, { supabaseAdmin, requireAuth });
+    registerSpeechActivityRoutes(app, { supabaseAdmin, requireAuth });
+    registerAudioGatewayRoutes(app, {
+      supabaseAdmin,
+      verifyAccessToken,
+      realtimeBus,
+      transcriptMasterKey,
+      createProvider: createTranscriptionProvider ?? (() => null),
+    });
     await registerMutationRoutes(app, { pool, registry: mutationRegistry, realtimeBus, requireAuth, jobs });
   }
 
