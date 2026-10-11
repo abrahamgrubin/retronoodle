@@ -2070,6 +2070,7 @@ function Board({
         actionItemReviewOutcomes: initialBoard.actionItemReviewOutcomes,
         teamMembers: initialBoard.teamMembers,
         attendees: initialBoard.attendees,
+        recordingSession: initialBoard.recordingSession,
       },
       initialSeq: initialBoard.seq,
       reduce: reduceBoard,
@@ -2087,6 +2088,13 @@ function Board({
     clearError,
   } = useBoardStore();
   const isFacilitator = userId === initialBoard.retro.facilitatorId;
+  // RN-032: "every online participant sees 'Allow recording?'" — this viewer's own answer, if
+  // the active session is still waiting on it. The facilitator's own row is seeded 'agreed' at
+  // creation (recordingStart.ts), so they never see this for a session they just started.
+  const myPendingRecordingConsent =
+    board.recordingSession && board.recordingSession.status !== 'stopped'
+      ? (board.recordingSession.consents.find((c) => c.userId === userId && c.outcome === 'pending') ?? null)
+      : null;
   // RN-012: computed once, from the snapshot that's already in hand — every later countdown
   // (this phase or the next) is estimated against this same offset, not recomputed each time.
   const [clockOffsetMs] = useState(() => computeClockOffsetMs(initialBoard.serverTime));
@@ -2686,6 +2694,7 @@ function Board({
               actionItemReviewOutcomes: fresh.actionItemReviewOutcomes,
               teamMembers: fresh.teamMembers,
               attendees: fresh.attendees,
+              recordingSession: fresh.recordingSession,
             },
             fresh.seq,
           );
@@ -3047,6 +3056,12 @@ function Board({
           />
         ))}
         <PhaseTimer phaseDeadline={board.phaseDeadline} clockOffsetMs={clockOffsetMs} />
+        {/* RN-032 AC: "The Recording badge shows on every browser while recording and
+            disappears when stopped" — specifically `recording`, not `pending`/`paused` (nothing
+            is actually being captured yet in either of those states). */}
+        {board.recordingSession?.status === 'recording' && (
+          <Chip size="small" color="error" label="Recording" sx={{ fontWeight: 'bold' }} />
+        )}
       </Stack>
       <Typography color="text.secondary" sx={{ mb: 1 }}>
         {phaseSubtitle(board.phase)}
@@ -3087,6 +3102,24 @@ function Board({
           {board.phase === 'write' && !board.cardsRevealed && (
             <Button size="small" type="button" onClick={revealCards}>
               Reveal cards
+            </Button>
+          )}
+          {/* RN-032: "Facilitator clicks Record" — no session yet, or the last one stopped. */}
+          {(!board.recordingSession || board.recordingSession.status === 'stopped') && (
+            <Button
+              size="small"
+              type="button"
+              onClick={() => {
+                if (window.confirm("I've told everyone outside the app that this retro is being recorded.")) startRecording();
+              }}
+            >
+              Record
+            </Button>
+          )}
+          {board.recordingSession && board.recordingSession.status !== 'stopped' && (
+            <Button size="small" type="button" color="error" onClick={() => stopRecording(board.recordingSession!.id)}>
+              Stop recording
+              {board.recordingSession.status !== 'recording' && ` (${board.recordingSession.status})`}
             </Button>
           )}
         </Stack>
@@ -3348,6 +3381,25 @@ function Board({
           onClose={closeRetro}
           onCancel={() => setCloseDialogOpen(false)}
         />
+      )}
+      {/* RN-032: "every online participant sees 'Allow recording?'" — no cancel/dismiss option
+          by design (the same reasoning CloseRetroDialog's F2 warning box follows): declining is
+          itself a real, logged answer (sendMutation below), not a way to defer the question. */}
+      {myPendingRecordingConsent && board.recordingSession && (
+        <Dialog open aria-label="Allow recording?">
+          <DialogTitle>Allow recording?</DialogTitle>
+          <DialogContent>
+            <Typography>The facilitator wants to record this retro.</Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button type="button" color="error" onClick={() => respondToRecording(board.recordingSession!.id, false)}>
+              Decline
+            </Button>
+            <Button type="button" variant="contained" onClick={() => respondToRecording(board.recordingSession!.id, true)}>
+              Allow
+            </Button>
+          </DialogActions>
+        </Dialog>
       )}
     </Box>
   );

@@ -104,6 +104,8 @@ function build(teamRole: 'admin' | 'member' | null, opts: { facilitatorId?: stri
       if (table === 'teams') return chain({ data: { retro_cadence_days: 14 }, error: null });
       if (table === 'action_items') return chain({ data: [], error: null });
       if (table === 'action_item_reviews') return chain({ data: [], error: null });
+      // RN-032: no active recording session in any of this file's fixtures.
+      if (table === 'recording_sessions') return chain({ data: null, error: null });
       throw new Error(`unexpected table ${table}`);
     },
   } as unknown as SupabaseClient<Database>;
