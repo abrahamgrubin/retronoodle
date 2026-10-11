@@ -65,8 +65,8 @@ import { computeClockOffsetMs, formatCountdown, remainingMs } from './clock';
 import { postMutation } from './mutations';
 import { createRetroStore } from './retroStore';
 import { supabase } from './supabaseClient';
-import { startAudioCapture, type AudioCaptureHandle } from './transcription/audioCapture';
-import { startSpeechDetection, type SpeechDetectionHandle } from './transcription/speechDetection';
+import type { AudioCaptureHandle } from './transcription/audioCapture';
+import type { SpeechDetectionHandle } from './transcription/speechDetection';
 import { useSession } from './useSession';
 
 const MAX_CARD_LENGTH = 500;
@@ -2906,13 +2906,18 @@ function Board({
 
   function startCapture() {
     setTranscriptionUnavailable(false);
-    void startAudioCapture(audioGatewayUrl(accessToken, retroId), {
-      onUnavailable: () => {
-        setTranscriptionUnavailable(true);
-        setCaptureActive(false);
-        captureHandleRef.current = null;
-      },
-    })
+    // Dynamically imported so it's not part of the bundle every board visitor loads — only the
+    // facilitator, and only once they actually click this, ever needs it.
+    void import('./transcription/audioCapture')
+      .then(({ startAudioCapture }) =>
+        startAudioCapture(audioGatewayUrl(accessToken, retroId), {
+          onUnavailable: () => {
+            setTranscriptionUnavailable(true);
+            setCaptureActive(false);
+            captureHandleRef.current = null;
+          },
+        }),
+      )
       .then((handle) => {
         captureHandleRef.current = handle;
         setCaptureActive(true);
@@ -2941,13 +2946,20 @@ function Board({
   useEffect(() => {
     if (!captureAllowed || !speechDetectionEnabled) return;
     let cancelled = false;
-    void startSpeechDetection(accessToken, retroId, clockOffsetMs).then((handle) => {
-      if (cancelled) {
-        void handle.stop();
-        return;
-      }
-      speechHandleRef.current = handle;
-    });
+    // Dynamically imported: @ricky0123/vad-web pulls in onnxruntime-web, which alone is several
+    // hundred KB — statically importing it here once made it part of every board visitor's
+    // initial bundle (found live: it roughly doubled the bundle size and delayed this page's
+    // Realtime channel subscription enough to miss a broadcast in e2e). Nobody needs any of this
+    // until a recording session is actually live during Discuss/Wrap up.
+    void import('./transcription/speechDetection').then(({ startSpeechDetection }) =>
+      startSpeechDetection(accessToken, retroId, clockOffsetMs).then((handle) => {
+        if (cancelled) {
+          void handle.stop();
+          return;
+        }
+        speechHandleRef.current = handle;
+      }),
+    );
     return () => {
       cancelled = true;
       void speechHandleRef.current?.stop();

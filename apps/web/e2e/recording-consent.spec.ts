@@ -42,6 +42,13 @@ test('a participant must agree before recording starts, and stopping clears the 
     await participantPage.goto(`/retros/${retroId}`);
     await signIn(participantPage, participant);
 
+    // `signIn` only sets the session — it doesn't wait for the board to actually mount, which is
+    // also when the participant's retro:{id} Realtime channel subscribes. Without this, there was
+    // nothing stopping the facilitator's Record click (below) from broadcasting before the
+    // participant's own channel had finished subscribing, which has no replay/catch-up (it's a
+    // plain broadcast, not a queue) — a race that sometimes lost (found via CI flakiness).
+    await expect(participantPage.getByText('RN-032 e2e retro')).toBeVisible();
+
     // The participant must be "online" (a recent heartbeat) before recording.start will seed
     // their consent — the real client does this on an interval; here, once is enough.
     await sendHeartbeat(retroId, participant.accessToken);
@@ -85,6 +92,12 @@ test('a decline stops the session for everyone', async ({ browser }) => {
     await facilitatorPage.goto(`/retros/${retroId}`);
     await signIn(facilitatorPage, facilitator);
     await facilitatorPage.getByRole('button', { name: 'Record', exact: true }).click();
+
+    // The click only fires the mutation; it doesn't wait for it to land. Without this, getBoard()
+    // below could race ahead of the server having created the session yet (found via local
+    // flakiness) — "Stop recording" only ever renders once board.recordingSession is populated, so
+    // waiting for it first means the session is guaranteed to exist by the time we fetch it.
+    await expect(facilitatorPage.getByRole('button', { name: 'Stop recording' })).toBeVisible();
 
     // Declining via the mutation directly (already covered interactively by the Allow path
     // above) — what matters here is the server-side effect: one decline stops it outright.
