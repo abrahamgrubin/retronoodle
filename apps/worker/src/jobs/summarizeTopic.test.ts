@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { runSummarizeTopicJob, type SummarizeTopicDeps } from './summarizeTopic.js';
 import type { AnthropicMessagesClient } from './groupCards.js';
+import { encryptTranscriptText, generateDataKey, parseMasterKey, wrapDataKey } from '../transcriptCrypto.js';
 
 const topicId = '00000000-0000-4000-8000-000000000001';
 const retroId = '00000000-0000-4000-8000-000000000002';
@@ -9,6 +10,21 @@ const authorId = '00000000-0000-4000-8000-000000000004';
 const cardAId = '00000000-0000-4000-8000-000000000005';
 const cardBId = '00000000-0000-4000-8000-000000000006';
 const insertedId = '00000000-0000-4000-8000-000000000007';
+const speakerId = '00000000-0000-4000-8000-000000000008';
+const segmentAId = '00000000-0000-4000-8000-000000000009';
+const segmentBId = '00000000-0000-4000-8000-00000000000a';
+
+const transcriptMasterKeyBase64 = Buffer.alloc(32, 7).toString('base64');
+const masterKey = parseMasterKey(transcriptMasterKeyBase64);
+const teamDataKey = generateDataKey();
+const wrappedTeamKey = wrapDataKey(masterKey, teamDataKey);
+
+/** Real AES-256-GCM ciphertext for a transcript segment fixture — summarizeTopic.ts decrypts it
+ * for real (same team data key wrapped above), not a stub. */
+function encryptSegment(text: string) {
+  const payload = encryptTranscriptText(teamDataKey, text);
+  return { ciphertext: payload.ciphertext, iv: payload.iv, auth_tag: payload.authTag };
+}
 
 function thenable(result: { data: unknown; error?: unknown }) {
   const self: Record<string, unknown> = {
@@ -31,6 +47,7 @@ interface FakeOpts {
   latestVersion?: number | null;
   insertError?: unknown;
   aiUsageCostUsd?: string | null;
+  transcriptSegments?: { id: string; text: string; speaker_user_id: string | null; is_gap_marker: boolean }[];
 }
 
 function fakeSupabase(opts: FakeOpts = {}) {
@@ -44,6 +61,7 @@ function fakeSupabase(opts: FakeOpts = {}) {
     latestVersion = null,
     insertError = null,
     aiUsageCostUsd = null,
+    transcriptSegments = [],
   } = opts;
 
   return {
@@ -51,10 +69,20 @@ function fakeSupabase(opts: FakeOpts = {}) {
       if (table === 'topics') return thenable({ data: { retro_id: retroId, name: 'Deploys' } });
       if (table === 'retros') return thenable({ data: { team_id: teamId } });
       if (table === 'cards') return thenable({ data: cards });
-      if (table === 'profiles') return thenable({ data: [{ id: authorId, display_name: 'Ada' }] });
+      if (table === 'profiles')
+        return thenable({
+          data: [
+            { id: authorId, display_name: 'Ada' },
+            { id: speakerId, display_name: 'Grace' },
+          ],
+        });
       if (table === 'topic_notes') return thenable({ data: noteBody === null ? null : { body: noteBody } });
       if (table === 'team_members') return thenable({ data: [{ user_id: authorId }] });
       if (table === 'action_items') return thenable({ data: openItemTitles.map((title) => ({ title })) });
+      if (table === 'transcript_segments')
+        return thenable({ data: transcriptSegments.map((s) => ({ id: s.id, speaker_user_id: s.speaker_user_id, is_gap_marker: s.is_gap_marker, ...encryptSegment(s.text) })) });
+      if (table === 'team_transcript_keys')
+        return thenable({ data: { wrapped_key: wrappedTeamKey.ciphertext, iv: wrappedTeamKey.iv, auth_tag: wrappedTeamKey.authTag } });
       if (table === 'topic_summaries') {
         return {
           select: () => thenable({ data: latestVersion === null ? null : { version: latestVersion } }),
@@ -265,5 +293,79 @@ describe('runSummarizeTopicJob', () => {
     await runSummarizeTopicJob({ topicId }, deps);
 
     expect(deps.realtimeBus.broadcastRetro).not.toHaveBeenCalled();
+  });
+
+  describe('RN-037: transcript-based summaries', () => {
+    it('includes the decrypted transcript in the prompt, tagged with the speaker name', async () => {
+      const supabaseAdmin = fakeSupabase({
+        transcriptSegments: [{ id: segmentAId, text: "let's just ship it behind a flag", speaker_user_id: speakerId, is_gap_marker: false }],
+      });
+      const anthropic = fakeAnthropic(validSummaryJson());
+      await runSummarizeTopicJob({ topicId }, baseDeps({ supabaseAdmin, transcriptMasterKey: transcriptMasterKeyBase64, createAnthropicClient: () => anthropic }));
+
+      const prompt = (anthropic.messages.create as ReturnType<typeof vi.fn>).mock.calls[0]![0].messages[0].content as string;
+      expect(prompt).toContain(segmentAId);
+      expect(prompt).toContain('speaker: Grace');
+      expect(prompt).toContain("let's just ship it behind a flag");
+    });
+
+    it('accepts a point whose only source is a transcript line — a decision spoken but never written as a card', async () => {
+      const supabaseAdmin = fakeSupabase({
+        transcriptSegments: [{ id: segmentAId, text: 'agreed, behind a flag then', speaker_user_id: speakerId, is_gap_marker: false }],
+      });
+      const anthropic = fakeAnthropic(
+        validSummaryJson({ decisions: [{ text: 'Ship behind a feature flag', sources: [segmentAId] }] }),
+      );
+      const deps = baseDeps({ supabaseAdmin, transcriptMasterKey: transcriptMasterKeyBase64, createAnthropicClient: () => anthropic });
+
+      await runSummarizeTopicJob({ topicId }, deps);
+
+      const call = (deps.realtimeBus.broadcastRetro as ReturnType<typeof vi.fn>).mock.calls[0]![1] as {
+        payload: { summary: { decisions: unknown[] } };
+      };
+      expect(call.payload.summary.decisions).toEqual([{ text: 'Ship behind a feature flag', sources: [segmentAId] }]);
+    });
+
+    it('drops a point citing a transcript line id from outside this topic', async () => {
+      const unknownSegmentId = '00000000-0000-4000-8000-0000000000ff';
+      const supabaseAdmin = fakeSupabase({
+        transcriptSegments: [{ id: segmentAId, text: 'agreed, behind a flag then', speaker_user_id: speakerId, is_gap_marker: false }],
+      });
+      const anthropic = fakeAnthropic(validSummaryJson({ disagreements: [{ text: 'Bad point', sources: [unknownSegmentId] }] }));
+      const deps = baseDeps({ supabaseAdmin, transcriptMasterKey: transcriptMasterKeyBase64, createAnthropicClient: () => anthropic });
+
+      await runSummarizeTopicJob({ topicId }, deps);
+
+      const call = (deps.realtimeBus.broadcastRetro as ReturnType<typeof vi.fn>).mock.calls[0]![1] as {
+        payload: { summary: { disagreements: unknown[] } };
+      };
+      expect(call.payload.summary.disagreements).toEqual([]);
+    });
+
+    it('skips gap markers — never in the prompt, never a valid citation', async () => {
+      const supabaseAdmin = fakeSupabase({
+        transcriptSegments: [
+          { id: segmentAId, text: 'real line', speaker_user_id: speakerId, is_gap_marker: false },
+          { id: segmentBId, text: '', speaker_user_id: null, is_gap_marker: true },
+        ],
+      });
+      const anthropic = fakeAnthropic(validSummaryJson());
+      await runSummarizeTopicJob({ topicId }, baseDeps({ supabaseAdmin, transcriptMasterKey: transcriptMasterKeyBase64, createAnthropicClient: () => anthropic }));
+
+      const prompt = (anthropic.messages.create as ReturnType<typeof vi.fn>).mock.calls[0]![0].messages[0].content as string;
+      expect(prompt).not.toContain(segmentBId);
+    });
+
+    it("never queries transcript_segments when TRANSCRIPT_MASTER_KEY isn't set, even if segments exist", async () => {
+      const supabaseAdmin = fakeSupabase({
+        transcriptSegments: [{ id: segmentAId, text: 'real line', speaker_user_id: speakerId, is_gap_marker: false }],
+      });
+      const anthropic = fakeAnthropic(validSummaryJson());
+      await runSummarizeTopicJob({ topicId }, baseDeps({ supabaseAdmin, createAnthropicClient: () => anthropic }));
+
+      expect(supabaseAdmin.from).not.toHaveBeenCalledWith('transcript_segments');
+      const prompt = (anthropic.messages.create as ReturnType<typeof vi.fn>).mock.calls[0]![0].messages[0].content as string;
+      expect(prompt).toContain('Transcript:\n(none)');
+    });
   });
 });

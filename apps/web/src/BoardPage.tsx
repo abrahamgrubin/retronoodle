@@ -54,6 +54,7 @@ import {
   Skeleton,
   Stack,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
@@ -1232,17 +1233,27 @@ function NotesEditor({
 
 /** RN-021 layout spec: "hovering [a source chip] outlines those cards on the board and scrolls
  * them into view." A point with zero sources (always a facilitator's manual edit — see
- * topicSummaries.ts's own comment on why that's legitimate) simply has no chip to hover. */
+ * topicSummaries.ts's own comment on why that's legitimate) simply has no chip to hover.
+ *
+ * RN-037: a point can also cite transcript lines (a decision spoken but never written as a card)
+ * — `transcriptTextById` is how this tells those apart from card ids, since both are plain UUIDs
+ * in `sources` with nothing else distinguishing them. Those ids never go to `onHoverSources`
+ * (there's no card on the board to outline/scroll to) — instead the chip shows "quote" and a
+ * Tooltip with the actual quoted text, which is the whole point ("hovering a transcript-sourced
+ * point shows the quote," the story's own AC). A point citing both still outlines its card(s) on
+ * hover *and* carries the quote tooltip — the two aren't mutually exclusive. */
 function SummaryPointList({
   points,
   onHoverSources,
   renderAction,
+  transcriptTextById,
 }: {
   points: TopicSummaryPoint[];
   onHoverSources: (sources: string[] | null) => void;
   // RN-022: "Add as action item" on a proposed item — only ever passed for the proposedActionItems
   // list (SummaryCard), never key points/decisions/disagreements.
   renderAction?: (point: TopicSummaryPoint, index: number) => ReactNode;
+  transcriptTextById?: Map<string, string>;
 }) {
   if (points.length === 0)
     return (
@@ -1252,35 +1263,40 @@ function SummaryPointList({
     );
   return (
     <Box component="ul" sx={{ m: 0, mb: 1, pl: 2 }}>
-      {points.map((p, i) => (
-        <Typography component="li" variant="body2" key={i} sx={{ mb: 0.5 }}>
-          {p.text}
-          {renderAction?.(p, i)}
-          {p.sources.length > 0 && (
-            <Box
-              component="button"
-              type="button"
-              onMouseEnter={() => onHoverSources(p.sources)}
-              onMouseLeave={() => onHoverSources(null)}
-              onFocus={() => onHoverSources(p.sources)}
-              onBlur={() => onHoverSources(null)}
-              sx={{
-                ml: 0.75,
-                fontSize: 11,
-                border: '1px solid',
-                borderColor: 'divider',
-                borderRadius: 999,
-                px: 0.75,
-                py: 0,
-                bgcolor: 'transparent',
-                cursor: 'default',
-              }}
-            >
-              {p.sources.length} card{p.sources.length === 1 ? '' : 's'}
-            </Box>
-          )}
-        </Typography>
-      ))}
+      {points.map((p, i) => {
+        const cardSourceIds = p.sources.filter((id) => !transcriptTextById?.has(id));
+        const quotes = p.sources.map((id) => transcriptTextById?.get(id)).filter((q): q is string => Boolean(q));
+        const chip = p.sources.length > 0 && (
+          <Box
+            component="button"
+            type="button"
+            onMouseEnter={() => onHoverSources(cardSourceIds.length > 0 ? cardSourceIds : null)}
+            onMouseLeave={() => onHoverSources(null)}
+            onFocus={() => onHoverSources(cardSourceIds.length > 0 ? cardSourceIds : null)}
+            onBlur={() => onHoverSources(null)}
+            sx={{
+              ml: 0.75,
+              fontSize: 11,
+              border: '1px solid',
+              borderColor: 'divider',
+              borderRadius: 999,
+              px: 0.75,
+              py: 0,
+              bgcolor: 'transparent',
+              cursor: 'default',
+            }}
+          >
+            {cardSourceIds.length > 0 ? `${cardSourceIds.length} card${cardSourceIds.length === 1 ? '' : 's'}` : 'quote'}
+          </Box>
+        );
+        return (
+          <Typography component="li" variant="body2" key={i} sx={{ mb: 0.5 }}>
+            {p.text}
+            {renderAction?.(p, i)}
+            {chip && (quotes.length > 0 ? <Tooltip title={quotes.join(' / ')}>{chip}</Tooltip> : chip)}
+          </Typography>
+        );
+      })}
     </Box>
   );
 }
@@ -1300,12 +1316,14 @@ function SummaryCard({
   onRegenerate,
   onAddActionItem,
   canAddActionItem,
+  transcriptTextById,
 }: {
   topic: Topic;
   summary: TopicSummary | null;
   unavailable: boolean;
   canManage: boolean;
   onHoverSources: (sources: string[] | null) => void;
+  transcriptTextById?: Map<string, string>;
   onSave: (
     keyPoints: TopicSummaryPoint[],
     decisions: TopicSummaryPoint[],
@@ -1417,21 +1435,22 @@ function SummaryCard({
           <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mt: 1, mb: 0.25 }}>
             Key points
           </Typography>
-          <SummaryPointList points={summary.keyPoints} onHoverSources={onHoverSources} />
+          <SummaryPointList points={summary.keyPoints} onHoverSources={onHoverSources} transcriptTextById={transcriptTextById} />
           <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mt: 1, mb: 0.25 }}>
             Decisions
           </Typography>
-          <SummaryPointList points={summary.decisions} onHoverSources={onHoverSources} />
+          <SummaryPointList points={summary.decisions} onHoverSources={onHoverSources} transcriptTextById={transcriptTextById} />
           <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mt: 1, mb: 0.25 }}>
             Disagreements
           </Typography>
-          <SummaryPointList points={summary.disagreements} onHoverSources={onHoverSources} />
+          <SummaryPointList points={summary.disagreements} onHoverSources={onHoverSources} transcriptTextById={transcriptTextById} />
           <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mt: 1, mb: 0.25 }}>
             Proposed action items
           </Typography>
           <SummaryPointList
             points={summary.proposedActionItems}
             onHoverSources={onHoverSources}
+            transcriptTextById={transcriptTextById}
             renderAction={
               canAddActionItem
                 ? (p, i) =>
@@ -1569,6 +1588,7 @@ function DiscussQueuePanel({
   onRegenerateSummary,
   onAddActionItem,
   attendees,
+  transcriptTextById,
 }: {
   phase: RetroPhase;
   topics: Topic[];
@@ -1591,6 +1611,7 @@ function DiscussQueuePanel({
   topicSummaries: TopicSummary[];
   summaryUnavailableTopicIds: string[];
   onHoverSummarySources: (sources: string[] | null) => void;
+  transcriptTextById?: Map<string, string>;
   onSaveSummary: (
     topicId: string,
     keyPoints: TopicSummaryPoint[],
@@ -1798,6 +1819,7 @@ function DiscussQueuePanel({
                 onRegenerate={() => onRegenerateSummary(t.id)}
                 onAddActionItem={(text) => onAddActionItem(t.id, text)}
                 canAddActionItem={phase !== 'closed'}
+                transcriptTextById={transcriptTextById}
               />
             ))}
             {/* RN-026: "attendance" — only ever shown once the retro's actually closed, the one
@@ -2169,6 +2191,10 @@ function Board({
   for (const card of board.cards) {
     if (card.topicId) cardCountByTopic.set(card.topicId, (cardCountByTopic.get(card.topicId) ?? 0) + 1);
   }
+  // RN-037: "hovering a transcript-sourced point shows the quote" — SummaryPointList's only way
+  // to tell a transcript segment id apart from a card id in a summary point's `sources` (both are
+  // plain UUIDs). Gap markers (RN-033) carry no real text and are never a valid citation anyway.
+  const transcriptTextById = new Map(board.transcriptSegments.filter((s) => !s.isGapMarker).map((s) => [s.id, s.text]));
   // RN-020: "editable only in Discuss and Wrap up" — matrix's own `summaryEdit` cell, no
   // ownership check (the story never says "facilitator-only").
   const canEditNotes = allowedActions(board.phase).summaryEdit;
@@ -3534,6 +3560,7 @@ function Board({
             onRegenerateSummary={regenerateSummary}
             onAddActionItem={(topicId, text) => createActionItem(text, topicId, null, defaultActionItemDueDate(initialBoard.retro), 'ai')}
             attendees={board.attendees}
+            transcriptTextById={transcriptTextById}
           />
         )}
       </Stack>
