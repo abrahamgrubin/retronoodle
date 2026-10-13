@@ -3,7 +3,7 @@ import type { RetroPhase } from './retros.js';
 /** The walked sequence a retro actually moves through (RN-010). A retro never sits in `setup` —
  * its initial phase is decided at creation time (review, if the team has carried-over action
  * items; write otherwise) — and `closed` is terminal, so neither appears here as a "from". */
-const PHASE_ORDER: RetroPhase[] = ['review', 'write', 'group', 'vote', 'discuss', 'wrap_up', 'closed'];
+export const PHASE_ORDER: RetroPhase[] = ['review', 'write', 'group', 'vote', 'discuss', 'wrap_up', 'closed'];
 
 /** `phase.next`/`phase.skip` (RN-010: both mutations resolve to the same target — "skip" is the
  * same forward step as "next", just invoked from the phase timer's Skip button (RN-012) instead

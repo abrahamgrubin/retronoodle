@@ -14,10 +14,13 @@ import {
 } from './helpers.js';
 
 /**
- * RN-032: "every online participant sees 'Allow recording?'... Recording starts only when all
- * agree... Persistent red 'Recording' badge... a decline stops it." recording.start itself has
- * no phase gate, so this runs against a brand-new retro still in Write — no need to walk through
- * other phases just to exercise the consent flow.
+ * RN-032, updated: "they already agreed to the discussion being recorded when they joined the
+ * session" — recording now auto-starts the moment Discuss begins (onTransition.ts), not on a
+ * facilitator's click. Every other consent mechanic (RN-032) is unchanged: online participants
+ * still get "Allow recording?", a decline still stops it outright, a manual "Stop recording"
+ * still exists. `phase.jumpTo` is what actually drives a fresh retro into Discuss here — direct
+ * API calls, not clicking through every phase, since the consent flow is what these tests are
+ * actually about.
  */
 test.skip(MISSING_SUPABASE_CREDENTIALS, SKIP_REASON);
 
@@ -32,9 +35,6 @@ test('a participant must agree before recording starts, and stopping clears the 
   const participantContext = await browser.newContext();
   const facilitatorPage = await facilitatorContext.newPage();
   const participantPage = await participantContext.newPage();
-  // window.confirm("I've told everyone outside the app...") — Playwright dismisses dialogs by
-  // default, which would silently cancel the Record click.
-  facilitatorPage.on('dialog', (dialog) => void dialog.accept());
 
   try {
     await facilitatorPage.goto(`/retros/${retroId}`);
@@ -44,16 +44,19 @@ test('a participant must agree before recording starts, and stopping clears the 
 
     // `signIn` only sets the session — it doesn't wait for the board to actually mount, which is
     // also when the participant's retro:{id} Realtime channel subscribes. Without this, there was
-    // nothing stopping the facilitator's Record click (below) from broadcasting before the
-    // participant's own channel had finished subscribing, which has no replay/catch-up (it's a
-    // plain broadcast, not a queue) — a race that sometimes lost (found via CI flakiness).
+    // nothing stopping the phase jump below from broadcasting before the participant's own
+    // channel had finished subscribing, which has no replay/catch-up (it's a plain broadcast, not
+    // a queue) — a race that sometimes lost (found via CI flakiness).
     await expect(participantPage.getByText('RN-032 e2e retro')).toBeVisible();
 
-    // The participant must be "online" (a recent heartbeat) before recording.start will seed
-    // their consent — the real client does this on an interval; here, once is enough.
+    // The participant must be "online" (a recent heartbeat) before entering Discuss seeds their
+    // consent — the real client does this on an interval; here, once is enough.
     await sendHeartbeat(retroId, participant.accessToken);
 
-    await facilitatorPage.getByRole('button', { name: 'Record', exact: true }).click();
+    // Drives the retro straight into Discuss — recording auto-starts as one of that jump's own
+    // transition side effects (onTransition.ts), the same as a real walk through Write/Group/Vote
+    // would, just without needing to drive every intermediate phase through the UI.
+    await sendMutation(retroId, facilitator.accessToken, 'phase.jumpTo', { targetPhase: 'discuss' });
 
     // Not recording yet — the participant hasn't agreed.
     await expect(facilitatorPage.getByText('Recording', { exact: true })).toHaveCount(0);
@@ -85,18 +88,23 @@ test('a decline stops the session for everyone', async ({ browser }) => {
 
   const facilitatorContext = await browser.newContext();
   const facilitatorPage = await facilitatorContext.newPage();
-  facilitatorPage.on('dialog', (dialog) => void dialog.accept());
 
   try {
     await sendHeartbeat(retroId, participant.accessToken);
     await facilitatorPage.goto(`/retros/${retroId}`);
     await signIn(facilitatorPage, facilitator);
-    await facilitatorPage.getByRole('button', { name: 'Record', exact: true }).click();
 
-    // The click only fires the mutation; it doesn't wait for it to land. Without this, getBoard()
-    // below could race ahead of the server having created the session yet (found via local
-    // flakiness) — "Stop recording" only ever renders once board.recordingSession is populated, so
-    // waiting for it first means the session is guaranteed to exist by the time we fetch it.
+    // Same race as the other test in this file: `signIn` doesn't wait for the board to actually
+    // mount and its retro:{id} channel to subscribe — without this, the jump below could
+    // broadcast before the facilitator's own page was listening for it.
+    await expect(facilitatorPage.getByText('RN-032 e2e decline retro')).toBeVisible();
+
+    await sendMutation(retroId, facilitator.accessToken, 'phase.jumpTo', { targetPhase: 'discuss' });
+
+    // The jump only fires the mutation; it doesn't wait for every one of its own side effects to
+    // be visible here yet. "Stop recording" only ever renders once board.recordingSession is
+    // populated, so waiting for it first means the session is guaranteed to exist by the time the
+    // test fetches it below.
     await expect(facilitatorPage.getByRole('button', { name: 'Stop recording' })).toBeVisible();
 
     // Declining via the mutation directly (already covered interactively by the Allow path
@@ -106,8 +114,9 @@ test('a decline stops the session for everyone', async ({ browser }) => {
     await sendMutation(retroId, participant.accessToken, 'recording.respond', { sessionId, agree: false });
 
     await expect(facilitatorPage.getByText('Recording', { exact: true })).toHaveCount(0);
-    // The Record button is offered again — status flipped all the way to `stopped`.
-    await expect(facilitatorPage.getByRole('button', { name: 'Record', exact: true })).toBeVisible();
+    // Status flipped all the way to `stopped` — the manual "Stop recording" control (the only
+    // recording-related button left) disappears along with it, same as after an explicit stop.
+    await expect(facilitatorPage.getByRole('button', { name: 'Stop recording' })).toHaveCount(0);
   } finally {
     await facilitatorContext.close();
     await cleanupTeam(teamId, [facilitator, participant]);

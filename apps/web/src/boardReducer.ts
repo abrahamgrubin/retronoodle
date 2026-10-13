@@ -33,6 +33,8 @@ import type {
   TopicAssignSpeakerResult,
   TranscriptSegment,
   UnmatchedSpeaker,
+  TopicSkipResult,
+  TopicRemoveResult,
 } from '@retronoodle/shared';
 import type { RetroEvent } from './retroStore';
 
@@ -250,6 +252,7 @@ export function reduceBoard(board: BoardState, event: RetroEvent): BoardState {
     case 'phase.next':
     case 'phase.skip':
     case 'phase.back':
+    case 'phase.jumpTo':
     case 'retro.close': {
       const result = event.payload as PhaseTransitionResult;
       // RN-018: "Going back Vote→Group refunds all votes" — the server deletes every vote row on
@@ -403,6 +406,24 @@ export function reduceBoard(board: BoardState, event: RetroEvent): BoardState {
         unmatchedSpeakers: board.unmatchedSpeakers
           ? board.unmatchedSpeakers.filter((u) => !(u.topicId === result.topicId && u.speakerTag === result.speakerTag))
           : null,
+      };
+    }
+    // topic.skip: marks a not-yet-discussed topic as discussed, same upsert as any other
+    // server-returned topic — it simply now has both startedAt and endedAt set, so it moves
+    // itself into the "Discussed" list the next time the queue panel renders.
+    case 'topic.skip': {
+      const result = event.payload as TopicSkipResult;
+      return upsertTopic(board, result.topic);
+    }
+    // topic.remove: the topic is gone outright — its cards aren't deleted, just ungrouped
+    // (server-side, cards.topic_id is `on delete set null`; this is the client half of that).
+    case 'topic.remove': {
+      const result = event.payload as TopicRemoveResult;
+      const ungroupedCardIds = new Set(result.cardIds);
+      return {
+        ...board,
+        topics: board.topics.filter((t) => t.id !== result.topicId),
+        cards: board.cards.map((c) => (ungroupedCardIds.has(c.id) ? { ...c, topicId: null } : c)),
       };
     }
     default:

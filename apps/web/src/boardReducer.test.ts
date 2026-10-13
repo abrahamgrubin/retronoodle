@@ -815,4 +815,46 @@ describe('reduceBoard', () => {
       expect(updated.unmatchedSpeakers).toBeNull();
     });
   });
+
+  describe('topic.skip', () => {
+    const topicId = '00000000-0000-4000-8000-000000000055';
+    it('upserts the topic as discussed, same as any other server-returned topic', () => {
+      const board: BoardState = {
+        ...emptyBoard,
+        topics: [{ id: topicId, columnId, name: 'Up next', voteCount: 1, discussionOrder: 'a0', startedAt: null, endedAt: null, groupSummaryTitle: null, groupSummary: null, discussionQuestions: null, notes: '' }],
+      };
+      const updated = reduceBoard(board, {
+        seq: 1,
+        type: 'topic.skip',
+        payload: {
+          topic: { id: topicId, columnId, name: 'Up next', voteCount: 1, discussionOrder: 'a0', startedAt: '2026-01-01T00:00:00.000Z', endedAt: '2026-01-01T00:00:00.000Z', groupSummaryTitle: null, groupSummary: null, discussionQuestions: null, notes: '' },
+        },
+      });
+      expect(updated.topics[0]).toMatchObject({ startedAt: '2026-01-01T00:00:00.000Z', endedAt: '2026-01-01T00:00:00.000Z' });
+    });
+  });
+
+  describe('topic.remove', () => {
+    const topicId = '00000000-0000-4000-8000-000000000056';
+    it('removes the topic and ungroups its cards', () => {
+      const otherTopicId = '00000000-0000-4000-8000-000000000060';
+      const board: BoardState = {
+        ...emptyBoard,
+        topics: [
+          { id: topicId, columnId, name: 'Doomed', voteCount: 0, discussionOrder: 'a0', startedAt: null, endedAt: null, groupSummaryTitle: null, groupSummary: null, discussionQuestions: null, notes: '' },
+          { id: otherTopicId, columnId, name: 'Stays', voteCount: 0, discussionOrder: 'a1', startedAt: null, endedAt: null, groupSummaryTitle: null, groupSummary: null, discussionQuestions: null, notes: '' },
+        ],
+        cards: [
+          { id: cardId, columnId, authorId, authorName: 'Ada', body: 'x', position: 'a0', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', topicId, reactions: [], hidden: false },
+        ],
+      };
+      const updated = reduceBoard(board, {
+        seq: 1,
+        type: 'topic.remove',
+        payload: { topicId, cardIds: [cardId] },
+      });
+      expect(updated.topics.map((t) => t.id)).toEqual([otherTopicId]);
+      expect(updated.cards[0]).toMatchObject({ topicId: null });
+    });
+  });
 });
