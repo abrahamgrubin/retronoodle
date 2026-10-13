@@ -34,6 +34,9 @@ import { recordingStartMutation } from './recordingStart.js';
 import { recordingRespondMutation } from './recordingRespond.js';
 import { recordingStopMutation } from './recordingStop.js';
 import { topicAssignSpeakerMutation } from './topicAssignSpeaker.js';
+import { topicSkipMutation } from './topicSkip.js';
+import { topicRemoveMutation } from './topicRemove.js';
+import { phaseJumpToMutation } from './phaseJumpTo.js';
 
 export function createDefaultMutationRegistry(): MutationRegistry {
   const registry = new MutationRegistry();
@@ -71,5 +74,8 @@ export function createDefaultMutationRegistry(): MutationRegistry {
   registry.register('recording.respond', recordingRespondMutation);
   registry.register('recording.stop', recordingStopMutation);
   registry.register('topic.assignSpeaker', topicAssignSpeakerMutation);
+  registry.register('topic.skip', topicSkipMutation);
+  registry.register('topic.remove', topicRemoveMutation);
+  registry.register('phase.jumpTo', phaseJumpToMutation);
   return registry;
 }

@@ -167,6 +167,17 @@ export const PhaseTransitionResult = z.object({
 });
 export type PhaseTransitionResult = z.infer<typeof PhaseTransitionResult>;
 
+/** `phase.jumpTo` (facilitator-only): unlike phase.next/back/skip, the caller does name a target
+ * — any phase on the header pill bar (review through wrap_up, never closed or setup). The server
+ * walks every phase in between in order, replaying each one's own transition side effect exactly
+ * as if the facilitator had clicked through one at a time (onTransition.ts's own table), so e.g.
+ * jumping Write→Wrap up still reveals cards, auto-groups singles, ranks topics and starts the
+ * first one — same result shape as the single-step mutations, just reaching further. */
+export const PhaseJumpPayload = z.object({
+  targetPhase: RetroPhase,
+});
+export type PhaseJumpPayload = z.infer<typeof PhaseJumpPayload>;
+
 /** `retro.close` (RN-023): the one way wrap_up ever reaches `closed` — `phase.next`/`phase.skip`
  * explicitly refuse that specific target (phaseNext.ts) so this F2 check can't be bypassed.
  * `nextRetroAt` is always sent (the dialog prefills it from the team's cadence, but the
@@ -259,6 +270,34 @@ export const QueueReorderResult = z.object({
   topic: Topic,
 });
 export type QueueReorderResult = z.infer<typeof QueueReorderResult>;
+
+/** `topic.skip` (facilitator-only, Discuss only): marks a not-yet-discussed topic as discussed
+ * without ever making it current — it moves straight to the "Discussed" list with no notes or
+ * summary, as if the team passed over it. Rejects a topic that's already started. */
+export const TopicSkipPayload = z.object({
+  topicId: z.string().uuid(),
+});
+export type TopicSkipPayload = z.infer<typeof TopicSkipPayload>;
+
+export const TopicSkipResult = z.object({
+  topic: Topic,
+});
+export type TopicSkipResult = z.infer<typeof TopicSkipResult>;
+
+/** `topic.remove` (facilitator-only, Discuss only): deletes a not-yet-discussed topic outright —
+ * its cards aren't deleted, just ungrouped (`cards.topic_id` is `on delete set null`). Rejects a
+ * topic that's already started, same as topic.skip/queue.reorder — once a topic has history
+ * (notes, a summary, or is simply already current), removing it outright would destroy that. */
+export const TopicRemovePayload = z.object({
+  topicId: z.string().uuid(),
+});
+export type TopicRemovePayload = z.infer<typeof TopicRemovePayload>;
+
+export const TopicRemoveResult = z.object({
+  topicId: z.string().uuid(),
+  cardIds: z.array(z.string().uuid()),
+});
+export type TopicRemoveResult = z.infer<typeof TopicRemoveResult>;
 
 /** `topic.editGroupSummary` (homework): facilitator-only, Vote phase only — overwrites
  * group-summarizer's output with the facilitator's own text, whether the agent already ran or

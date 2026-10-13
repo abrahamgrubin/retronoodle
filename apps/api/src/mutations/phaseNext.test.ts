@@ -27,9 +27,14 @@ function fakeClient() {
   // and RN-015's group->vote "find ungrouped cards" lookup) ignores it, so an empty row set
   // covers all of them; group->vote's own mutation-level behavior is covered in
   // onTransition-specific/cardMove tests, not this generically-phased one.
-  const query = vi.fn().mockImplementation((sql: string) =>
-    sql.includes('set phase =') ? Promise.resolve({ rows: [{ phase_deadline: newDeadline }] }) : Promise.resolve({ rows: [] }),
-  );
+  const query = vi.fn().mockImplementation((sql: string) => {
+    if (sql.includes('set phase =')) return Promise.resolve({ rows: [{ phase_deadline: newDeadline }] });
+    // autoStartRecordingIfNeeded's own "does a session already exist" check (runs for every
+    // transition landing on discuss) — non-empty short-circuits it, since this test isn't
+    // exercising recording behavior.
+    if (sql.includes('from recording_sessions where retro_id')) return Promise.resolve({ rows: [{ exists: 1 }] });
+    return Promise.resolve({ rows: [] });
+  });
   return { query } as unknown as PoolClient;
 }
 

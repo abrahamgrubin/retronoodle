@@ -59,6 +59,7 @@ import {
 } from '@mui/material';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
+import HomeIcon from '@mui/icons-material/Home';
 import { signInWithGoogle } from './auth';
 import { audioGatewayUrl, fetchBoard, sendHeartbeat } from './board';
 import { reduceBoard, toggleReaction, type BoardState } from './boardReducer';
@@ -1131,13 +1132,21 @@ function UpNextRow({
   rank,
   canManage,
   onJump,
+  onSkip,
+  onRemove,
 }: {
   topic: Topic;
   rank: number;
   canManage: boolean;
   onJump: () => void;
+  onSkip: () => void;
+  onRemove: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: topic.id, disabled: !canManage });
+  // Groups still show their AI summary title here once one exists, same as the "Now discussing"
+  // card and the Discussed list — the facilitator picking a topic from the queue cares about what
+  // it's actually about, not its default "first card's text" name.
+  const label = topic.groupSummaryTitle || topic.name || 'Untitled group';
   return (
     <Stack
       direction="row"
@@ -1157,7 +1166,7 @@ function UpNextRow({
           {...attributes}
           {...listeners}
           sx={{ cursor: 'grab', color: 'text.disabled', display: 'flex' }}
-          aria-label={`Reorder ${topic.name || 'this topic'}`}
+          aria-label={`Reorder ${label}`}
         >
           <DragIndicatorIcon fontSize="small" />
         </Box>
@@ -1171,11 +1180,21 @@ function UpNextRow({
         disabled={!canManage}
         sx={{ flex: 1, textAlign: 'left', justifyContent: 'flex-start', color: 'inherit' }}
       >
-        {topic.name || 'Untitled group'}
+        {label}
       </Button>
       <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
         {topic.voteCount} vote{topic.voteCount === 1 ? '' : 's'}
       </Typography>
+      {canManage && (
+        <>
+          <Button size="small" type="button" onClick={onSkip} sx={{ minWidth: 0, flexShrink: 0 }}>
+            Skip
+          </Button>
+          <Button size="small" type="button" color="error" onClick={onRemove} sx={{ minWidth: 0, flexShrink: 0 }}>
+            Remove
+          </Button>
+        </>
+      )}
     </Stack>
   );
 }
@@ -1577,6 +1596,8 @@ function DiscussQueuePanel({
   onFinish,
   onJump,
   onReorder,
+  onSkipTopic,
+  onRemoveTopic,
   canEditNotes,
   onNotesChange,
   tab,
@@ -1598,6 +1619,8 @@ function DiscussQueuePanel({
   onFinish: () => void;
   onJump: (topicId: string) => void;
   onReorder: (topicId: string, discussionOrder: string) => void;
+  onSkipTopic: (topicId: string) => void;
+  onRemoveTopic: (topicId: string) => void;
   // RN-020: "editable only in Discuss and Wrap up" — no ownership check beyond that (unlike
   // `canManage`'s facilitator-only queue controls above), so this is its own separate flag.
   canEditNotes: boolean;
@@ -1682,7 +1705,7 @@ function DiscussQueuePanel({
               Now discussing
             </Typography>
             <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 0.5 }}>
-              {current.name || 'Untitled group'}
+              {current.groupSummaryTitle || current.name || 'Untitled group'}
             </Typography>
             <Typography variant="caption" color="text.secondary" component="p" sx={{ mb: 1 }}>
               {current.voteCount} vote{current.voteCount === 1 ? '' : 's'} · {cardCountByTopic.get(current.id) ?? 0} card
@@ -1722,7 +1745,15 @@ function DiscussQueuePanel({
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
               <SortableContext items={upNext.map((t) => t.id)} strategy={verticalListSortingStrategy}>
                 {upNext.map((t, i) => (
-                  <UpNextRow key={t.id} topic={t} rank={i + 1} canManage={canManage} onJump={() => onJump(t.id)} />
+                  <UpNextRow
+                    key={t.id}
+                    topic={t}
+                    rank={i + 1}
+                    canManage={canManage}
+                    onJump={() => onJump(t.id)}
+                    onSkip={() => onSkipTopic(t.id)}
+                    onRemove={() => onRemoveTopic(t.id)}
+                  />
                 ))}
               </SortableContext>
             </DndContext>
@@ -1772,7 +1803,10 @@ function DiscussQueuePanel({
                     ✓
                   </Box>
                   <Typography variant="body2" sx={{ flex: 1 }}>
-                    {t.name || 'Untitled group'}
+                    {t.groupSummaryTitle || t.name || 'Untitled group'}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {t.voteCount} vote{t.voteCount === 1 ? '' : 's'}
                   </Typography>
                   <Chip size="small" variant="outlined" label={status} />
                 </Stack>
@@ -1792,9 +1826,11 @@ function DiscussQueuePanel({
             {upNext.map((t) => (
               <Stack key={t.id} direction="row" spacing={0.75} sx={{ alignItems: 'center', py: 0.5, color: 'text.disabled' }}>
                 <Typography variant="body2" sx={{ flex: 1 }}>
-                  {t.name || 'Untitled group'}
+                  {t.groupSummaryTitle || t.name || 'Untitled group'}
                 </Typography>
-                <Typography variant="caption">Not discussed</Typography>
+                <Typography variant="caption">
+                  {t.voteCount} vote{t.voteCount === 1 ? '' : 's'} · Not discussed
+                </Typography>
               </Stack>
             ))}
           </Box>
@@ -2605,6 +2641,25 @@ function Board({
     });
   }
 
+  function skipTopic(topicId: string) {
+    const mutationId = uuidv7();
+    void sendMutation({
+      mutationId,
+      optimisticReduce: (b) => b,
+      send: () => postMutation(accessToken, retroId, { mutationId, type: 'topic.skip', payload: { topicId } }),
+    });
+  }
+
+  function removeTopic(topicId: string) {
+    if (!window.confirm('Remove this topic from the queue? Its cards stay on the board, ungrouped.')) return;
+    const mutationId = uuidv7();
+    void sendMutation({
+      mutationId,
+      optimisticReduce: (b) => b,
+      send: () => postMutation(accessToken, retroId, { mutationId, type: 'topic.remove', payload: { topicId } }),
+    });
+  }
+
   function handleDragStart(event: DragStartEvent) {
     setActiveId(event.active.id as string);
   }
@@ -2822,6 +2877,20 @@ function Board({
         applyLocalPatch((b) => ({ ...b, transcriptSegments: [...b.transcriptSegments, segment] }));
         return;
       }
+      // phase.jumpTo can replay an arbitrary number of transitions in one go (reveal, auto-group,
+      // rank-and-start-topic, auto-record, ...), each with its own gap between what its own
+      // broadcast carries ({phase, phaseDeadline} only) and what it actually changed server-side
+      // — the same gap write->group/group->vote/vote->discuss's own single-step resyncs
+      // (previousPhaseRef's effect, below) each individually patch over. Rather than teaching
+      // that effect every possible multi-step combination, every connected client (not just
+      // whoever clicked) just resyncs unconditionally here first, then still folds the event
+      // normally so the phase itself updates immediately rather than waiting on the resync.
+      if (message.event === 'phase.jumpTo') {
+        const { seq, result } = message.payload as { seq: number; result: unknown };
+        applyServerEvent({ seq, type: message.event, payload: result });
+        resyncRef.current(false);
+        return;
+      }
       const { seq, result } = message.payload as { seq: number; result: unknown };
       applyServerEvent({ seq, type: message.event, payload: result });
     });
@@ -2957,9 +3026,20 @@ function Board({
     setCaptureActive(false);
   }
 
+  // "Recording and transcription should happen immediately" once Discuss begins — the facilitator
+  // never has to click anything (onTransition.ts's own auto-start effect is the other half of
+  // this: it's what gets recordingSession to 'recording' in the first place). Only ever the
+  // facilitator's own browser does the actual capturing (mic + shared tab audio), same as the
+  // server-side gate in audioGateway.ts.
   useEffect(() => {
-    if (!captureAllowed && captureHandleRef.current) stopCapture();
-  }, [captureAllowed]);
+    if (!isFacilitator) return;
+    if (captureAllowed && !captureHandleRef.current) {
+      startCapture();
+    } else if (!captureAllowed && captureHandleRef.current) {
+      stopCapture();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [captureAllowed, isFacilitator]);
 
   // RN-035: on-device speech detection — any participant, not just the facilitator. Starts
   // automatically whenever audio capture would be allowed (same phase/session gate as the
@@ -3000,23 +3080,6 @@ function Board({
       optimisticReduce: (b) => b,
       send: () =>
         postMutation(accessToken, retroId, { mutationId, type: 'topic.assignSpeaker', payload: { topicId, speakerTag, userId: assignedUserId } }),
-    });
-  }
-
-  function startRecording() {
-    const sessionId = uuidv7();
-    const mutationId = uuidv7();
-    void sendMutation({
-      mutationId,
-      // No optimistic shortcut — whether this starts 'recording' immediately or stays 'pending'
-      // depends on who else is online right now, something only the server actually knows.
-      optimisticReduce: (b) => b,
-      send: () =>
-        postMutation(accessToken, retroId, {
-          mutationId,
-          type: 'recording.start',
-          payload: { sessionId, confirmedExternalNotice: true },
-        }),
     });
   }
 
@@ -3119,6 +3182,19 @@ function Board({
     });
   }
 
+  // Clicking any phase pill, or the Back button (now just a jump to the one before current) —
+  // unlike changePhase above, the server may replay several transitions in sequence to get
+  // there, so there's nothing useful to guess optimistically; the channel handler forces a full
+  // resync once the real result arrives instead (every connected client, not just this one).
+  function jumpToPhase(targetPhase: RetroPhase) {
+    const mutationId = uuidv7();
+    void sendMutation({
+      mutationId,
+      optimisticReduce: (b) => b,
+      send: () => postMutation(accessToken, retroId, { mutationId, type: 'phase.jumpTo', payload: { targetPhase } }),
+    });
+  }
+
   function extendPhase(minutes: 1 | 2 | 5) {
     const mutationId = uuidv7();
     void sendMutation({
@@ -3150,17 +3226,22 @@ function Board({
     setCloseDialogOpen(false);
   }
 
-  // Header pill bar per mock (RN-010): current phase is the dark pill; past phases stay
-  // clickable-looking but inert — there's no "jump to phase" action, only next/back/skip.
+  // Header pill bar (RN-010): clicking any pill jumps straight there (phase.jumpTo), facilitator
+  // only — the current phase's own pill is inert (nothing to jump to).
   const PHASE_PILLS: RetroPhase[] = ['review', 'write', 'group', 'vote', 'discuss', 'wrap_up'];
   const currentPillIndex = PHASE_PILLS.indexOf(board.phase);
 
   return (
     <Box sx={{ fontFamily: 'system-ui, sans-serif', p: 4 }}>
       <style>{'@keyframes rn-timer-flash { 0%, 100% { background: #c00; color: #fff; } 50% { background: #fff; color: #c00; } }'}</style>
-      <Typography variant="h4" sx={{ mb: 0.5 }}>
-        {initialBoard.retro.name}
-      </Typography>
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 0.5 }}>
+        {/* Always reachable, any phase, including closed — a plain anchor (no router in this
+            app; see main.tsx) rather than a client-side navigation call. */}
+        <IconButton component="a" href="/" size="small" aria-label="Home" sx={{ ml: -1 }}>
+          <HomeIcon fontSize="small" />
+        </IconButton>
+        <Typography variant="h4">{initialBoard.retro.name}</Typography>
+      </Stack>
       {isReconnecting && (
         <Typography role="status" variant="caption" component="p" sx={{ color: '#a66a00', mb: 0.5 }}>
           Reconnecting…
@@ -3172,6 +3253,7 @@ function Board({
             key={phase}
             size="small"
             label={phase.replace('_', ' ')}
+            onClick={isFacilitator && phase !== board.phase ? () => jumpToPhase(phase) : undefined}
             sx={{
               bgcolor: phase === board.phase ? '#222' : 'grey.200',
               color: phase === board.phase ? '#fff' : index < currentPillIndex ? '#aaa' : '#888',
@@ -3197,12 +3279,15 @@ function Board({
       )}
       {isFacilitator && (
         <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', mb: 2 }}>
-          {previousPhase(board.phase) && (
-            <Button size="small" type="button" onClick={() => changePhase('back')}>
+          {/* Back now jumps to whichever phase is one before current on the pill bar (same
+              phase.jumpTo the pills themselves use) — shown on every phase except Review, which
+              has nothing earlier to go back to. */}
+          {currentPillIndex > 0 && (
+            <Button size="small" type="button" onClick={() => jumpToPhase(PHASE_PILLS[currentPillIndex - 1]!)}>
               Back
             </Button>
           )}
-          {/* RN-023: wrap_up's "Skip" is replaced by this dialog-opening button — phase.skip (same
+          {/* RN-023: wrap_up's "Next" is replaced by this dialog-opening button — phase.skip (same
               mutation type as phase.next) is rejected server-side for that specific target now,
               so this is the only door from here to Closed. */}
           {board.phase === 'wrap_up' ? (
@@ -3212,7 +3297,7 @@ function Board({
           ) : (
             nextPhase(board.phase) && (
               <Button size="small" type="button" onClick={() => changePhase('skip')}>
-                Skip
+                Next
               </Button>
             )
           )}
@@ -3227,34 +3312,26 @@ function Board({
               Reveal cards
             </Button>
           )}
-          {/* RN-032: "Facilitator clicks Record" — no session yet, or the last one stopped. */}
-          {(!board.recordingSession || board.recordingSession.status === 'stopped') && (
-            <Button
-              size="small"
-              type="button"
-              onClick={() => {
-                if (window.confirm("I've told everyone outside the app that this retro is being recorded.")) startRecording();
-              }}
-            >
-              Record
-            </Button>
-          )}
-          {board.recordingSession && board.recordingSession.status !== 'stopped' && (
+          {/* Recording and transcription now both start on their own the moment Discuss begins
+              (onTransition.ts's auto-start effect; captureAllowed's own effect below) — consent
+              was already given when everyone joined, so there's nothing left here to click to
+              start either one. A manual stop still exists (not every retro's discussion should
+              necessarily stay recorded start-to-finish), but only while the retro's still open —
+              a closed retro has nothing left to record. */}
+          {board.phase !== 'closed' && board.recordingSession && board.recordingSession.status !== 'stopped' && (
             <Button size="small" type="button" color="error" onClick={() => stopRecording(board.recordingSession!.id)}>
               Stop recording
               {board.recordingSession.status !== 'recording' && ` (${board.recordingSession.status})`}
             </Button>
           )}
-          {/* RN-033: facilitator-only, and only once recording has actually started (not merely
-              `pending`) — there is no capture without the consent gate having already passed. */}
-          {captureAllowed && !captureActive && (
-            <Button size="small" type="button" onClick={startCapture}>
-              Start transcription
-            </Button>
-          )}
-          {captureAllowed && captureActive && (
+          {board.phase !== 'closed' && captureAllowed && captureActive && (
             <Button size="small" type="button" color="error" onClick={stopCapture}>
               Stop transcription
+            </Button>
+          )}
+          {board.phase !== 'closed' && captureAllowed && !captureActive && transcriptionUnavailable && (
+            <Button size="small" type="button" onClick={startCapture}>
+              Retry transcription
             </Button>
           )}
         </Stack>
@@ -3549,6 +3626,8 @@ function Board({
             onFinish={finishDiscussion}
             onJump={jumpToTopic}
             onReorder={reorderQueueTopic}
+            onSkipTopic={skipTopic}
+            onRemoveTopic={removeTopic}
             canEditNotes={canEditNotes}
             onNotesChange={updateNotes}
             tab={rightPanelTab}

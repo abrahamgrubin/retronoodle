@@ -171,10 +171,13 @@ describe('runTransitionEffect', () => {
       query.mockResolvedValueOnce({ rows: [] });
       query.mockResolvedValueOnce({ rows: [] });
       query.mockResolvedValueOnce({ rows: [] });
+      // autoStartRecordingIfNeeded's own "does a session already exist" check — non-empty short-
+      // circuits it immediately, since this describe block isn't testing recording behavior.
+      query.mockResolvedValueOnce({ rows: [{ exists: 1 }] });
 
       await runTransitionEffect({ query } as unknown as PoolClient, retro, 'vote', 'discuss');
 
-      expect(query).toHaveBeenCalledTimes(4);
+      expect(query).toHaveBeenCalledTimes(5);
       const rankingCall = query.mock.calls[0] as unknown[];
       expect(rankingCall[0]).toContain('order by count(v.id) desc, t.created_at asc');
 
@@ -192,9 +195,9 @@ describe('runTransitionEffect', () => {
     });
 
     it('does nothing when there are no topics', async () => {
-      const query = vi.fn().mockResolvedValueOnce({ rows: [] });
+      const query = vi.fn().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ exists: 1 }] });
       await runTransitionEffect({ query } as unknown as PoolClient, retro, 'vote', 'discuss');
-      expect(query).toHaveBeenCalledTimes(1);
+      expect(query).toHaveBeenCalledTimes(2);
     });
 
     // Homework: the top-ranked topic becomes current the moment Discuss starts.
@@ -203,6 +206,7 @@ describe('runTransitionEffect', () => {
       query.mockResolvedValueOnce({ rows: [{ id: 'topic-most-votes', vote_count: 5 }, { id: 'topic-fewer-votes', vote_count: 2 }] });
       query.mockResolvedValueOnce({ rows: [] });
       query.mockResolvedValueOnce({ rows: [] });
+      query.mockResolvedValueOnce({ rows: [{ exists: 1 }] });
       const jobs = { send: vi.fn().mockResolvedValue('job-id') };
 
       await runTransitionEffect({ query } as unknown as PoolClient, retro, 'vote', 'discuss', jobs);
@@ -215,14 +219,80 @@ describe('runTransitionEffect', () => {
       const query = vi.fn();
       query.mockResolvedValueOnce({ rows: [{ id: 'topic-a', vote_count: 1 }] });
       query.mockResolvedValueOnce({ rows: [] });
+      query.mockResolvedValueOnce({ rows: [{ exists: 1 }] });
       await expect(runTransitionEffect({ query } as unknown as PoolClient, retro, 'vote', 'discuss')).resolves.toBeUndefined();
     });
 
     it('does not enqueue anything when there are no topics, even with a job sender', async () => {
-      const query = vi.fn().mockResolvedValueOnce({ rows: [] });
+      const query = vi.fn().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ exists: 1 }] });
       const jobs = { send: vi.fn() };
       await runTransitionEffect({ query } as unknown as PoolClient, retro, 'vote', 'discuss', jobs);
       expect(jobs.send).not.toHaveBeenCalled();
+    });
+  });
+
+  // "They already agreed to the discussion being recorded when they joined" — entering Discuss
+  // auto-starts a recording session (RN-032's own consent mechanics unchanged: online
+  // participants still get a pending row, a late joiner is still detected and paused the usual
+  // way). Using wrap_up->discuss (a backward re-entry with no ranking-table row of its own) keeps
+  // these tests isolated from vote->discuss's separate topic-ranking queries above.
+  describe('entering discuss auto-starts recording', () => {
+    function fakeClient(opts: { alreadyExists?: boolean; facilitatorOnly?: boolean; onlineUserIds?: string[] } = {}) {
+      const { alreadyExists = false, facilitatorOnly = false, onlineUserIds = [] } = opts;
+      const query = vi.fn().mockImplementation((sql: string) => {
+        if (sql.includes('from recording_sessions where retro_id')) {
+          return Promise.resolve({ rows: alreadyExists ? [{ x: 1 }] : [] });
+        }
+        if (sql.includes('from teams where id')) {
+          return Promise.resolve({ rows: [{ recording_facilitator_only_confirmation: facilitatorOnly }] });
+        }
+        if (sql.includes('from retro_participants')) {
+          return Promise.resolve({ rows: onlineUserIds.map((user_id) => ({ user_id })) });
+        }
+        if (sql.includes('insert into recording_sessions')) {
+          return Promise.resolve({ rows: [{ id: 'session-1' }] });
+        }
+        return Promise.resolve({ rows: [] });
+      });
+      return { query };
+    }
+
+    it('creates a recording session, vacuously agreed, when nobody else is online', async () => {
+      const client = fakeClient({ onlineUserIds: [] });
+      await runTransitionEffect(client as unknown as PoolClient, retro, 'wrap_up', 'discuss');
+
+      const insertCall = client.query.mock.calls.find((c) => (c[0] as string).includes('insert into recording_sessions'));
+      expect(insertCall?.[1]).toEqual([retro.id, retro.facilitator_id, expect.any(String), 'recording', expect.any(String)]);
+      const consentCall = client.query.mock.calls.find((c) => (c[0] as string).includes('insert into recording_consents'));
+      expect(consentCall?.[1]).toEqual([expect.any(String), retro.facilitator_id, expect.any(String)]);
+    });
+
+    it('stays pending and seeds one consent row per online participant', async () => {
+      const client = fakeClient({ onlineUserIds: ['user-a', 'user-b'] });
+      await runTransitionEffect(client as unknown as PoolClient, retro, 'wrap_up', 'discuss');
+
+      const insertCall = client.query.mock.calls.find((c) => (c[0] as string).includes('insert into recording_sessions'));
+      expect(insertCall?.[1]).toEqual([retro.id, retro.facilitator_id, expect.any(String), 'pending', null]);
+      const pendingConsents = client.query.mock.calls.filter(
+        (c) => (c[0] as string) === 'insert into recording_consents (session_id, user_id) values ($1, $2)',
+      );
+      expect(pendingConsents).toHaveLength(2);
+    });
+
+    it('starts recording immediately when the team is facilitator-only, regardless of who else is online', async () => {
+      const client = fakeClient({ facilitatorOnly: true, onlineUserIds: ['user-a'] });
+      await runTransitionEffect(client as unknown as PoolClient, retro, 'wrap_up', 'discuss');
+
+      const insertCall = client.query.mock.calls.find((c) => (c[0] as string).includes('insert into recording_sessions'));
+      expect(insertCall?.[1]).toEqual([retro.id, retro.facilitator_id, expect.any(String), 'recording', expect.any(String)]);
+      // Facilitator-only mode never even looks at who's online.
+      expect(client.query.mock.calls.some((c) => (c[0] as string).includes('from retro_participants'))).toBe(false);
+    });
+
+    it('does nothing if a recording session already exists for this retro, regardless of status', async () => {
+      const client = fakeClient({ alreadyExists: true });
+      await runTransitionEffect(client as unknown as PoolClient, retro, 'wrap_up', 'discuss');
+      expect(client.query.mock.calls.some((c) => (c[0] as string).includes('insert into recording_sessions'))).toBe(false);
     });
   });
 });

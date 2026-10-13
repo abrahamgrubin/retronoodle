@@ -42,6 +42,12 @@ export const retroCloseMutation: MutationTypeDef<RetroClosePayload> = {
       `update retros set next_retro_at = $1, closed_with_override = $2, closed_at = now() where id = $3`,
       [payload.nextRetroAt, payload.override, retro.id],
     );
+    // A closed retro has nothing left to record or transcribe — stops anything still active so
+    // the facilitator never has a stray "recording" session (or its badge) attached to a retro
+    // that's already done.
+    await client.query(`update recording_sessions set status = 'stopped', stopped_at = now() where retro_id = $1 and status <> 'stopped'`, [
+      retro.id,
+    ]);
 
     return PhaseTransitionResult.parse({ phase: 'closed', phaseDeadline });
   },

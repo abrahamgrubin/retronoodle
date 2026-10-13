@@ -1,6 +1,7 @@
 import type { PoolClient } from 'pg';
 import { generateKeyBetween } from 'fractional-indexing';
 import { defaultTopicName, type RetroPhase } from '@retronoodle/shared';
+import { ONLINE_WINDOW_SECONDS } from '../recordingSession.js';
 import type { JobSender, LockedRetro } from './registry.js';
 
 type TransitionEffect = (ctx: { client: PoolClient; retro: LockedRetro; jobs?: JobSender }) => Promise<void>;
@@ -138,6 +139,55 @@ const onTransition: Partial<Record<`${RetroPhase}->${RetroPhase}`, TransitionEff
   },
 };
 
+/**
+ * Starts recording the moment a retro first reaches Discuss, from any direction — "they already
+ * agreed to the discussion being recorded when they joined" is the premise now, so there's no
+ * facilitator "Record" click to represent anymore: `facilitator_confirmed_at` is just stamped
+ * with the system's own trigger time. Every other consent mechanic is untouched (RN-032):
+ * whoever's online when this fires still gets a `pending` consent row and still sees "Allow
+ * recording?", a late joiner is still detected and paused the same way, and a decline still stops
+ * it. Runs at most once ever per retro — checked by "does any recording_sessions row exist at
+ * all," not just a non-stopped one, so re-entering Discuss later (Back, or a backward jump) never
+ * overrides a facilitator's own explicit stop.
+ */
+async function autoStartRecordingIfNeeded(client: PoolClient, retro: LockedRetro): Promise<void> {
+  const existing = await client.query('select 1 from recording_sessions where retro_id = $1 limit 1', [retro.id]);
+  if (existing.rows.length > 0) return;
+
+  const teamResult = await client.query<{ recording_facilitator_only_confirmation: boolean }>(
+    'select recording_facilitator_only_confirmation from teams where id = $1',
+    [retro.team_id],
+  );
+  const facilitatorOnly = teamResult.rows[0]?.recording_facilitator_only_confirmation ?? false;
+
+  const onlineResult = facilitatorOnly
+    ? { rows: [] as { user_id: string }[] }
+    : await client.query<{ user_id: string }>(
+        `select user_id from retro_participants
+         where retro_id = $1 and user_id <> $2 and last_seen_at > now() - make_interval(secs => $3)`,
+        [retro.id, retro.facilitator_id, ONLINE_WINDOW_SECONDS],
+      );
+
+  const allAgreedAlready = facilitatorOnly || onlineResult.rows.length === 0;
+  const now = new Date();
+
+  const inserted = await client.query<{ id: string }>(
+    `insert into recording_sessions (id, retro_id, started_by, facilitator_confirmed_at, status, started_at)
+     values (gen_random_uuid(), $1, $2, $3, $4, $5) returning id`,
+    [retro.id, retro.facilitator_id, now.toISOString(), allAgreedAlready ? 'recording' : 'pending', allAgreedAlready ? now.toISOString() : null],
+  );
+  const sessionId = inserted.rows[0]!.id;
+
+  await client.query(`insert into recording_consents (session_id, user_id, outcome, responded_at) values ($1, $2, 'agreed', $3)`, [
+    sessionId,
+    retro.facilitator_id,
+    now.toISOString(),
+  ]);
+  for (const row of onlineResult.rows) {
+    await client.query('insert into recording_consents (session_id, user_id) values ($1, $2)', [sessionId, row.user_id]);
+  }
+}
+
 export async function runTransitionEffect(
   client: PoolClient,
   retro: LockedRetro,
@@ -147,4 +197,5 @@ export async function runTransitionEffect(
 ): Promise<void> {
   const effect = onTransition[`${from}->${to}`];
   if (effect) await effect({ client, retro, jobs });
+  if (to === 'discuss') await autoStartRecordingIfNeeded(client, retro);
 }
