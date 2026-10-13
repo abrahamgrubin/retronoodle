@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest';
-import { loadAgent, parseAgentFile } from './loadAgent.js';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { findAgentsDir, loadAgent, parseAgentFile } from './loadAgent.js';
 
 describe('parseAgentFile', () => {
   it('splits the frontmatter fields from the trimmed body', () => {
@@ -36,6 +39,35 @@ describe('parseAgentFile', () => {
   it('ignores a frontmatter line with no colon rather than crashing', () => {
     const raw = '---\nname: example\nthis line has no colon\n---\nBody.';
     expect(parseAgentFile(raw, 'example')).toMatchObject({ name: 'example', body: 'Body.' });
+  });
+});
+
+describe('findAgentsDir', () => {
+  let tmpRoot: string;
+
+  afterEach(() => {
+    if (tmpRoot) rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  it('finds .claude/agents starting exactly at the directory that contains it', () => {
+    tmpRoot = mkdtempSync(join(tmpdir(), 'retronoodle-agents-'));
+    mkdirSync(join(tmpRoot, '.claude', 'agents'), { recursive: true });
+    expect(findAgentsDir(tmpRoot)).toBe(join(tmpRoot, '.claude', 'agents'));
+  });
+
+  it('walks up several levels to find it — the production (bundled) and local (unbundled) cases sit at different depths from the same repo root', () => {
+    tmpRoot = mkdtempSync(join(tmpdir(), 'retronoodle-agents-'));
+    mkdirSync(join(tmpRoot, '.claude', 'agents'), { recursive: true });
+    const deep = join(tmpRoot, 'apps', 'api', 'dist');
+    mkdirSync(deep, { recursive: true });
+    expect(findAgentsDir(deep)).toBe(join(tmpRoot, '.claude', 'agents'));
+  });
+
+  it('throws rather than silently resolving to the wrong place when none exists above', () => {
+    tmpRoot = mkdtempSync(join(tmpdir(), 'retronoodle-agents-'));
+    const deep = join(tmpRoot, 'no', 'claude', 'anywhere', 'above', 'this');
+    mkdirSync(deep, { recursive: true });
+    expect(() => findAgentsDir(deep)).toThrow(/Could not find a \.claude\/agents directory/);
   });
 });
 

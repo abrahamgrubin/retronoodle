@@ -28,6 +28,12 @@ export class DeepgramProvider implements TranscriptionProvider {
       mip_opt_out: true,
       Authorization: `Token ${this.apiKey}`,
     });
+    // `connect()` only initiates the handshake — it resolves once the V1Socket wrapper exists,
+    // not once the underlying WebSocket is actually open. Sending audio before that threw
+    // synchronously ("Socket is not open") from inside a `ws` message-event handler, which Node
+    // treats as an uncaught exception and crashes the whole process (found live: the very first
+    // audio chunk a real browser sent killed the dev server outright).
+    await socket.waitForOpen();
 
     socket.on('message', (message) => {
       if (message.type !== 'Results') return;

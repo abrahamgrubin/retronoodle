@@ -7,6 +7,7 @@ import type { AuthClaims } from '../auth/index.js';
 import { chain } from '../testUtils/supabaseChain.js';
 import { testAuthOptions } from '../testUtils/testAuth.js';
 import { FakeTranscriptionProvider } from '../transcription/FakeTranscriptionProvider.js';
+import type { TranscriptionProvider } from '../transcription/TranscriptionProvider.js';
 
 let app: FastifyInstance | undefined;
 
@@ -180,5 +181,38 @@ describe('GET /retros/:id/audio-gateway', () => {
     );
     expect(provider.audioBytesReceived).toBe(3);
     ws.close();
+  });
+
+  it('closes gracefully instead of crashing when sendAudio throws', async () => {
+    // Regression test: DeepgramProvider used to return before its socket actually reached OPEN,
+    // so the very first real audio chunk threw synchronously inside a `ws` message handler — left
+    // uncaught, that crashes the whole Node process, not just this one connection (found live,
+    // against a real Deepgram socket). This fake reproduces that throw without needing Deepgram.
+    const provider: TranscriptionProvider = {
+      async startSession() {
+        return {
+          sendAudio: () => {
+            throw new Error('Socket is not open.');
+          },
+          close: () => {},
+        };
+      },
+    };
+    app = await buildServer({
+      webOrigin: 'http://localhost',
+      auth: testAuthOptions({
+        verifyAccessToken,
+        supabaseAdmin: supabaseWith({}),
+        transcriptMasterKey: masterKey,
+        createTranscriptionProvider: () => provider,
+      }),
+    });
+    await app.ready();
+    const ws = await app.injectWS(`/retros/${retroId}/audio-gateway?token=facilitator-token`);
+    const closed = new Promise<[number]>((resolve) => ws.once('close', (c: number) => resolve([c])));
+    ws.send(Buffer.from([1, 2, 3]));
+
+    const [code] = await closed;
+    expect(code).toBe(4503);
   });
 });

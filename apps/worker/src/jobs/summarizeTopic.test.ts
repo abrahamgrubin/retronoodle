@@ -48,6 +48,10 @@ interface FakeOpts {
   insertError?: unknown;
   aiUsageCostUsd?: string | null;
   transcriptSegments?: { id: string; text: string; speaker_user_id: string | null; is_gap_marker: boolean }[];
+  /** Simulates an unexpected thrown exception (not a `{data, error}` result) reading a given
+   * table — e.g. a dropped DB connection, or anything else outside the "both models failed"
+   * path this job already handles explicitly. */
+  throwOnTable?: string;
 }
 
 function fakeSupabase(opts: FakeOpts = {}) {
@@ -62,10 +66,12 @@ function fakeSupabase(opts: FakeOpts = {}) {
     insertError = null,
     aiUsageCostUsd = null,
     transcriptSegments = [],
+    throwOnTable,
   } = opts;
 
   return {
     from: vi.fn((table: string) => {
+      if (table === throwOnTable) throw new Error(`simulated unexpected failure reading ${table}`);
       if (table === 'topics') return thenable({ data: { retro_id: retroId, name: 'Deploys' } });
       if (table === 'retros') return thenable({ data: { team_id: teamId } });
       if (table === 'cards') return thenable({ data: cards });
@@ -252,6 +258,21 @@ describe('runSummarizeTopicJob', () => {
 
     await runSummarizeTopicJob({ topicId }, deps);
 
+    expect(deps.realtimeBus.broadcastRetro).toHaveBeenCalledWith(retroId, { type: 'topic.summaryFailed', payload: { topicId } });
+  });
+
+  it('broadcasts topic.summaryFailed when an unexpected error happens outside the model-call path', async () => {
+    // Regression test: a thrown exception anywhere in the pipeline (e.g. a missing prompt file,
+    // a dropped DB connection) used to leave the client stuck on "Summarizing…" forever — nothing
+    // else in this job ever got a chance to broadcast topic.summaryFailed. Found live: a
+    // different deployment's missing .claude/agents directory did exactly this.
+    const anthropic = fakeAnthropic(validSummaryJson());
+    const supabaseAdmin = fakeSupabase({ throwOnTable: 'team_members' });
+    const deps = baseDeps({ supabaseAdmin, createAnthropicClient: () => anthropic });
+
+    await runSummarizeTopicJob({ topicId }, deps);
+
+    expect(anthropic.messages.create).not.toHaveBeenCalled();
     expect(deps.realtimeBus.broadcastRetro).toHaveBeenCalledWith(retroId, { type: 'topic.summaryFailed', payload: { topicId } });
   });
 

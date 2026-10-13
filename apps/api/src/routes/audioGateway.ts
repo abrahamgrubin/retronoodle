@@ -179,7 +179,18 @@ export function registerAudioGatewayRoutes(app: FastifyInstance, deps: AudioGate
       socket.on('message', (data, isBinary) => {
         if (!isBinary) return; // No control-frame protocol yet — every binary frame is audio.
         const chunk = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer);
-        session_.sendAudio(chunk);
+        try {
+          session_.sendAudio(chunk);
+        } catch (err) {
+          // Defense in depth, not the fix itself (DeepgramProvider.ts now waits for the socket to
+          // actually be open before ever returning) — a throw here is inside a `ws` message-event
+          // handler, so left uncaught it crashes this whole process, not just this one gateway
+          // connection (found live). Whatever the cause, the right response is closing this one
+          // client's socket, never taking the server down with it.
+          request.log.error(err, 'failed to forward audio to transcription provider');
+          closeWith(socket, 4503, 'transcription_unavailable');
+          return;
+        }
 
         const now = Date.now();
         if (now - lastUsageFlushAt >= flushIntervalMs) {

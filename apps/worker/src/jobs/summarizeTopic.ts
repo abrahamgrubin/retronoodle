@@ -122,6 +122,10 @@ export async function runSummarizeTopicJob(data: SummarizeTopicJobData, deps: Su
     logger.info(`ai.summarizeTopic: skipped for topic ${topicId} (no ANTHROPIC_API_KEY)`);
     return;
   }
+  // TS narrowing from the guard above doesn't carry into the nested `summarize` function below
+  // (a separate function scope) — this capture is what lets `summarize` use it as a plain
+  // `string` instead of `string | undefined`.
+  const confirmedApiKey: string = anthropicApiKey;
 
   const { data: topic } = await supabaseAdmin.from('topics').select('retro_id, name').eq('id', topicId).maybeSingle();
   if (!topic) return;
@@ -137,6 +141,19 @@ export async function runSummarizeTopicJob(data: SummarizeTopicJobData, deps: Su
     return;
   }
 
+  // Everything below can throw for reasons that have nothing to do with "both models failed" —
+  // a bad prompt file, a transcript that fails to decrypt, any unexpected DB error. Without this,
+  // such a throw leaves the panel showing "Summarizing…" forever: nothing else in this job ever
+  // gets a chance to broadcast topic.summaryFailed (found live — a missing .claude/agents file on
+  // one deployment did exactly this, for a job a *different* deployment's worker had queued).
+  try {
+    await summarize(topic);
+  } catch (err) {
+    logger.error(err, `ai.summarizeTopic: unexpected error for topic ${topicId}`);
+    await realtimeBus.broadcastRetro(topic.retro_id, { type: 'topic.summaryFailed', payload: { topicId } });
+  }
+
+  async function summarize(topic: { retro_id: string; name: string }): Promise<void> {
   const { data: retro } = await supabaseAdmin.from('retros').select('team_id').eq('id', topic.retro_id).maybeSingle();
   if (!retro) return;
 
@@ -187,7 +204,7 @@ export async function runSummarizeTopicJob(data: SummarizeTopicJobData, deps: Su
     .replace('{{TEAM_MEMBERS}}', teamMemberNames)
     .replace('{{OPEN_ACTION_ITEMS}}', openActionItemTitles);
 
-  const client = createAnthropicClient(anthropicApiKey);
+  const client = createAnthropicClient(confirmedApiKey);
 
   async function attempt(model: string): Promise<{ raw: RawSummary; model: string } | null> {
     try {
@@ -266,4 +283,5 @@ export async function runSummarizeTopicJob(data: SummarizeTopicJobData, deps: Su
       },
     },
   });
+  }
 }
