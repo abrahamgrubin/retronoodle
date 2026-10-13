@@ -19,6 +19,7 @@ const emptyBoard: BoardState = {
   votingProgress: null,
   topicSummaries: [],
   summaryUnavailableTopicIds: [],
+  groupSummaryUnavailableTopicIds: [],
   actionItems: [],
   actionItemReviewOutcomes: [],
   teamMembers: [],

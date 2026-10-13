@@ -79,8 +79,19 @@ describe('topic.editGroupSummary', () => {
     ).rejects.toMatchObject({ status: 403, code: 'forbidden' });
   });
 
-  it('rejects outside Vote', async () => {
-    for (const phase of ['review', 'write', 'group', 'discuss', 'wrap_up', 'setup', 'closed']) {
+  it('allows the facilitator to edit during Discuss too', async () => {
+    const query = vi.fn();
+    query.mockResolvedValueOnce({ rows: [{ id: topicId }] });
+    query.mockResolvedValueOnce({ rows: [updatedRow()] });
+    const client = { query } as unknown as PoolClient;
+
+    await expect(
+      topicEditGroupSummaryMutation.apply({ client, retro: retroAt('discuss'), user: facilitator, payload }),
+    ).resolves.toMatchObject({ topic: { groupSummary: payload.summary } });
+  });
+
+  it('rejects outside Vote and Discuss', async () => {
+    for (const phase of ['review', 'write', 'group', 'wrap_up', 'setup', 'closed']) {
       const client = { query: vi.fn() } as unknown as PoolClient;
       await expect(
         topicEditGroupSummaryMutation.apply({ client, retro: retroAt(phase), user: facilitator, payload }),
