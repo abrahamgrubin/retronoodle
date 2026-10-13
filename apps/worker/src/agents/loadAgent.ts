@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export interface AgentDefinition {
@@ -49,13 +50,32 @@ export function parseAgentFile(raw: string, name: string): AgentDefinition {
 }
 
 /**
+ * Walks up from `startDir` until it finds a directory containing `.claude/agents` — a fixed
+ * relative depth (what this used before) silently breaks the moment the calling code's own
+ * location moves. Found live: this exact file runs from two very different depths depending on
+ * context — `apps/worker/src/agents/` unbundled in local dev (tsx) and tests, but inlined
+ * straight into `apps/api/dist/main.js` in production (tsup's `noExternal` bundles
+ * `@retronoodle/worker` into the API's single output file) — four levels up from the bundled
+ * file overshoots the repo root by one, landing just outside it, so the directory was
+ * genuinely never there to find.
+ */
+export function findAgentsDir(startDir: string): string {
+  let dir = startDir;
+  for (let i = 0; i < 10; i++) {
+    const candidate = join(dir, '.claude', 'agents');
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) break; // reached the filesystem root without finding one
+    dir = parent;
+  }
+  throw new Error(`Could not find a .claude/agents directory above ${startDir}`);
+}
+
+/**
  * Reads and parses one of this app's own `.claude/agents/<name>.md` files — this app's own
  * convention for every AI agent it calls (see .claude/agents/README.md for why; no SDK reads
- * this folder automatically, this is the one piece of code that actually does). Loaded relative
- * to this module's own file location, not `process.cwd()` — pnpm/turbo run per-package scripts
- * with that package's own directory as cwd, not the repo root, so a cwd-relative path broke
- * under `pnpm --filter @retronoodle/worker test` in exactly this way before (see prompt.ts's old
- * version of this same comment, RN-017). Cached per name — the file never changes mid-process.
+ * this folder automatically, this is the one piece of code that actually does). Cached per name
+ * — the file never changes mid-process.
  */
 const cache = new Map<string, AgentDefinition>();
 
@@ -63,7 +83,8 @@ export function loadAgent(name: string): AgentDefinition {
   const cached = cache.get(name);
   if (cached) return cached;
 
-  const raw = readFileSync(fileURLToPath(new URL(`../../../../.claude/agents/${name}.md`, import.meta.url)), 'utf-8');
+  const agentsDir = findAgentsDir(dirname(fileURLToPath(import.meta.url)));
+  const raw = readFileSync(join(agentsDir, `${name}.md`), 'utf-8');
   const def = parseAgentFile(raw, name);
   cache.set(name, def);
   return def;
