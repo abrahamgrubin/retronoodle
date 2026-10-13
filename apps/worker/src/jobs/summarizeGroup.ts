@@ -57,14 +57,32 @@ export async function runSummarizeGroupJob(data: SummarizeGroupJobData, deps: Su
     logger.info(`ai.summarizeGroup: skipped for topic ${topicId} (no ANTHROPIC_API_KEY)`);
     return;
   }
-  if (monthlyCapUsd !== undefined && (await isOverMonthlyCap(supabaseAdmin, monthlyCapUsd))) {
-    logger.info(`ai.summarizeGroup: skipped for topic ${topicId} (monthly AI spend cap reached)`);
-    return;
-  }
+  // TS narrowing from the guard above doesn't carry into the nested `summarize` function below
+  // (a separate function scope) — this capture is what lets `summarize` use it as a plain
+  // `string` instead of `string | undefined`.
+  const confirmedApiKey: string = anthropicApiKey;
 
   const { data: topic } = await supabaseAdmin.from('topics').select('retro_id').eq('id', topicId).maybeSingle();
   if (!topic) return;
 
+  // Same "never leave the panel stuck on Summarizing… forever" reasoning as
+  // summarizeTopic.ts's topic.summaryFailed broadcast — this job's own GroupSummaryView has no
+  // other way to learn generation gave up, whether from the cap gate below or any unexpected
+  // throw further down (a bad prompt file, a DB error, both model attempts failing).
+  if (monthlyCapUsd !== undefined && (await isOverMonthlyCap(supabaseAdmin, monthlyCapUsd))) {
+    logger.info(`ai.summarizeGroup: skipped for topic ${topicId} (monthly AI spend cap reached)`);
+    await realtimeBus.broadcastRetro(topic.retro_id, { type: 'topic.groupSummaryFailed', payload: { topicId } });
+    return;
+  }
+
+  try {
+    await summarize(topic);
+  } catch (err) {
+    logger.error(err, `ai.summarizeGroup: unexpected error for topic ${topicId}`);
+    await realtimeBus.broadcastRetro(topic.retro_id, { type: 'topic.groupSummaryFailed', payload: { topicId } });
+  }
+
+  async function summarize(topic: { retro_id: string }): Promise<void> {
   const { data: cards } = await supabaseAdmin.from('cards').select('body, author_id').eq('topic_id', topicId);
   if (!cards || cards.length === 0) return;
 
@@ -75,7 +93,7 @@ export async function runSummarizeGroupJob(data: SummarizeGroupJobData, deps: Su
   const groupLines = cards.map((c) => `- (written by ${authorNameById.get(c.author_id) ?? 'unknown'}) ${c.body.replace(/\n/g, ' ')}`).join('\n');
   const prompt = loadAgent('group-summarizer').body.replace('{{GROUP}}', groupLines);
 
-  const client = createAnthropicClient(anthropicApiKey);
+  const client = createAnthropicClient(confirmedApiKey);
   let parsed: z.infer<typeof SummaryShape> | undefined;
   for (let attempt = 0; attempt < 2 && !parsed; attempt++) {
     try {
@@ -99,7 +117,10 @@ export async function runSummarizeGroupJob(data: SummarizeGroupJobData, deps: Su
     }
   }
 
-  if (!parsed) return;
+  if (!parsed) {
+    await realtimeBus.broadcastRetro(topic.retro_id, { type: 'topic.groupSummaryFailed', payload: { topicId } });
+    return;
+  }
 
   const { error } = await supabaseAdmin
     .from('topics')
@@ -114,4 +135,5 @@ export async function runSummarizeGroupJob(data: SummarizeGroupJobData, deps: Su
     type: 'topic.groupSummaryReady',
     payload: { topicId, title: parsed.title, summary: parsed.summary },
   });
+  }
 }

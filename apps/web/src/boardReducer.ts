@@ -66,6 +66,10 @@ export interface BoardState {
   // models). Purely a local, transient flag; never persisted, never in BoardResponse. Cleared the
   // moment a new summary arrives for that topic, or optimistically on Regenerate.
   summaryUnavailableTopicIds: string[];
+  // Homework: same "Retry" convention as summaryUnavailableTopicIds above, but for a *group's*
+  // summary (ai.summarizeGroup / topic.groupSummaryFailed) instead of a topic's discussion
+  // summary — the two jobs can fail independently, so each gets its own list.
+  groupSummaryUnavailableTopicIds: string[];
   // RN-022/RN-025: scoped to this retro only outside Review; during Review, every team item with
   // status open/in_progress regardless of source retro (board.ts's own comment). Renders in the
   // Action items column instead of `cards`.
@@ -339,6 +343,13 @@ export function reduceBoard(board: BoardState, event: RetroEvent): BoardState {
     case 'topic.regenerateSummary': {
       const { topicId } = event.payload as { topicId: string };
       return { ...board, summaryUnavailableTopicIds: board.summaryUnavailableTopicIds.filter((id) => id !== topicId) };
+    }
+    // topic.regenerateGroupSummary: same reasoning as topic.regenerateSummary just above, for
+    // group-summarizer instead — the real new title/summary arrives later via
+    // topic.groupSummaryReady (BoardPage.tsx's channel handler, not this reducer).
+    case 'topic.regenerateGroupSummary': {
+      const { topicId } = event.payload as { topicId: string };
+      return { ...board, groupSummaryUnavailableTopicIds: board.groupSummaryUnavailableTopicIds.filter((id) => id !== topicId) };
     }
     // suggestion.reject (RN-017): nothing board-wide changes (no card or topic is touched) —
     // this reaches every participant's shared channel like any other mutation, but it never

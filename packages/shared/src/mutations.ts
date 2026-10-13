@@ -314,6 +314,22 @@ export const TopicEditGroupSummaryResult = z.object({
 });
 export type TopicEditGroupSummaryResult = z.infer<typeof TopicEditGroupSummaryResult>;
 
+/** `topic.regenerateGroupSummary`: re-enqueues `ai.summarizeGroup` for a group whose summary
+ * came back unavailable (both model attempts failed, or the monthly cap was hit) — the group
+ * summary's own "Retry" button, same shape as `topic.regenerateSummary` below but for
+ * group-summarizer instead of topic-summarizer. This mutation only ever acknowledges the
+ * request; the real new title/summary arrives via the job's own topic.groupSummaryReady
+ * broadcast. Same facilitator/phase gates as topic.editGroupSummary. */
+export const TopicRegenerateGroupSummaryPayload = z.object({
+  topicId: z.string().uuid(),
+});
+export type TopicRegenerateGroupSummaryPayload = z.infer<typeof TopicRegenerateGroupSummaryPayload>;
+
+export const TopicRegenerateGroupSummaryResult = z.object({
+  topicId: z.string().uuid(),
+});
+export type TopicRegenerateGroupSummaryResult = z.infer<typeof TopicRegenerateGroupSummaryResult>;
+
 /** `note.upsert` (RN-020): "type quick notes on the current topic... debounced 800ms" — the
  * debounce itself is client-side (BoardPage.tsx); this is just the write. No ownership/role
  * check beyond the phase gate (Discuss/Wrap up) — unlike RN-019's queue mutations, this story's

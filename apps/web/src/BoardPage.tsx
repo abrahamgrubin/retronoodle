@@ -858,10 +858,14 @@ function GroupSummaryView({
   topic,
   canEdit,
   onEdit,
+  unavailable,
+  onRetry,
 }: {
   topic: Topic;
   canEdit: boolean;
   onEdit: (title: string, summary: string) => void;
+  unavailable: boolean;
+  onRetry: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draftTitle, setDraftTitle] = useState(topic.groupSummaryTitle ?? '');
@@ -924,16 +928,27 @@ function GroupSummaryView({
           </Typography>
           <Typography variant="body2">{topic.groupSummary}</Typography>
         </>
+      ) : unavailable ? (
+        <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+          Summary unavailable
+        </Typography>
       ) : (
         <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
           Summarizing…
         </Typography>
       )}
-      {canEdit && (
-        <Button size="small" type="button" onClick={startEditing} sx={{ mt: 0.5 }}>
-          Edit
-        </Button>
-      )}
+      <Stack direction="row" spacing={0.5} sx={{ mt: 0.5 }}>
+        {canEdit && (
+          <Button size="small" type="button" onClick={startEditing}>
+            Edit
+          </Button>
+        )}
+        {canEdit && unavailable && !topic.groupSummary && (
+          <Button size="small" type="button" onClick={onRetry}>
+            Retry
+          </Button>
+        )}
+      </Stack>
     </Box>
   );
 }
@@ -985,8 +1000,9 @@ function TopicGroupView({
   discussCurrent?: boolean;
   dimmed?: boolean;
   // Homework: group-summarizer's output, rendered in place of the member cards list entirely —
-  // "on the Vote page, the group summary replaces the cards." `undefined` outside Vote, where
-  // cards render as usual.
+  // "on the Vote page, the group summary replaces the cards," and the same replacement carries
+  // into Discuss (found live: groups still listed every member card there instead). `undefined`
+  // outside Vote/Discuss, where cards render as usual.
   summaryView?: ReactNode;
 }) {
   const [editingName, setEditingName] = useState(false);
@@ -2126,6 +2142,7 @@ function Board({
         votingProgress: initialBoard.votingProgress,
         topicSummaries: initialBoard.topicSummaries,
         summaryUnavailableTopicIds: [],
+        groupSummaryUnavailableTopicIds: [],
         actionItems: initialBoard.actionItems,
         actionItemReviewOutcomes: initialBoard.actionItemReviewOutcomes,
         teamMembers: initialBoard.teamMembers,
@@ -2396,6 +2413,18 @@ function Board({
         topics: b.topics.map((t) => (t.id === topicId ? { ...t, groupSummaryTitle: title, groupSummary: summary } : t)),
       }),
       send: () => postMutation(accessToken, retroId, { mutationId, type: 'topic.editGroupSummary', payload: { topicId, title, summary } }),
+    });
+  }
+
+  // Homework: the group summary's own "Retry" — same "nothing to fold but the unavailable flag"
+  // reasoning as regenerateSummary below (see topicRegenerateGroupSummary.ts's own comment); the
+  // real new title/summary arrives later via topic.groupSummaryReady.
+  function regenerateGroupSummary(topicId: string) {
+    const mutationId = uuidv7();
+    void sendMutation({
+      mutationId,
+      optimisticReduce: (b) => b,
+      send: () => postMutation(accessToken, retroId, { mutationId, type: 'topic.regenerateGroupSummary', payload: { topicId } }),
     });
   }
 
@@ -2775,6 +2804,7 @@ function Board({
               // either resolved (a summary exists now) or still true server-side with no event
               // of its own to resurrect it from, so there's nothing to carry over here either way.
               summaryUnavailableTopicIds: [],
+              groupSummaryUnavailableTopicIds: [],
               actionItems: fresh.actionItems,
               actionItemReviewOutcomes: fresh.actionItemReviewOutcomes,
               teamMembers: fresh.teamMembers,
@@ -2825,6 +2855,17 @@ function Board({
         applyLocalPatch((b) => ({
           ...b,
           topics: b.topics.map((t) => (t.id === topicId ? { ...t, groupSummaryTitle: title, groupSummary: summary } : t)),
+          groupSummaryUnavailableTopicIds: b.groupSummaryUnavailableTopicIds.filter((id) => id !== topicId),
+        }));
+        return;
+      }
+      if (message.event === 'topic.groupSummaryFailed') {
+        const { topicId } = message.payload as { topicId: string };
+        applyLocalPatch((b) => ({
+          ...b,
+          groupSummaryUnavailableTopicIds: b.groupSummaryUnavailableTopicIds.includes(topicId)
+            ? b.groupSummaryUnavailableTopicIds
+            : [...b.groupSummaryUnavailableTopicIds, topicId],
         }));
         return;
       }
@@ -3560,11 +3601,13 @@ function Board({
                             discussCurrent={discussDimmingActive && row.topic.id === currentDiscussTopic?.id}
                             dimmed={discussDimmingActive && row.topic.id !== currentDiscussTopic?.id}
                             summaryView={
-                              board.phase === 'vote' ? (
+                              board.phase === 'vote' || board.phase === 'discuss' ? (
                                 <GroupSummaryView
                                   topic={row.topic}
                                   canEdit={isFacilitator}
                                   onEdit={(title, summary) => editGroupSummary(row.topic.id, title, summary)}
+                                  unavailable={board.groupSummaryUnavailableTopicIds.includes(row.topic.id)}
+                                  onRetry={() => regenerateGroupSummary(row.topic.id)}
                                 />
                               ) : undefined
                             }

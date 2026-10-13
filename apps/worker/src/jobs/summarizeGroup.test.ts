@@ -72,16 +72,22 @@ describe('runSummarizeGroupJob', () => {
     expect(supabaseAdmin.from).not.toHaveBeenCalled();
   });
 
-  it('skips entirely when the monthly AI spend cap is already reached', async () => {
+  it('broadcasts topic.groupSummaryFailed and skips the model call when the monthly AI spend cap is already reached', async () => {
     const supabaseAdmin = {
       from: vi.fn((table: string) => {
+        if (table === 'topics') return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { retro_id: retroId } }) }) }) };
         if (table === 'ai_usage') return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { total_cost_usd: '5.0000' } }) }) }) };
         throw new Error(`unexpected table ${table}`);
       }),
     } as unknown as SummarizeGroupDeps['supabaseAdmin'];
     const anthropic = fakeAnthropic(JSON.stringify({ title: 'T', summary: 'S' }));
-    await runSummarizeGroupJob({ topicId }, baseDeps({ supabaseAdmin, monthlyCapUsd: 5, createAnthropicClient: () => anthropic }));
+    const deps = baseDeps({ supabaseAdmin, monthlyCapUsd: 5, createAnthropicClient: () => anthropic });
+    await runSummarizeGroupJob({ topicId }, deps);
     expect(anthropic.messages.create).not.toHaveBeenCalled();
+    expect(deps.realtimeBus.broadcastRetro).toHaveBeenCalledWith(retroId, {
+      type: 'topic.groupSummaryFailed',
+      payload: { topicId },
+    });
   });
 
   it('does nothing when the topic has no cards', async () => {
@@ -103,7 +109,7 @@ describe('runSummarizeGroupJob', () => {
     });
   });
 
-  it('retries once on invalid output, then gives up silently', async () => {
+  it('retries once on invalid output, then broadcasts topic.groupSummaryFailed instead of leaving the panel stuck', async () => {
     const create = vi
       .fn()
       .mockResolvedValueOnce({ content: [{ type: 'text', text: 'not json' }], usage: { input_tokens: 1, output_tokens: 1 } })
@@ -113,7 +119,38 @@ describe('runSummarizeGroupJob', () => {
     await runSummarizeGroupJob({ topicId }, deps);
 
     expect(create).toHaveBeenCalledTimes(2);
-    expect(deps.realtimeBus.broadcastRetro).not.toHaveBeenCalled();
+    expect(deps.realtimeBus.broadcastRetro).toHaveBeenCalledWith(retroId, {
+      type: 'topic.groupSummaryFailed',
+      payload: { topicId },
+    });
+  });
+
+  it('broadcasts topic.groupSummaryFailed when an unexpected error happens outside the model-call path', async () => {
+    const supabaseAdmin = fakeSupabase({ cards: undefined });
+    const throwingSupabase = {
+      from: vi.fn((table: string) => {
+        if (table === 'topics') return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { retro_id: retroId } }) }) }) };
+        if (table === 'cards') {
+          return {
+            select: () => ({
+              eq: () => {
+                throw new Error('db exploded');
+              },
+            }),
+          };
+        }
+        return supabaseAdmin.from(table);
+      }),
+    } as unknown as SummarizeGroupDeps['supabaseAdmin'];
+    const anthropic = fakeAnthropic(JSON.stringify({ title: 'T', summary: 'S' }));
+    const deps = baseDeps({ supabaseAdmin: throwingSupabase, createAnthropicClient: () => anthropic });
+    await runSummarizeGroupJob({ topicId }, deps);
+
+    expect(anthropic.messages.create).not.toHaveBeenCalled();
+    expect(deps.realtimeBus.broadcastRetro).toHaveBeenCalledWith(retroId, {
+      type: 'topic.groupSummaryFailed',
+      payload: { topicId },
+    });
   });
 
   it('strips a markdown code fence if the model wraps its answer in one', async () => {

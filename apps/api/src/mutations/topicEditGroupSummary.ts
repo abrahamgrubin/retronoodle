@@ -6,11 +6,13 @@ import { toTopic, updateTopicReturningFull, type TopicRow } from './discussHelpe
 
 /**
  * topic.editGroupSummary (homework): "the facilitator to be able to edit the summary during the
- * voting phase." Facilitator-only, Vote phase only — group-summarizer's output is meant to be
- * read by every voter, but only the facilitator may correct it. Overwrites unconditionally,
- * whether the agent's own draft is still there, already edited once, or never ran at all (a
- * retro with no ANTHROPIC_API_KEY has `groupSummary: null` forever otherwise — the facilitator
- * can just write one by hand).
+ * voting phase." Facilitator-only, Vote or Discuss — group-summarizer's output is meant to be
+ * read by every voter, but only the facilitator may correct it. Discuss was added alongside it
+ * once the group summary started replacing the cards list there too (same summaryEdit window
+ * CLAUDE.md's phase table gives topic summaries/notes). Overwrites unconditionally, whether the
+ * agent's own draft is still there, already edited once, or never ran at all (a retro with no
+ * ANTHROPIC_API_KEY has `groupSummary: null` forever otherwise — the facilitator can just write
+ * one by hand).
  */
 export const topicEditGroupSummaryMutation: MutationTypeDef<TopicEditGroupSummaryPayload> = {
   schema: TopicEditGroupSummaryPayload,
@@ -19,7 +21,7 @@ export const topicEditGroupSummaryMutation: MutationTypeDef<TopicEditGroupSummar
       throw new MutationRejected(403, 'forbidden', 'Only the facilitator may edit the group summary');
     }
     const phase = retro.phase as RetroPhase;
-    if (phase !== 'vote') {
+    if (phase !== 'vote' && phase !== 'discuss') {
       throw new MutationRejected(409, 'phase_not_allowed', `topic.editGroupSummary is not allowed during ${phase}`);
     }
 
