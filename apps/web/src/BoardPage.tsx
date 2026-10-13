@@ -3026,20 +3026,26 @@ function Board({
     setCaptureActive(false);
   }
 
-  // "Recording and transcription should happen immediately" once Discuss begins — the facilitator
-  // never has to click anything (onTransition.ts's own auto-start effect is the other half of
-  // this: it's what gets recordingSession to 'recording' in the first place). Only ever the
-  // facilitator's own browser does the actual capturing (mic + shared tab audio), same as the
-  // server-side gate in audioGateway.ts.
+  // Recording consent is fully automatic (onTransition.ts's own auto-start effect is what gets
+  // recordingSession to 'recording' in the first place) — but actually *capturing* the call's
+  // audio can't be: `getDisplayMedia` (the shared-tab-audio half of it) is one of the browser APIs
+  // that flatly refuses to run without a direct user gesture, no exceptions, so it can never be
+  // started from this effect reacting to a state change after the fact (found live: every
+  // attempt silently failed, with nothing ever reaching the audio gateway at all). `startCapture`
+  // is instead called synchronously from inside whichever click actually lands the facilitator on
+  // Discuss — the Discuss pill, "Next" from Vote, or Back landing there — see jumpToPhase/
+  // changePhase below. This effect only ever stops it, which has no such restriction.
   useEffect(() => {
-    if (!isFacilitator) return;
-    if (captureAllowed && !captureHandleRef.current) {
-      startCapture();
-    } else if (!captureAllowed && captureHandleRef.current) {
-      stopCapture();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [captureAllowed, isFacilitator]);
+    if (!captureAllowed && captureHandleRef.current) stopCapture();
+  }, [captureAllowed]);
+
+  // The one piece of capture startup that's actually gesture-sensitive, pulled out so both
+  // jumpToPhase and changePhase can call it synchronously from inside their own click handlers —
+  // calling it from a .then()/useEffect instead loses the "direct user gesture" browsers require
+  // for getDisplayMedia, even if only a tick later.
+  function startCaptureIfLandingOnDiscuss(targetPhase: RetroPhase) {
+    if (isFacilitator && targetPhase === 'discuss' && !captureHandleRef.current) startCapture();
+  }
 
   // RN-035: on-device speech detection — any participant, not just the facilitator. Starts
   // automatically whenever audio capture would be allowed (same phase/session gate as the
@@ -3167,6 +3173,9 @@ function Board({
     const type = direction === 'skip' ? 'phase.skip' : 'phase.back';
     const target = direction === 'skip' ? nextPhase(board.phase) : previousPhase(board.phase);
     if (!target) return;
+    // Must happen synchronously, inside this click handler — see startCaptureIfLandingOnDiscuss's
+    // own comment. The mutation itself (below) is sent either way regardless of capture's outcome.
+    startCaptureIfLandingOnDiscuss(target);
     const mutationId = uuidv7();
     void sendMutation({
       mutationId,
@@ -3187,6 +3196,7 @@ function Board({
   // there, so there's nothing useful to guess optimistically; the channel handler forces a full
   // resync once the real result arrives instead (every connected client, not just this one).
   function jumpToPhase(targetPhase: RetroPhase) {
+    startCaptureIfLandingOnDiscuss(targetPhase);
     const mutationId = uuidv7();
     void sendMutation({
       mutationId,
