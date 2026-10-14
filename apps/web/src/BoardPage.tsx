@@ -2116,6 +2116,18 @@ export function initialsFor(displayName: string): string {
   return letters.toUpperCase();
 }
 
+/** RN-044: every MUI Avatar with no `src` renders the same gray by default (found live — every
+ * participant looked identical). A fixed palette, picked by a stable hash of the user's id, gives
+ * each participant the same color every time (same id -> same color across reconnects/resyncs)
+ * without needing per-user state or any avatar-image infra (none exists yet). */
+const AVATAR_PALETTE = ['#1565c0', '#6a1b9a', '#2e7d32', '#c62828', '#ef6c00', '#00838f', '#ad1457', '#4527a0'];
+
+export function colorForId(id: string): string {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
+  return AVATAR_PALETTE[Math.abs(hash) % AVATAR_PALETTE.length]!;
+}
+
 /** RN-044: "Header avatar stack shows up to 5 + '+N'; subtitle shows 'N people online'" — who is
  * online right now (Supabase Presence), not `attendees` (RN-026: whoever ever joined, read from
  * `retro_participants`, and stays forever even after everyone's left). */
@@ -2125,7 +2137,7 @@ function OnlineAvatarStack({ members }: { members: { id: string; displayName: st
     <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
       <AvatarGroup max={6} sx={{ '& .MuiAvatar-root': { width: 28, height: 28, fontSize: 13 } }}>
         {members.map((m) => (
-          <Avatar key={m.id} title={m.displayName}>
+          <Avatar key={m.id} title={m.displayName} sx={{ bgcolor: colorForId(m.id) }}>
             {initialsFor(m.displayName)}
           </Avatar>
         ))}

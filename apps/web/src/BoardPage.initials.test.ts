@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { initialsFor } from './BoardPage';
+import { colorForId, initialsFor } from './BoardPage';
 
 describe('initialsFor (RN-044: avatar stack initials)', () => {
   it('takes the first letter of a single name', () => {
@@ -24,5 +24,25 @@ describe('initialsFor (RN-044: avatar stack initials)', () => {
 
   it('returns empty for a blank name rather than throwing', () => {
     expect(initialsFor('   ')).toBe('');
+  });
+});
+
+describe('colorForId (RN-044: avatar stack colors)', () => {
+  it('is deterministic for the same id', () => {
+    const id = '00000000-0000-4000-8000-000000000001';
+    expect(colorForId(id)).toBe(colorForId(id));
+  });
+
+  it('gives different ids different colors (not everyone the same gray)', () => {
+    const colors = new Set(
+      ['00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000003'].map(
+        colorForId,
+      ),
+    );
+    expect(colors.size).toBeGreaterThan(1);
+  });
+
+  it('always returns a valid CSS hex color', () => {
+    expect(colorForId('some-user-id')).toMatch(/^#[0-9a-f]{6}$/i);
   });
 });
