@@ -895,90 +895,7 @@ Audio is the PRD's core differentiator; it starts right after v0.1 with a 2-day 
 
 ## Tier 3 · Remaining v1 P0 and hardening
 
-These finish every P0 requirement in the order Design 13.2 lists after audio. If time runs short, cut in Design 13.3 order: Google Doc export (RN-046), then described formats (RN-039), then Trello owner matching (RN-043, fall back to the owner's name on the card).
-
-### RN-038 · Random generated format
-
-**Refs:** PRD T3 · Design 8.1, 8.5 · **Est:** 1 day · **Depends on:** RN-007
-
-**Story:** As a facilitator, I want one click to generate a fresh retro format, so retros stay engaging without prep.
-
-**Technical notes:** Worker job with Sonnet; Zod output: `theme`, 3 to 5 columns of `{title, prompt, color (palette), purpose}`. Code appends Action items. Avoid the team's last 10 themes. Target under 15 s. Store with `templates.source = 'generated_random'`.
-
-**Acceptance criteria**
-
-- [ ] Generate returns a valid format with 3 to 5 columns in under 15 s p95.
-- [ ] 10 consecutive generations never repeat a theme from the team's last 10.
-- [ ] Invalid output retries once, then shows "Couldn't generate. Try again."
-
-### RN-039 · Described format with explained refusals
-
-**Refs:** PRD T4 · Design 8.5 · **Est:** 0.5 day · **Depends on:** RN-038
-
-**Story:** As a facilitator, I want to describe a theme and focus in my own words and get a matching format, so the retro fits this sprint.
-
-**Technical notes:** Text input (≤ 300 chars) wrapped as data in the prompt. The model may return `{refusal: reason}` for formats against a blame-free retro (e.g. rating teammates); show the reason verbatim.
-
-**Acceptance criteria**
-
-- [ ] "A heist theme focused on our release process" yields heist-themed columns about releases.
-- [ ] A request to rate individual teammates returns a specific refusal reason, shown to the facilitator.
-- [ ] Prompt-injection text in the description can't change the schema (eval case).
-
-### RN-040 · Preview, edit and regenerate a format
-
-**Refs:** PRD T5 · Design 8.5 · **Est:** 0.5 day · **Depends on:** RN-038
-
-**Story:** As a facilitator, I want to preview and edit a generated format before starting, so I stay in control of what the team sees.
-
-**Acceptance criteria**
-
-- [ ] Preview shows theme, columns and prompts; each field is editable.
-- [ ] Regenerate replaces the draft; Start copies the edited columns into the retro.
-- [ ] Starting records the source so "generated formats used" is measurable.
-
-### RN-041 · Email digest reminders
-
-**Refs:** PRD F5 (email half) · Design 9.3 · **Est:** 1 day · **Depends on:** RN-024
-
-**Story:** As an action-item owner, I want one email two days before the next retro listing my open items, so I finish them in time.
-
-**Technical notes:** Scheduled job 2 days before `next_retro_at`; one digest per person, merging teams in the same window (max one reminder a day). "Mark done" links open the app and require sign-in. Resend in the portfolio profile from mail.retronoodle.com with SPF, DKIM, DMARC. Opt-out in `notification_prefs`. Idempotency key per person per day.
-
-**Acceptance criteria**
-
-- [ ] Each owner with open items gets exactly one email 2 days before the next retro.
-- [ ] "Mark done" in the email marks the item done after sign-in.
-- [ ] Opted-out users receive nothing.
-- [ ] A retried job never sends a duplicate.
-
-### RN-042 · Trello connect and export
-
-**Refs:** PRD F5 (Trello half) · Design 9.4, 9.8 · **Est:** 1 day · **Depends on:** RN-031, RN-023
-
-**Story:** As a team admin, I want action items exported to our Trello list, so they live where we track work.
-
-**Technical notes:** Admin connects Trello once (token encrypted), picks board and list. On close or Export: one card per item with title, due date and recap link; save `trello_card_id` so edits update and re-exports never duplicate. Calls queued with idempotency keys, rate-spaced (~100 per 10 s), up to 5 retries; permanent failures shown in integration settings.
-
-**Acceptance criteria**
-
-- [ ] Closing a retro creates one Trello card per item in the chosen list.
-- [ ] Re-exporting updates existing cards; no duplicates.
-- [ ] An expired token shows "Trello token expired. Reconnect." in settings.
-
-### RN-043 · Trello owner matching
-
-**Refs:** PRD F5 · Design 9.4 · **Est:** 0.5 day · **Depends on:** RN-042
-
-**Story:** As an owner, I want my exported Trello card assigned to me automatically, so I don't have to reassign it.
-
-**Technical notes:** Layer 1: match board members by exact full name, email username vs Trello username, close name match; assign only a single unambiguous candidate; rerun on membership changes. Layer 2: "Link my Trello" one-click prompt, overriding name matches. Unmatched owners are written on the card; admins see a "pick their Trello accounts" list.
-
-**Acceptance criteria**
-
-- [ ] sam.lee@acme.com matches Trello user `samlee` when it's the only candidate.
-- [ ] Two plausible candidates → no assignment, owner name on the card.
-- [ ] "Link my Trello" overrides any name match.
+These finish every P0 requirement in the order Design 13.2 lists after audio. If time runs short, cut Google Doc export (RN-046) per Design 13.3's order.
 
 ### RN-044 · Online list with Presence
 
@@ -1191,17 +1108,6 @@ Each P1 story ships behind a feature flag and reuses hooks already built in Tier
 - [ ] A signed webhook at `api.retronoodle.com/webhooks/trello` marks the linked item done and sets `completed_at`.
 - [ ] Unsigned or mismatched webhook calls are rejected.
 
-### RN-060 · Saved templates
-
-**Refs:** PRD T6 · **Est:** 0.5 day · **Depends on:** RN-040
-
-**Story:** As a facilitator, I want to save a generated or edited format to our team library, so we can reuse formats we liked.
-
-**Acceptance criteria**
-
-- [ ] "Save to library" stores the format with `team_id`; it appears in the picker for that team only.
-- [ ] Saved templates can be renamed and deleted by admins and facilitators.
-
 ### RN-061 · Per-topic discussion timer
 
 **Refs:** PRD P4 · Design 6.4 · **Est:** 0.5 day · **Depends on:** RN-019, RN-048
@@ -1212,6 +1118,53 @@ Each P1 story ships behind a feature flag and reuses hooks already built in Tier
 
 - [ ] Each topic gets a default time-box (Discuss total ÷ topics, editable).
 - [ ] At zero, a soft alert shows; the topic never changes automatically.
+
+## Deprioritized · future
+
+Wanted eventually, but not a current priority — moved here (Oct 14, 2026) rather than built in ID order with everything else. RN-045 (Depends on RN-041), RN-058 (Depends on RN-041) and RN-059 (Depends on RN-042) stay where they are above, but can't actually be built until these are.
+
+### RN-041 · Email digest reminders
+
+**Refs:** PRD F5 (email half) · Design 9.3 · **Est:** 1 day · **Depends on:** RN-024
+
+**Story:** As an action-item owner, I want one email two days before the next retro listing my open items, so I finish them in time.
+
+**Technical notes:** Scheduled job 2 days before `next_retro_at`; one digest per person, merging teams in the same window (max one reminder a day). "Mark done" links open the app and require sign-in. Resend in the portfolio profile from mail.retronoodle.com with SPF, DKIM, DMARC. Opt-out in `notification_prefs`. Idempotency key per person per day.
+
+**Acceptance criteria**
+
+- [ ] Each owner with open items gets exactly one email 2 days before the next retro.
+- [ ] "Mark done" in the email marks the item done after sign-in.
+- [ ] Opted-out users receive nothing.
+- [ ] A retried job never sends a duplicate.
+
+### RN-042 · Trello connect and export
+
+**Refs:** PRD F5 (Trello half) · Design 9.4, 9.8 · **Est:** 1 day · **Depends on:** RN-031, RN-023
+
+**Story:** As a team admin, I want action items exported to our Trello list, so they live where we track work.
+
+**Technical notes:** Admin connects Trello once (token encrypted), picks board and list. On close or Export: one card per item with title, due date and recap link; save `trello_card_id` so edits update and re-exports never duplicate. Calls queued with idempotency keys, rate-spaced (~100 per 10 s), up to 5 retries; permanent failures shown in integration settings.
+
+**Acceptance criteria**
+
+- [ ] Closing a retro creates one Trello card per item in the chosen list.
+- [ ] Re-exporting updates existing cards; no duplicates.
+- [ ] An expired token shows "Trello token expired. Reconnect." in settings.
+
+### RN-043 · Trello owner matching
+
+**Refs:** PRD F5 · Design 9.4 · **Est:** 0.5 day · **Depends on:** RN-042
+
+**Story:** As an owner, I want my exported Trello card assigned to me automatically, so I don't have to reassign it.
+
+**Technical notes:** Layer 1: match board members by exact full name, email username vs Trello username, close name match; assign only a single unambiguous candidate; rerun on membership changes. Layer 2: "Link my Trello" one-click prompt, overriding name matches. Unmatched owners are written on the card; admins see a "pick their Trello accounts" list.
+
+**Acceptance criteria**
+
+- [ ] sam.lee@acme.com matches Trello user `samlee` when it's the only candidate.
+- [ ] Two plausible candidates → no assignment, owner name on the card.
+- [ ] "Link my Trello" overrides any name match.
 
 ## Conflicts resolved
 
