@@ -41,6 +41,8 @@ import {
 } from '@retronoodle/shared';
 import {
   Alert,
+  Avatar,
+  AvatarGroup,
   Box,
   Button,
   Chip,
@@ -2105,6 +2107,36 @@ function PhaseTimer({ phaseDeadline, clockOffsetMs }: { phaseDeadline: string | 
   );
 }
 
+/** RN-044: first letter of up to the first two words — "Ada Lovelace" -> "AL", "Cher" -> "C". A
+ * pure function so the truncation logic (here and in OnlineAvatarStack below) is unit-testable
+ * without a live Presence connection. */
+export function initialsFor(displayName: string): string {
+  const parts = displayName.trim().split(/\s+/).filter(Boolean);
+  const letters = (parts[0]?.[0] ?? '') + (parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? '') : '');
+  return letters.toUpperCase();
+}
+
+/** RN-044: "Header avatar stack shows up to 5 + '+N'; subtitle shows 'N people online'" — who is
+ * online right now (Supabase Presence), not `attendees` (RN-026: whoever ever joined, read from
+ * `retro_participants`, and stays forever even after everyone's left). */
+function OnlineAvatarStack({ members }: { members: { id: string; displayName: string }[] }) {
+  if (members.length === 0) return null;
+  return (
+    <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+      <AvatarGroup max={6} sx={{ '& .MuiAvatar-root': { width: 28, height: 28, fontSize: 13 } }}>
+        {members.map((m) => (
+          <Avatar key={m.id} title={m.displayName}>
+            {initialsFor(m.displayName)}
+          </Avatar>
+        ))}
+      </AvatarGroup>
+      <Typography variant="caption" color="text.secondary">
+        {members.length} {members.length === 1 ? 'person' : 'people'} online
+      </Typography>
+    </Stack>
+  );
+}
+
 /** Mounts once the initial snapshot is in hand, so the store's `initialBoard`/`initialSeq` are
  * captured exactly once (RN-009: "events after it are applied on top", not re-fetched). */
 function Board({
@@ -2980,6 +3012,45 @@ function Board({
     };
   }, [retroId, userId, applyServerEvent, applyLocalPatch]);
 
+  // RN-044: who's actually looking at this board right now, via Supabase Presence on its own
+  // `presence:{retroId}` channel — separate from `attendees` (RN-026: whoever ever joined, read
+  // from `retro_participants`, stays forever even after everyone's left) and from the
+  // heartbeat-driven `last_seen_at` RN-032 reads server-side for recording consent. Lives in its
+  // own state, not BoardState/reduceBoard: there's no seq, nothing to replay on reconnect — the
+  // `sync` event below always reflects exactly who's connected right now, which is the only
+  // thing this story needs. `track()`'s own payload is just identity (userId, displayName) —
+  // "Presence carries no card or cursor data" (RN-044 AC) — so there's nothing here for
+  // `redact()` to need to touch, unlike every server-authored broadcast RealtimeBus sends.
+  const [onlineMembers, setOnlineMembers] = useState<{ id: string; displayName: string }[]>([]);
+  useEffect(() => {
+    const client = supabase;
+    if (!client) return;
+    let cancelled = false;
+    const viewerName = initialBoard.teamMembers.find((m) => m.id === userId)?.displayName ?? 'Someone';
+
+    const presenceChannel = client.channel(`presence:${retroId}`, {
+      config: { private: true, presence: { key: userId } },
+    });
+    presenceChannel.on('presence', { event: 'sync' }, () => {
+      if (cancelled) return;
+      const state = presenceChannel.presenceState<{ userId: string; displayName: string }>();
+      const byId = new Map<string, string>();
+      for (const metas of Object.values(state)) {
+        for (const meta of metas) byId.set(meta.userId, meta.displayName);
+      }
+      setOnlineMembers(Array.from(byId, ([id, displayName]) => ({ id, displayName })));
+    });
+    presenceChannel.subscribe((status) => {
+      if (cancelled || status !== 'SUBSCRIBED') return;
+      void presenceChannel.track({ userId, displayName: viewerName });
+    });
+
+    return () => {
+      cancelled = true;
+      void client.removeChannel(presenceChannel);
+    };
+  }, [retroId, userId, initialBoard.teamMembers]);
+
   // RN-011: "Reveal happens ... on write -> group", but the transition's own broadcast only
   // carries the new phase, not every card's real text (see onTransition.ts's write->group
   // comment for why) — so once Write ends, resync once to pick up what was hidden a moment ago.
@@ -3292,6 +3363,8 @@ function Board({
           <HomeIcon fontSize="small" />
         </IconButton>
         <Typography variant="h4">{initialBoard.retro.name}</Typography>
+        <Box sx={{ flexGrow: 1 }} />
+        <OnlineAvatarStack members={onlineMembers} />
       </Stack>
       {isReconnecting && (
         <Typography role="status" variant="caption" component="p" sx={{ color: '#a66a00', mb: 0.5 }}>
