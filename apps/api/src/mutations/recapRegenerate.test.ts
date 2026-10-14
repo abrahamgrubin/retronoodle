@@ -1,0 +1,62 @@
+import { describe, expect, it, vi } from 'vitest';
+import type { PoolClient } from 'pg';
+import { recapRegenerateMutation } from './recapRegenerate.js';
+import type { JobSender, LockedRetro } from './registry.js';
+
+const facilitatorId = '00000000-0000-4000-8000-000000000003';
+const facilitator = { id: facilitatorId, email: 'f@example.com', displayName: 'F', avatarUrl: null };
+const participant = { id: '00000000-0000-4000-8000-000000000004', email: 'p@example.com', displayName: 'P', avatarUrl: null };
+
+function retroAt(phase: string): LockedRetro {
+  return {
+    id: '00000000-0000-4000-8000-000000000001',
+    team_id: '00000000-0000-4000-8000-000000000002',
+    facilitator_id: facilitatorId,
+    phase,
+    cards_revealed: true,
+    phase_deadline: null,
+    vote_budget: 3,
+  };
+}
+
+describe('recap.regenerate', () => {
+  it('seeds a pending retro_recaps row and enqueues ai.generateRecap', async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [] });
+    const client = { query } as unknown as PoolClient;
+    const send = vi.fn().mockResolvedValue('job-id');
+    const jobs: JobSender = { send };
+    const retro = retroAt('closed');
+
+    const result = await recapRegenerateMutation.apply({ client, retro, user: facilitator, payload: {}, jobs });
+
+    expect(result).toEqual({ status: 'pending' });
+    expect(query).toHaveBeenCalledWith(expect.stringContaining('insert into retro_recaps'), [retro.id]);
+    expect(send).toHaveBeenCalledWith('ai.generateRecap', { retroId: retro.id });
+  });
+
+  it('swallows a job-enqueue failure rather than failing the mutation', async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [] });
+    const client = { query } as unknown as PoolClient;
+    const jobs: JobSender = { send: vi.fn().mockRejectedValue(new Error('queue down')) };
+
+    await expect(
+      recapRegenerateMutation.apply({ client, retro: retroAt('closed'), user: facilitator, payload: {}, jobs }),
+    ).resolves.toEqual({ status: 'pending' });
+  });
+
+  it('rejects a non-facilitator', async () => {
+    const client = { query: vi.fn() } as unknown as PoolClient;
+    await expect(
+      recapRegenerateMutation.apply({ client, retro: retroAt('closed'), user: participant, payload: {} }),
+    ).rejects.toMatchObject({ status: 403, code: 'forbidden' });
+  });
+
+  it('rejects outside Closed', async () => {
+    for (const phase of ['review', 'write', 'group', 'vote', 'discuss', 'wrap_up', 'setup']) {
+      const client = { query: vi.fn() } as unknown as PoolClient;
+      await expect(
+        recapRegenerateMutation.apply({ client, retro: retroAt(phase), user: facilitator, payload: {} }),
+      ).rejects.toMatchObject({ status: 409, code: 'phase_not_allowed' });
+    }
+  });
+});

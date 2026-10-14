@@ -14,6 +14,7 @@ import { registerTemplateRoutes } from './routes/templates.js';
 import { registerMutationRoutes } from './routes/mutations.js';
 import { registerBoardRoutes } from './routes/board.js';
 import { registerActionItemRoutes } from './routes/actionItems.js';
+import { registerRecapRoutes } from './routes/recap.js';
 import { registerAudioGatewayRoutes } from './routes/audioGateway.js';
 import { registerSpeechActivityRoutes } from './routes/speechActivity.js';
 import type { RealtimeBus } from './realtime/RealtimeBus.js';
@@ -130,6 +131,7 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
     registerTemplateRoutes(app, { supabaseAdmin, requireAuth });
     registerBoardRoutes(app, { supabaseAdmin, requireAuth, realtimeBus, transcriptMasterKey });
     registerActionItemRoutes(app, { supabaseAdmin, requireAuth });
+    registerRecapRoutes(app, { supabaseAdmin, requireAuth, jobs });
     registerSpeechActivityRoutes(app, { supabaseAdmin, requireAuth });
     registerAudioGatewayRoutes(app, {
       supabaseAdmin,

@@ -15,7 +15,7 @@ import { setPhase } from './phaseDeadline.js';
  */
 export const retroCloseMutation: MutationTypeDef<RetroClosePayload> = {
   schema: RetroClosePayload,
-  async apply({ client, retro, user, payload }) {
+  async apply({ client, retro, user, payload, jobs }) {
     if (!can(user, 'retro.close', { type: 'retro', teamRole: null, facilitatorId: retro.facilitator_id })) {
       throw new MutationRejected(403, 'forbidden', 'Only the facilitator may close the retro');
     }
@@ -48,6 +48,20 @@ export const retroCloseMutation: MutationTypeDef<RetroClosePayload> = {
     await client.query(`update recording_sessions set status = 'stopped', stopped_at = now() where retro_id = $1 and status <> 'stopped'`, [
       retro.id,
     ]);
+
+    // RN-045: seeds the row the recap route reads (`pending` until ai.generateRecap writes over
+    // it) and kicks off the recap agent team — best-effort, same as every other AI enqueue in
+    // this app. `on conflict do nothing` guards a retro that's somehow closed twice (shouldn't
+    // happen — phase_not_allowed above already rejects a second retro.close — but a recap row is
+    // cheap insurance against ever double-seeding one).
+    await client.query(`insert into retro_recaps (retro_id, status) values ($1, 'pending') on conflict (retro_id) do nothing`, [retro.id]);
+    if (jobs) {
+      try {
+        await jobs.send('ai.generateRecap', { retroId: retro.id });
+      } catch {
+        // Swallowed deliberately, same as every other best-effort AI enqueue in this app.
+      }
+    }
 
     return PhaseTransitionResult.parse({ phase: 'closed', phaseDeadline });
   },

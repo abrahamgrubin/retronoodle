@@ -10,6 +10,7 @@ import { ActionsPage } from './ActionsPage';
 import { App } from './App';
 import { BoardPage } from './BoardPage';
 import { JoinPage } from './JoinPage';
+import { RecapPage } from './RecapPage';
 import { RetroListPage } from './RetroListPage';
 import { theme } from './theme';
 
@@ -20,12 +21,14 @@ if (!root) throw new Error('Missing #root element');
 // No router yet — a handful of path patterns don't need one (RN-006, RN-009, RN-024).
 const joinMatch = /^\/join\/([^/]+)$/.exec(window.location.pathname);
 const retroMatch = /^\/retros\/([^/]+)$/.exec(window.location.pathname);
+const recapMatch = /^\/r\/([^/]+)\/recap$/.exec(window.location.pathname);
 const teamActionsMatch = /^\/teams\/([^/]+)\/actions$/.exec(window.location.pathname);
 const teamRetrosMatch = /^\/teams\/([^/]+)\/retros$/.exec(window.location.pathname);
 
 function page() {
   if (joinMatch) return <JoinPage code={joinMatch[1]!} />;
   if (retroMatch) return <BoardPage retroId={retroMatch[1]!} />;
+  if (recapMatch) return <RecapPage retroId={recapMatch[1]!} />;
   if (teamActionsMatch) return <ActionsPage teamId={teamActionsMatch[1]!} />;
   if (teamRetrosMatch) return <RetroListPage teamId={teamRetrosMatch[1]!} />;
   return <App />;
