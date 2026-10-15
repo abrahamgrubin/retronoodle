@@ -3375,6 +3375,13 @@ function Board({
           <HomeIcon fontSize="small" />
         </IconButton>
         <Typography variant="h4">{initialBoard.retro.name}</Typography>
+        {/* RN-045: the recap only exists once the retro is actually closed (routes/recap.ts
+            404s otherwise) — no point linking to it before then. */}
+        {board.phase === 'closed' && (
+          <Button size="small" type="button" component="a" href={`/r/${retroId}/recap`}>
+            View recap
+          </Button>
+        )}
         <Box sx={{ flexGrow: 1 }} />
         <OnlineAvatarStack members={onlineMembers} />
       </Stack>

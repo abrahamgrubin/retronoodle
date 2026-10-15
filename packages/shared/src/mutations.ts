@@ -495,3 +495,16 @@ export const TopicAssignSpeakerResult = z.object({
   segmentIds: z.array(z.string().uuid()),
 });
 export type TopicAssignSpeakerResult = z.infer<typeof TopicAssignSpeakerResult>;
+
+/** `recap.regenerate` (RN-045): re-enqueues `ai.generateRecap` for a closed retro whose recap
+ * came back `unavailable`. No payload beyond the retro id (already in the URL) — there's only
+ * ever one recap per retro, nothing to disambiguate. Only ever allowed once the retro is
+ * `closed`, the one mutation in this app gated to that phase on purpose rather than through
+ * `allowedActions` (the recap isn't part of that matrix at all). */
+export const RecapRegeneratePayload = z.object({});
+export type RecapRegeneratePayload = z.infer<typeof RecapRegeneratePayload>;
+
+export const RecapRegenerateResult = z.object({
+  status: z.literal('pending'),
+});
+export type RecapRegenerateResult = z.infer<typeof RecapRegenerateResult>;

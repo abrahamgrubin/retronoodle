@@ -30,6 +30,7 @@ import { topicRegenerateSummaryMutation } from './topicRegenerateSummary.js';
 import { actionItemCreateMutation } from './actionItemCreate.js';
 import { actionItemUpdateMutation } from './actionItemUpdate.js';
 import { retroCloseMutation } from './retroClose.js';
+import { recapRegenerateMutation } from './recapRegenerate.js';
 import { actionItemReviewMutation } from './actionItemReview.js';
 import { recordingStartMutation } from './recordingStart.js';
 import { recordingRespondMutation } from './recordingRespond.js';
@@ -64,6 +65,7 @@ export function createDefaultMutationRegistry(): MutationRegistry {
   registry.register('actionItem.create', actionItemCreateMutation);
   registry.register('actionItem.update', actionItemUpdateMutation);
   registry.register('retro.close', retroCloseMutation);
+  registry.register('recap.regenerate', recapRegenerateMutation);
   registry.register('actionItem.review', actionItemReviewMutation);
   registry.register('phase.next', phaseNextMutation);
   // phase.skip resolves to the same target as phase.next (see phaseNext.ts's own comment) — the

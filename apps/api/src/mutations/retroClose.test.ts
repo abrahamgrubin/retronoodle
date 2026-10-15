@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { PoolClient } from 'pg';
 import { retroCloseMutation } from './retroClose.js';
-import type { LockedRetro } from './registry.js';
+import type { JobSender, LockedRetro } from './registry.js';
 
 const facilitatorId = '00000000-0000-4000-8000-000000000003';
 const facilitator = { id: facilitatorId, email: 'f@example.com', displayName: 'Facilitator', avatarUrl: null };
@@ -77,5 +77,27 @@ describe('retro.close', () => {
       retroCloseMutation.apply({ client, retro: retroAt('wrap_up'), user: participant, payload }),
     ).rejects.toMatchObject({ status: 403, code: 'forbidden' });
     expect(client.query).not.toHaveBeenCalled();
+  });
+
+  // RN-045
+  it('seeds a pending retro_recaps row and enqueues ai.generateRecap', async () => {
+    const client = fakeClient([]);
+    const send = vi.fn().mockResolvedValue('job-id');
+    const jobs: JobSender = { send };
+    const retro = retroAt('wrap_up');
+
+    await retroCloseMutation.apply({ client, retro, user: facilitator, payload, jobs });
+
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('insert into retro_recaps'), [retro.id]);
+    expect(send).toHaveBeenCalledWith('ai.generateRecap', { retroId: retro.id });
+  });
+
+  it('still closes the retro when enqueuing ai.generateRecap fails', async () => {
+    const client = fakeClient([]);
+    const jobs: JobSender = { send: vi.fn().mockRejectedValue(new Error('queue down')) };
+
+    await expect(
+      retroCloseMutation.apply({ client, retro: retroAt('wrap_up'), user: facilitator, payload, jobs }),
+    ).resolves.toEqual({ phase: 'closed', phaseDeadline: null });
   });
 });

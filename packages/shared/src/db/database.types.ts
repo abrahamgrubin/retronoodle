@@ -779,6 +779,39 @@ export interface Database {
         };
         Relationships: [];
       };
+      retro_recaps: {
+        Row: {
+          id: string;
+          retro_id: string;
+          status: string;
+          topic_summaries: Json;
+          decisions: Json;
+          generated_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          retro_id: string;
+          status?: string;
+          topic_summaries?: Json;
+          decisions?: Json;
+          generated_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          retro_id?: string;
+          status?: string;
+          topic_summaries?: Json;
+          decisions?: Json;
+          generated_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;

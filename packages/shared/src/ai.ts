@@ -10,6 +10,11 @@ export const AI_QUESTION_SUGGESTER_MODEL = 'claude-haiku-4-5-20251001';
 export const AI_TOPIC_SUMMARY_MODEL = 'claude-sonnet-5';
 export const AI_TOPIC_SUMMARY_FALLBACK_MODEL = 'claude-haiku-4-5-20251001';
 export const AI_TOPIC_SUMMARY_TIMEOUT_MS = 25_000;
+// RN-045: recap-filter is cheap, narrow redaction work (Haiku); recap-summarizer only ever runs
+// once per retro (not once per topic) and writes the stakeholder-facing recap text, so it gets
+// the better model, same reasoning as topic-summarizer's own primary pick.
+export const AI_RECAP_FILTER_MODEL = 'claude-haiku-4-5-20251001';
+export const AI_RECAP_SUMMARY_MODEL = 'claude-sonnet-5';
 
 /** RN-027: "Claude spend cap $5/month in config." Per-million-token USD list pricing, used only
  * to estimate cost from each response's own reported token counts (never a billing source of

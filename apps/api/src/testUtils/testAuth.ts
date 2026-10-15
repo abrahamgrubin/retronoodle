@@ -1,7 +1,7 @@
 import type { Pool } from 'pg';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@retronoodle/shared';
-import { MutationRegistry } from '../mutations/index.js';
+import { MutationRegistry, type JobSender } from '../mutations/index.js';
 import type { RealtimeBus } from '../realtime/RealtimeBus.js';
 import type { VerifyAccessToken } from '../auth/index.js';
 import type { ServerOptions } from '../server.js';
@@ -16,6 +16,7 @@ export function testAuthOptions(overrides: {
   realtimeBus?: RealtimeBus;
   pool?: Pool;
   mutationRegistry?: MutationRegistry;
+  jobs?: JobSender;
   transcriptMasterKey?: string;
   createTranscriptionProvider?: () => TranscriptionProvider | null;
 }): NonNullable<ServerOptions['auth']> {
@@ -25,6 +26,7 @@ export function testAuthOptions(overrides: {
     realtimeBus: overrides.realtimeBus ?? ({} as RealtimeBus),
     pool: overrides.pool ?? ({} as Pool),
     mutationRegistry: overrides.mutationRegistry ?? new MutationRegistry(),
+    jobs: overrides.jobs,
     transcriptMasterKey: overrides.transcriptMasterKey,
     createTranscriptionProvider: overrides.createTranscriptionProvider,
   };
