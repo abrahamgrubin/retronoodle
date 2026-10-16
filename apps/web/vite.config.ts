@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import react from '@vitejs/plugin-react';
@@ -37,11 +37,34 @@ function copyVadAssets(): Plugin {
       // Only the plain build — speechDetection.ts forces onnxruntime-web's `numThreads` to 1,
       // which keeps it off the jsep/asyncify/jspi variants entirely (16-28MB each, and the
       // largest two exceed Cloudflare Workers' 25MiB static-asset limit — found live, a deploy
-      // failed on exactly this before `numThreads` was pinned).
-      for (const file of ['ort-wasm-simd-threaded.wasm']) {
+      // failed on exactly this before `numThreads` was pinned). The `.wasm` binary alone isn't
+      // enough — onnxruntime-web's threaded backend dynamically imports a same-named `.mjs`
+      // loader module to actually instantiate it; without that file too, every load 404s on the
+      // `.mjs` and VAD never gets a working backend (found live: "no available backend found").
+      for (const file of ['ort-wasm-simd-threaded.wasm', 'ort-wasm-simd-threaded.mjs']) {
         const dest = join(publicOrt, file);
         if (!existsSync(dest)) copyFileSync(join(ortDist, file), dest);
       }
+    },
+    // `vite dev` only (never runs for a real build) — onnxruntime-web's threaded WASM backend
+    // loads its `.mjs` loader via a dynamic `import()`, and Vite's dev middleware flatly refuses
+    // to serve ANY `public/` file through a dynamic import, regardless of numThreads (found live:
+    // "This file is in /public ... should not be imported from source code"). A production build
+    // never hits this — there's no Vite import-graph middleware at runtime once it's just static
+    // files on a CDN — so this bypass only needs to exist for dev. Serving the identical bytes
+    // through a plain middleware response (not Vite's public-dir static handler) sidesteps the
+    // check entirely without changing what the browser actually receives.
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        // The actual request is `/ort/ort-wasm-simd-threaded.mjs?import` — Vite's own dynamic-
+        // import handling appends that query param, so an exact-string match against the bare
+        // path never fires and silently falls through to Vite's transform middleware anyway
+        // (found live — the fix above alone wasn't enough). Matching on the pathname, ignoring
+        // any query string, is what actually intercepts it.
+        if (!req.url?.startsWith('/ort/ort-wasm-simd-threaded.mjs')) return next();
+        res.setHeader('Content-Type', 'text/javascript');
+        res.end(readFileSync(join(import.meta.dirname, 'public/ort/ort-wasm-simd-threaded.mjs')));
+      });
     },
   };
 }
