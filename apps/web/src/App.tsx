@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Alert, Box, Button, Card, CardActionArea, CardContent, CardMedia, Chip, Link, Stack, TextField, Typography } from '@mui/material';
 import { AppShell } from './AppShell';
-import { fetchHealth } from './api';
 import { fetchMe, signInWithGoogle, signOut } from './auth';
 import { supabase } from './supabaseClient';
 import { createTeam, fetchMyTeams } from './teams';
@@ -10,8 +9,6 @@ import { createRetro } from './retros';
 import { fetchTeamTemplates } from './templates';
 import { setCachedJoinCode } from './joinLinkStorage';
 import { useSession } from './useSession';
-
-const ACTION_ITEMS_COLOR = 'blue'; // always appended last by the API; never stored on a template.
 
 function RetroCreator({ accessToken, teamId }: { accessToken: string; teamId: string }) {
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
@@ -158,7 +155,6 @@ function TeamsPanel({ accessToken }: { accessToken: string }) {
 }
 
 export function App() {
-  const health = useQuery({ queryKey: ['health'], queryFn: () => fetchHealth() });
   const session = useSession();
 
   const accessToken = session?.access_token;

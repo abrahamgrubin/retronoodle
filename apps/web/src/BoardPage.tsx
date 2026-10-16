@@ -3612,7 +3612,12 @@ function Board({
           <IconButton component="a" href="/" size="small" aria-label="Home" sx={{ ml: -1 }}>
             <HomeIcon fontSize="small" />
           </IconButton>
-          <Typography sx={{ fontSize: 20, fontWeight: 600, color: '#111827' }}>{initialBoard.retro.name}</Typography>
+          {/* `variant="h4"` is what gives this an accessible heading role (hidden-cards.spec.ts
+              finds the board by it) — the Figma re-skin's own sx overrides its visual size/weight
+              entirely, so this changes semantics only, not how it looks. */}
+          <Typography variant="h4" sx={{ fontSize: 20, fontWeight: 600, color: '#111827' }}>
+            {initialBoard.retro.name}
+          </Typography>
         </Stack>
 
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
