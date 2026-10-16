@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { colorForId, initialsFor } from './BoardPage';
+import { colorForId, columnPalette, initialsFor } from './BoardPage';
 
 describe('initialsFor (RN-044: avatar stack initials)', () => {
   it('takes the first letter of a single name', () => {
@@ -44,5 +44,18 @@ describe('colorForId (RN-044: avatar stack colors)', () => {
 
   it('always returns a valid CSS hex color', () => {
     expect(colorForId('some-user-id')).toMatch(/^#[0-9a-f]{6}$/i);
+  });
+});
+
+describe('columnPalette (Figma sticky-note colors, keyed by column.color)', () => {
+  it('maps each named column color to its exact Figma accent/card hex', () => {
+    expect(columnPalette('green')).toEqual({ accent: '#16A34A', card: '#C9F2D3' });
+    expect(columnPalette('pink')).toEqual({ accent: '#E11D48', card: '#FFD3DE' });
+    expect(columnPalette('yellow')).toEqual({ accent: '#CA8A04', card: '#FFF0A3' });
+    expect(columnPalette('blue')).toEqual({ accent: '#2563EB', card: '#CFE3FF' });
+  });
+
+  it('falls back to treating an unrecognized name as a literal CSS color', () => {
+    expect(columnPalette('#123456')).toEqual({ accent: '#123456', card: '#123456' });
   });
 });

@@ -1,20 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState, type FocusEvent } from 'react';
-import {
-  Alert,
-  Box,
-  Button,
-  Card,
-  CardActionArea,
-  CardContent,
-  Chip,
-  IconButton,
-  Link,
-  Stack,
-  TextField,
-  Typography,
-} from '@mui/material';
-import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import { useState } from 'react';
+import { Alert, Box, Button, Card, CardActionArea, CardContent, CardMedia, Chip, Link, Stack, TextField, Typography } from '@mui/material';
 import { AppShell } from './AppShell';
 import { fetchHealth } from './api';
 import { fetchMe, signInWithGoogle, signOut } from './auth';
@@ -22,24 +8,10 @@ import { supabase } from './supabaseClient';
 import { createTeam, fetchMyTeams } from './teams';
 import { createRetro } from './retros';
 import { fetchTeamTemplates } from './templates';
+import { setCachedJoinCode } from './joinLinkStorage';
 import { useSession } from './useSession';
 
 const ACTION_ITEMS_COLOR = 'blue'; // always appended last by the API; never stored on a template.
-
-function ColumnPreviewDots({ columns }: { columns: { title: string; color: string }[] }) {
-  const dots = [...columns, { title: 'Action items', color: ACTION_ITEMS_COLOR }];
-  return (
-    <Stack direction="row" spacing={0.5}>
-      {dots.map((col, index) => (
-        <Box
-          key={`${col.title}-${index}`}
-          title={col.title}
-          sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: col.color }}
-        />
-      ))}
-    </Stack>
-  );
-}
 
 function RetroCreator({ accessToken, teamId }: { accessToken: string; teamId: string }) {
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
@@ -50,31 +22,15 @@ function RetroCreator({ accessToken, teamId }: { accessToken: string; teamId: st
   });
   const create = useMutation({
     mutationFn: (name: string) => createRetro(accessToken, teamId, name, selectedTemplateId as string),
+    // Straight to the board, no inline "created!" panel on this page — the join link moved to
+    // its own "Copy share link" button in the board's own header (BoardPage.tsx), so there's
+    // nothing left to show here first. Caching the code now is what lets that button work
+    // without immediately having to regenerate (and invalidate) it (joinLinkStorage.ts).
+    onSuccess: (data) => {
+      setCachedJoinCode(data.id, data.joinCode);
+      window.location.href = `/retros/${data.id}`;
+    },
   });
-
-  if (create.isSuccess) {
-    const joinUrl = `${window.location.origin}/join/${create.data.joinCode}`;
-    return (
-      <Stack spacing={1}>
-        <Typography>
-          Created <strong>{create.data.name}</strong>. <Link href={`/retros/${create.data.id}`}>Go to the board</Link>
-        </Typography>
-        <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-          <TextField
-            size="small"
-            value={joinUrl}
-            slotProps={{
-              htmlInput: { readOnly: true, onFocus: (e: FocusEvent<HTMLInputElement>) => e.currentTarget.select() },
-            }}
-            sx={{ width: 320 }}
-          />
-          <IconButton aria-label="Copy join link" onClick={() => void navigator.clipboard.writeText(joinUrl)}>
-            <ContentCopyIcon fontSize="small" />
-          </IconButton>
-        </Stack>
-      </Stack>
-    );
-  }
 
   if (templates.isPending) return <Typography>Loading templates…</Typography>;
   if (templates.isError) return <Alert severity="error">Failed to load templates.</Alert>;
@@ -88,18 +44,31 @@ function RetroCreator({ accessToken, teamId }: { accessToken: string; teamId: st
       }}
     >
       <Typography sx={{ mb: 1 }}>Pick a template:</Typography>
-      <Stack direction="row" spacing={2} sx={{ flexWrap: "wrap", mb: 2 }}>
+      <Stack direction="row" spacing={2} sx={{ flexWrap: "wrap", mb: 2}} useFlexGap>
         {templates.data.map((template) => (
           <Card
             key={template.id}
             variant="outlined"
-            sx={{ borderColor: selectedTemplateId === template.id ? 'primary.main' : undefined, borderWidth: selectedTemplateId === template.id ? 2 : 1 }}
+            sx={{
+              width: 260,
+              borderColor: selectedTemplateId === template.id ? 'primary.main' : undefined,
+              borderWidth: selectedTemplateId === template.id ? 2 : 1,
+            }}
           >
-            <CardActionArea onClick={() => setSelectedTemplateId(template.id)} sx={{ p: 1.5 }}>
-              <Typography sx={{ fontWeight: "bold" }}>{template.name}</Typography>
-              <Box sx={{ mt: 0.5 }}>
-                <ColumnPreviewDots columns={template.columns} />
-              </Box>
+            <CardActionArea onClick={() => setSelectedTemplateId(template.id)}>
+              {template.imageUrl && (
+                <CardMedia component="img" height="140" image={template.imageUrl} alt={template.name} sx={{ objectFit: 'cover' }} />
+              )}
+              <CardContent>
+                <Typography gutterBottom variant="subtitle1" sx={{ fontWeight: 'bold' }}>
+                  {template.name}
+                </Typography>
+                {template.description && (
+                  <Typography variant="body2" sx={{ color: 'text.secondary', mb: 1 }}>
+                    {template.description}
+                  </Typography>
+                )}
+              </CardContent>
             </CardActionArea>
           </Card>
         ))}
@@ -202,12 +171,6 @@ export function App() {
   return (
     <AppShell>
       <Stack spacing={3}>
-        <Chip
-          size="small"
-          sx={{ alignSelf: 'flex-start' }}
-          label={`API: ${health.isPending ? 'checking…' : health.isError ? 'unreachable' : `ok at ${health.data.time}`}`}
-          color={health.isError ? 'error' : health.isPending ? 'default' : 'success'}
-        />
         {accessToken ? (
           <>
             <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>

@@ -61,15 +61,21 @@ import {
 } from '@mui/material';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
+import DeleteOutlinedIcon from '@mui/icons-material/DeleteOutlined';
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
+import AddReactionOutlinedIcon from '@mui/icons-material/AddReactionOutlined';
 import HomeIcon from '@mui/icons-material/Home';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { signInWithGoogle } from './auth';
 import { audioGatewayUrl, fetchBoard, sendHeartbeat } from './board';
 import { reduceBoard, toggleReaction, type BoardState } from './boardReducer';
 import { computeClockOffsetMs, formatCountdown, remainingMs } from './clock';
+import { getCachedJoinCode, setCachedJoinCode } from './joinLinkStorage';
 import { postMutation } from './mutations';
+import { regenerateJoinLink } from './retros';
 import { createRetroStore } from './retroStore';
 import { supabase } from './supabaseClient';
-import type { AudioCaptureHandle } from './transcription/audioCapture';
+import type { AudioCaptureHandle, CaptureStreams } from './transcription/audioCapture';
 import type { SpeechDetectionHandle } from './transcription/speechDetection';
 import { useSession } from './useSession';
 
@@ -94,6 +100,7 @@ function AddCardForm({ onAdd }: { onAdd: (body: string) => void }) {
   return (
     <Box sx={{ mt: 1 }}>
       <TextField
+        sx={{ bgcolor: 'white' }}
         multiline
         minRows={2}
         fullWidth
@@ -109,7 +116,7 @@ function AddCardForm({ onAdd }: { onAdd: (body: string) => void }) {
             setError(null);
           }
         }}
-        placeholder="+ Add a card"
+        placeholder="Add a card"
         aria-label="Add a card"
       />
       {error && (
@@ -356,7 +363,7 @@ function CloseRetroDialog({
           {actionItems.length} action item{actionItems.length === 1 ? '' : 's'}
         </Typography>
         {ownerless.length > 0 && (
-          <Box sx={{ bgcolor: '#fff8e1', border: '1px solid #f0c000', borderRadius: 1.5, p: 1, my: 1.5 }}>
+          <Box sx={{ bgcolor: 'white', border: '1px solid #f0c000', borderRadius: 1.5, p: 1, my: 1.5 }}>
             <Typography variant="body2" sx={{ mb: 0.75, fontWeight: 'bold' }}>
               {ownerless.length} item{ownerless.length === 1 ? '' : 's'} missing an owner
             </Typography>
@@ -443,6 +450,7 @@ export interface ReactionBarProps {
 
 function CardView({
   card,
+  cardColor,
   canEdit,
   onEdit,
   onDelete,
@@ -453,6 +461,10 @@ function CardView({
   discussCurrent,
 }: {
   card: VisibleBoardCard;
+  // The card's own column's sticky-note color (COLUMN_PALETTE's `card` hex) — every card in a
+  // column shares this one color; per-author identity is the avatar chip in the author row
+  // below instead (colorForId), not the card's own background.
+  cardColor: string;
   canEdit: boolean;
   onEdit: (body: string) => void;
   onDelete: () => void;
@@ -526,36 +538,50 @@ function CardView({
       // half possible; the outline half already exists via `highlighted` above.
       id={`board-card-${card.id}`}
       sx={{
-        border: '1px solid',
-        borderColor: 'grey.400',
-        borderRadius: 1.5,
-        p: 1,
-        mb: 1,
+        borderRadius: '6px',
+        p: 2,
+        mb: 1.5,
+        background: cardColor,
+        boxShadow: '0 2px 2px rgba(0,0,0,0.14)',
         outline: highlighted ? '2px solid #f59e0b' : discussCurrent ? '2px solid #2563eb' : undefined,
         outlineOffset: highlighted || discussCurrent ? -1 : undefined,
       }}
       {...dragHandleProps}
     >
-      <Typography sx={{ whiteSpace: 'pre-wrap' }}>{card.body}</Typography>
-      <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 0.5 }}>
-        {card.authorName}
-      </Typography>
-      <ReactionBar {...reactionProps} />
-      {(canEdit || menu) && (
-        <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', mt: 0.5 }}>
-          {canEdit && (
-            <>
-              <Button size="small" type="button" onClick={() => setEditing(true)}>
-                Edit
-              </Button>
-              <Button size="small" type="button" onClick={onDelete}>
-                Delete
-              </Button>
-            </>
-          )}
-          {menu}
+      <Stack spacing={1.5}>
+        <Typography sx={{ whiteSpace: 'pre-wrap', color: '#1f2937', fontSize: 15, lineHeight: '22px' }}>{card.body}</Typography>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+          <Box
+            sx={{
+              width: 24,
+              height: 24,
+              borderRadius: '50%',
+              flexShrink: 0,
+              bgcolor: colorForId(card.authorId),
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Typography sx={{ fontSize: 10, fontWeight: 600, color: 'white', lineHeight: 1 }}>{initialsFor(card.authorName)}</Typography>
+          </Box>
+          <Typography sx={{ fontSize: 13, fontWeight: 500, color: '#374151' }}>{card.authorName}</Typography>
+          <Box sx={{ flexGrow: 1 }} />
+          {reactionProps.canReact && <ReactionPicker onPick={reactionProps.onToggleReaction} />}
         </Stack>
-      )}
+        <ReactionBar {...reactionProps} />
+        {(canEdit || menu) && (
+          <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+            {canEdit && (
+              <>
+                <EditOutlinedIcon onClick={() => setEditing(true)} sx={{ fontSize: 18, color: 'black' }} />
+                <DeleteOutlinedIcon onClick={onDelete} sx={{ fontSize: 18, color: 'black' }} />
+              </>
+            )}
+            {menu}
+          </Stack>
+        )}
+      </Stack>
     </Box>
   );
 }
@@ -594,17 +620,19 @@ function ReactionPicker({ onPick }: { onPick: (emoji: Emoji) => void }) {
         sx={{
           cursor: 'pointer',
           listStyle: 'none',
-          fontSize: 12,
-          color: 'text.secondary',
-          border: '1px dashed',
-          borderColor: 'grey.400',
-          borderRadius: 999,
-          px: 0.75,
-          py: '1px',
+          width: 28,
+          height: 28,
+          borderRadius: '50%',
+          border: '1px solid #d1d5db',
+          bgcolor: 'white',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
         }}
         aria-label="Add reaction"
       >
-        + react
+        <AddReactionOutlinedIcon sx={{ fontSize: 16, color: '#4b5563' }} />
       </Box>
       <Box
         sx={{
@@ -620,27 +648,13 @@ function ReactionPicker({ onPick }: { onPick: (emoji: Emoji) => void }) {
           boxShadow: 3,
         }}
       >
-        <TextField
-          autoFocus
-          fullWidth
-          size="small"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search emoji"
-          aria-label="Search emoji"
-          sx={{ mb: 0.75 }}
-        />
-        {results.length === 0 && (
-          <Typography variant="caption" color="text.disabled">
-            No matches
-          </Typography>
-        )}
         <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap' }}>
           {results.map((emoji) => (
             <IconButton
               key={emoji}
               size="small"
               type="button"
+              color="inherit"
               onClick={() => {
                 onPick(emoji);
                 setQuery('');
@@ -664,27 +678,45 @@ function ReactionPicker({ onPick }: { onPick: (emoji: Emoji) => void }) {
  * when `canReact` is false and there are reactions to show ("existing reaction chips stay
  * visible" during Vote — only "the picker and chip toggles are disabled"). */
 function ReactionBar({ reactions, viewerId, canReact, onToggleReaction }: ReactionBarProps) {
+  // The "Add reaction" trigger lives in the card's author row now (CardView), not here — this
+  // only ever renders existing chips, so there's nothing left to show once there are none.
   const visible = reactions.filter((r) => r.userIds.length > 0);
-  if (visible.length === 0 && !canReact) return null;
+  if (visible.length === 0) return null;
   return (
-    <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', mt: 0.5, alignItems: 'center' }}>
+    <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
       {visible.map((r) => {
         const mine = r.userIds.includes(viewerId);
         return (
-          <Chip
+          <Box
             key={r.emoji}
+            component="button"
+            type="button"
             disabled={!canReact}
             aria-pressed={mine}
             onClick={() => onToggleReaction(r.emoji)}
-            size="small"
-            label={`${r.emoji} ${r.userIds.length}`}
-            variant={mine ? 'filled' : 'outlined'}
-            color={mine ? 'primary' : 'default'}
-            sx={{ cursor: canReact ? 'pointer' : 'default' }}
-          />
+            sx={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              border: '1px solid',
+              borderColor: mine ? '#3b82f6' : '#d1d5db',
+              bgcolor: mine ? '#dbeafe' : 'white',
+              borderRadius: 999,
+              px: 1,
+              py: '3px',
+              cursor: canReact ? 'pointer' : 'default',
+              font: 'inherit',
+            }}
+          >
+            <Typography component="span" sx={{ fontSize: 14, color: '#111827', lineHeight: 1 }}>
+              {r.emoji}
+            </Typography>
+            <Typography component="span" sx={{ fontSize: 12, fontWeight: 600, color: mine ? '#1d4ed8' : '#374151', lineHeight: 1 }}>
+              {r.userIds.length}
+            </Typography>
+          </Box>
         );
       })}
-      {canReact && <ReactionPicker onPick={onToggleReaction} />}
     </Stack>
   );
 }
@@ -764,6 +796,7 @@ function CardMenu({
  * editing state; only the drag listeners themselves move (see CardView's dragHandleProps note). */
 function SortableCardView({
   card,
+  cardColor,
   canDrag,
   canEdit,
   onEdit,
@@ -775,6 +808,7 @@ function SortableCardView({
   dimmed,
 }: {
   card: VisibleBoardCard;
+  cardColor: string;
   canDrag: boolean;
   canEdit: boolean;
   onEdit: (body: string) => void;
@@ -797,6 +831,7 @@ function SortableCardView({
     <Box ref={setNodeRef} sx={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : dimmed ? 0.4 : 1 }}>
       <CardView
         card={card}
+        cardColor={cardColor}
         canEdit={canEdit}
         onEdit={onEdit}
         onDelete={onDelete}
@@ -1012,6 +1047,7 @@ function TopicGroupView({
   const [expanded, setExpanded] = useState(false);
   const visibleCards = expanded ? cards : cards.slice(0, 2);
   const hiddenCount = cards.length - visibleCards.length;
+  const palette = columnPalette(columnColor);
 
   function commitRename() {
     const trimmed = draftName.trim();
@@ -1023,8 +1059,8 @@ function TopicGroupView({
   return (
     <Box
       sx={{
-        background: `color-mix(in srgb, ${columnColor} 15%, white)`,
-        border: `2px solid ${columnColor}`,
+        background: `color-mix(in srgb, ${palette.accent} 15%, white)`,
+        border: `2px solid ${palette.accent}`,
         borderRadius: 2,
         p: 1,
         mb: 1,
@@ -1082,11 +1118,12 @@ function TopicGroupView({
         <>
           {visibleCards.map((card) =>
             card.hidden ? (
-              <HiddenCardPlaceholder key={card.id} columnColor={columnColor} />
+              <HiddenCardPlaceholder key={card.id} columnColor={palette.accent} />
             ) : (
               <SortableCardView
                 key={card.id}
                 card={card}
+                cardColor={palette.card}
                 canDrag={canDragCard(card)}
                 canEdit={canEditCard(card)}
                 onEdit={(body) => onEditCard(card.id, body)}
@@ -1895,6 +1932,23 @@ function DiscussQueuePanel({
   );
 }
 
+/** Column header: a small colored dot (the column's accent), its title, and a count pill —
+ * shared by the standard-column and Action-items branches below, which otherwise duplicated this
+ * exact markup. The prompt caption (when present) stays each branch's own, since it sits as a
+ * second line below this row rather than inside it. */
+function ColumnHeader({ title, count, accent }: { title: string; count: number; accent: string }) {
+  return (
+    <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 0.5 }}>
+      <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: accent, flexShrink: 0 }} />
+      <Typography sx={{ fontSize: 15, fontWeight: 600, color: '#111827' }}>{title}</Typography>
+      <Box sx={{ flexGrow: 1 }} />
+      <Box sx={{ bgcolor: '#e5e7eb', borderRadius: 999, px: 1, py: '2px' }}>
+        <Typography sx={{ fontSize: 12, fontWeight: 500, color: '#374151' }}>{count}</Typography>
+      </Box>
+    </Stack>
+  );
+}
+
 /** The column's own droppable area (RN-014) — lets a card be dropped on empty space below the
  * last card, not only onto another card. Disabled for Action items: "Move onto a card's center is
  * reserved for grouping (RN-015)" is a later story, but "can't drag into Action items" is this
@@ -1909,11 +1963,10 @@ function DroppableColumn({ column, children }: { column: BoardColumn; children: 
       sx={{
         width: 260,
         flexShrink: 0,
-        borderTop: `4px solid ${column.color}`,
-        outline: isOver ? '2px solid #3b82f6' : undefined,
-        bgcolor: 'grey.50',
-        borderRadius: 2,
-        p: 1,
+        bgcolor: isOver ? '#f1f6ff' : '#f6f7f9',
+        border: isOver ? '2px solid #3b82f6' : '1px solid #e5e7eb',
+        borderRadius: '16px',
+        p: 2,
       }}
     >
       {children}
@@ -2116,16 +2169,43 @@ export function initialsFor(displayName: string): string {
   return letters.toUpperCase();
 }
 
-/** RN-044: every MUI Avatar with no `src` renders the same gray by default (found live — every
- * participant looked identical). A fixed palette, picked by a stable hash of the user's id, gives
- * each participant the same color every time (same id -> same color across reconnects/resyncs)
- * without needing per-user state or any avatar-image infra (none exists yet). */
-const AVATAR_PALETTE = ['#1565c0', '#6a1b9a', '#2e7d32', '#c62828', '#ef6c00', '#00838f', '#ad1457', '#4527a0'];
-
-export function colorForId(id: string): string {
+/** A stable hash of `id` into one of `palette`'s entries — same id always picks the same color
+ * (across reconnects/resyncs), different ids spread across the palette without any per-user
+ * state. Shared by colorForId (avatars) and cardColorForId (cards) below, each with their own
+ * palette rather than one color meaning two different things. */
+function pickFromPalette(id: string, palette: string[]): string {
   let hash = 0;
   for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
-  return AVATAR_PALETTE[Math.abs(hash) % AVATAR_PALETTE.length]!;
+  return palette[Math.abs(hash) % palette.length]!;
+}
+
+/** RN-044: every MUI Avatar with no `src` renders the same gray by default (found live — every
+ * participant looked identical). No avatar-image infra exists yet. Matches the Figma design's own
+ * 6-color avatar set (Coral/Teal/Indigo/Rose/Violet/Amber). */
+const AVATAR_PALETTE = ['#C2410C', '#0F766E', '#4338CA', '#BE123C', '#6D28D9', '#B45309'];
+
+export function colorForId(id: string): string {
+  return pickFromPalette(id, AVATAR_PALETTE);
+}
+
+/** Figma's sticky-note palette, keyed by `column.color` (a named keyword — "green"/"pink"/
+ * "yellow"/"blue"/"purple" — stored on the column itself, seeded from the template or, for
+ * Action items, hard-coded server-side; see retros.ts). `accent` is the small header dot /
+ * group-border color; `card` is the sticky-note background, both pulled from the design's exact
+ * hex values where given — "purple" never appears in the design (no 4-column template was in the
+ * captured frames), so its pair is this file's own extrapolation to match the same pastel
+ * family, not a value from Figma. Falls back to treating an unrecognized name as a literal CSS
+ * color for both (keeps working if a template ever adds a color outside this set). */
+const COLUMN_PALETTE: Record<string, { accent: string; card: string }> = {
+  green: { accent: '#16A34A', card: '#C9F2D3' },
+  pink: { accent: '#E11D48', card: '#FFD3DE' },
+  yellow: { accent: '#CA8A04', card: '#FFF0A3' },
+  blue: { accent: '#2563EB', card: '#CFE3FF' },
+  purple: { accent: '#7C3AED', card: '#E6D9FF' },
+};
+
+export function columnPalette(colorName: string): { accent: string; card: string } {
+  return COLUMN_PALETTE[colorName] ?? { accent: colorName, card: colorName };
 }
 
 /** RN-044: "Header avatar stack shows up to 5 + '+N'; subtitle shows 'N people online'" — who is
@@ -2135,14 +2215,17 @@ function OnlineAvatarStack({ members }: { members: { id: string; displayName: st
   if (members.length === 0) return null;
   return (
     <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-      <AvatarGroup max={6} sx={{ '& .MuiAvatar-root': { width: 28, height: 28, fontSize: 13 } }}>
+      <AvatarGroup
+        max={6}
+        sx={{ '& .MuiAvatar-root': { width: 32, height: 32, fontSize: 12, fontWeight: 600, border: '2px solid white', ml: '-4px' } }}
+      >
         {members.map((m) => (
           <Avatar key={m.id} title={m.displayName} sx={{ bgcolor: colorForId(m.id) }}>
             {initialsFor(m.displayName)}
           </Avatar>
         ))}
       </AvatarGroup>
-      <Typography variant="caption" color="text.secondary">
+      <Typography sx={{ fontSize: 13, color: '#6b7280' }}>
         {members.length} {members.length === 1 ? 'person' : 'people'} online
       </Typography>
     </Stack>
@@ -2171,6 +2254,16 @@ function Board({
   // same pending mutationId twice in parallel (found live: two concurrent POSTs with the same
   // mutationId, one of which hit a duplicate-key error server-side — see pipeline.ts's fix).
   const isResyncingRef = useRef(false);
+  // Set while a resync is in flight and another one is requested in the meantime — re-run once
+  // the in-flight one finishes instead of silently dropping it (found live: phase.jumpTo's own
+  // broadcast handler fires a resync immediately after folding the event, but a slow transition's
+  // own previousPhaseRef-triggered resync from moments earlier (vote->discuss's
+  // autoStartRecordingIfNeeded regularly takes over a second) was often still in flight — so that
+  // second, actually-authoritative resync (the only one whose GET ran after the mutation had
+  // fully committed) got thrown away by the guard above, leaving recordingSession stuck on a
+  // stale pre-commit snapshot forever: captureAllowed never turns true and transcription silently
+  // never starts, no matter how long you wait).
+  const queuedResyncRef = useRef<boolean | null>(null);
 
   const [useBoardStore] = useState(() =>
     createRetroStore<BoardState>({
@@ -2227,6 +2320,10 @@ function Board({
   // RN-023: the "Close retro" header button opens this; closed by Cancel or a successful close
   // (the dialog's own component manages its submitting/error state, not this board).
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
+  // RN-006: "Copied!" feedback for the header's "Copy share link" button — not loaded from
+  // anywhere, just a brief acknowledgment that resets itself a moment after each click.
+  const [shareLinkCopied, setShareLinkCopied] = useState(false);
+  const [shareLinkPending, setShareLinkPending] = useState(false);
   // The Action items column follows the matrix's separate "Create or edit action items" row
   // (Review/Discuss/Wrap up), not "Add, edit, delete own card" (Write/Group) — matching the
   // server-side check in cardCreate/cardEdit/cardDelete's apply().
@@ -2826,8 +2923,11 @@ function Board({
   // retroId (accessToken can rotate over a long session; a stale closure would keep resyncing
   // with an expired token).
   useEffect(() => {
-    resyncRef.current = (showBadge) => {
-      if (isResyncingRef.current) return;
+    const runResync = (showBadge: boolean) => {
+      if (isResyncingRef.current) {
+        queuedResyncRef.current = queuedResyncRef.current || showBadge;
+        return;
+      }
       isResyncingRef.current = true;
       if (showBadge) setIsReconnecting(true);
       void fetchBoard(accessToken, retroId)
@@ -2864,8 +2964,14 @@ function Board({
         .finally(() => {
           isResyncingRef.current = false;
           if (showBadge) setIsReconnecting(false);
+          if (queuedResyncRef.current !== null) {
+            const queuedShowBadge = queuedResyncRef.current;
+            queuedResyncRef.current = null;
+            runResync(queuedShowBadge);
+          }
         });
     };
+    resyncRef.current = runResync;
   }, [accessToken, retroId, resetBoard, retryPendingMutations]);
 
   // RN-013: "a seq gap older than 1s" — retroStore.ts's own hasStaleGap flag, reacted to here
@@ -2952,6 +3058,44 @@ function Board({
       if (message.event === 'recording.sessionUpdated') {
         const { session } = message.payload as { session: BoardState['recordingSession'] };
         applyLocalPatch((b) => ({ ...b, recordingSession: session }));
+        return;
+      }
+      // onTransition.ts's group->vote effect, not the mutation pipeline — same gap as
+      // recording.sessionUpdated above, just for the brand-new single-card topics that transition
+      // creates for anything still ungrouped instead of the recording session vote->discuss
+      // writes. Appends rather than upserts: these ids have never existed in board.topics before.
+      if (message.event === 'topics.created') {
+        const { topics } = message.payload as { topics: Topic[] };
+        applyLocalPatch((b) => ({ ...b, topics: [...b.topics, ...topics.filter((t) => !b.topics.some((existing) => existing.id === t.id))] }));
+        return;
+      }
+      // Same transition, same gap — the other half of "every card belongs to exactly one topic":
+      // the cards that just got pointed at the topics above.
+      if (message.event === 'cards.topicAssigned') {
+        const { assignments } = message.payload as { assignments: { cardId: string; topicId: string }[] };
+        applyLocalPatch((b) => ({
+          ...b,
+          cards: b.cards.map((c) => {
+            const assignment = assignments.find((a) => a.cardId === c.id);
+            return assignment ? { ...c, topicId: assignment.topicId } : c;
+          }),
+        }));
+        return;
+      }
+      // onTransition.ts's vote->discuss effect, not the mutation pipeline — same gap as
+      // recording.sessionUpdated above, just for the topic ranking/queue-order/"now discussing"
+      // flag that transition writes instead of the recording session it also writes.
+      if (message.event === 'topics.ranked') {
+        const { topics } = message.payload as {
+          topics: { id: string; voteCount: number; discussionOrder: string; startedAt: string | null }[];
+        };
+        applyLocalPatch((b) => ({
+          ...b,
+          topics: b.topics.map((t) => {
+            const ranked = topics.find((r) => r.id === t.id);
+            return ranked ? { ...t, voteCount: ranked.voteCount, discussionOrder: ranked.discussionOrder, startedAt: ranked.startedAt } : t;
+          }),
+        }));
         return;
       }
       // RN-033: the audio gateway's own broadcast (routes/audioGateway.ts), not the mutation
@@ -3123,27 +3267,6 @@ function Board({
   const [transcriptionUnavailable, setTranscriptionUnavailable] = useState(false);
   const captureHandleRef = useRef<AudioCaptureHandle | null>(null);
 
-  function startCapture() {
-    setTranscriptionUnavailable(false);
-    // Dynamically imported so it's not part of the bundle every board visitor loads — only the
-    // facilitator, and only once they actually click this, ever needs it.
-    void import('./transcription/audioCapture')
-      .then(({ startAudioCapture }) =>
-        startAudioCapture(audioGatewayUrl(accessToken, retroId), {
-          onUnavailable: () => {
-            setTranscriptionUnavailable(true);
-            setCaptureActive(false);
-            captureHandleRef.current = null;
-          },
-        }),
-      )
-      .then((handle) => {
-        captureHandleRef.current = handle;
-        setCaptureActive(true);
-      })
-      .catch(() => setTranscriptionUnavailable(true));
-  }
-
   function stopCapture() {
     captureHandleRef.current?.stop();
     captureHandleRef.current = null;
@@ -3155,20 +3278,101 @@ function Board({
   // audio can't be: `getDisplayMedia` (the shared-tab-audio half of it) is one of the browser APIs
   // that flatly refuses to run without a direct user gesture, no exceptions, so it can never be
   // started from this effect reacting to a state change after the fact (found live: every
-  // attempt silently failed, with nothing ever reaching the audio gateway at all). `startCapture`
-  // is instead called synchronously from inside whichever click actually lands the facilitator on
-  // Discuss — the Discuss pill, "Next" from Vote, or Back landing there — see jumpToPhase/
-  // changePhase below. This effect only ever stops it, which has no such restriction.
+  // attempt silently failed, with nothing ever reaching the audio gateway at all). This effect
+  // only ever stops it, which has no such restriction.
   useEffect(() => {
     if (!captureAllowed && captureHandleRef.current) stopCapture();
   }, [captureAllowed]);
 
-  // The one piece of capture startup that's actually gesture-sensitive, pulled out so both
-  // jumpToPhase and changePhase can call it synchronously from inside their own click handlers —
-  // calling it from a .then()/useEffect instead loses the "direct user gesture" browsers require
-  // for getDisplayMedia, even if only a tick later.
-  function startCaptureIfLandingOnDiscuss(targetPhase: RetroPhase) {
-    if (isFacilitator && targetPhase === 'discuss' && !captureHandleRef.current) startCapture();
+  // The one piece of this that's actually gesture-sensitive (getUserMedia/getDisplayMedia) —
+  // pulled out so both jumpToPhase and changePhase can call it synchronously from inside their
+  // own click handlers, before anything is awaited. Deliberately does NOT open the gateway
+  // WebSocket itself (see finishStartingCapture below): acquiring the streams can resolve faster
+  // than the phase-change mutation's own round trip (no real human delay answering the share
+  // picker under e.g. a remembered permission), so a gateway connection opened right here could
+  // reach the server *before* the mutation's own vote->discuss transition effect has actually
+  // committed the new phase and recording session — found live: one connection attempt logged,
+  // zero errors anywhere, and "Transcription unavailable" shown anyway, because the gateway's own
+  // phase/recording-session gate silently rejected a connection that arrived about half a second
+  // too early. Returns the in-flight streams promise so the caller can open the gateway only
+  // after the mutation that triggered this has actually finished.
+  function startCaptureIfLandingOnDiscuss(targetPhase: RetroPhase): Promise<CaptureStreams> | null {
+    if (!isFacilitator || targetPhase !== 'discuss' || captureHandleRef.current) return null;
+    setTranscriptionUnavailable(false);
+    const streamsPromise = import('./transcription/audioCapture').then(({ acquireCaptureStreams }) => acquireCaptureStreams());
+    streamsPromise.catch((err) => {
+      // Was a bare no-op before — a rejected share picker (permission denied, a "Window" source
+      // with no audio track, cancelling the dialog) left zero trace anywhere, server or console,
+      // making this indistinguishable from any other failure downstream (found live).
+      console.error('[transcription] failed to acquire capture streams', err);
+      setTranscriptionUnavailable(true);
+    });
+    return streamsPromise;
+  }
+
+  // Opens the gateway with streams `startCaptureIfLandingOnDiscuss` already acquired — called
+  // only once the mutation that triggered capture has fully round-tripped. Checks the *current*
+  // board state (not a value closed over at click time) since that round trip is exactly the
+  // window another client's own action could have moved the phase somewhere else, or the
+  // mutation itself could have been rejected; either way, there's nothing to open the gateway
+  // for, and the streams the user just granted need to be released rather than left dangling.
+  // `phase.jumpTo`'s own `optimisticReduce` is a deliberate no-op (its own comment: "the server
+  // may replay several transitions ... nothing useful to guess optimistically") — board.phase and
+  // board.recordingSession only actually update later, via the retro:channel broadcast + its
+  // forced resync, which is NOT something the mutation's own promise waits on. Checking board
+  // state the instant that promise resolves (what this used to do) was racing that broadcast —
+  // acquiring streams can easily finish first under a fast network/already-granted permissions
+  // (found live: happened even for changePhase, whose own optimisticReduce sets board.phase
+  // immediately but never guesses recordingSession either way). This actually waits for the real
+  // condition, polling the live store instead of trusting a single stale snapshot.
+  function waitForCaptureAllowed(timeoutMs = 10_000): Promise<boolean> {
+    const isAllowed = (board: BoardState) =>
+      board.recordingSession?.status === 'recording' && (board.phase === 'discuss' || board.phase === 'wrap_up');
+    if (isAllowed(useBoardStore.getState().board)) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        unsubscribe();
+        resolve(false);
+      }, timeoutMs);
+      const unsubscribe = useBoardStore.subscribe((state) => {
+        if (!isAllowed(state.board)) return;
+        clearTimeout(timeout);
+        unsubscribe();
+        resolve(true);
+      });
+    });
+  }
+
+  function finishStartingCapture(streamsPromise: Promise<CaptureStreams>) {
+    void streamsPromise.then(async (streams) => {
+      const stillAllowed = await waitForCaptureAllowed();
+      if (!stillAllowed || captureHandleRef.current) {
+        void import('./transcription/audioCapture').then(({ releaseCaptureStreams }) => releaseCaptureStreams(streams));
+        if (!stillAllowed) {
+          console.error('[transcription] gave up waiting for captureAllowed to become true');
+          setTranscriptionUnavailable(true);
+        }
+        return;
+      }
+      void import('./transcription/audioCapture')
+        .then(({ openCaptureGateway }) =>
+          openCaptureGateway(streams, audioGatewayUrl(accessToken, retroId), {
+            onUnavailable: () => {
+              setTranscriptionUnavailable(true);
+              setCaptureActive(false);
+              captureHandleRef.current = null;
+            },
+          }),
+        )
+        .then((handle) => {
+          captureHandleRef.current = handle;
+          setCaptureActive(true);
+        })
+        .catch((err) => {
+          console.error('[transcription] failed to open the audio gateway', err);
+          setTranscriptionUnavailable(true);
+        });
+    });
   }
 
   // RN-035: on-device speech detection — any participant, not just the facilitator. Starts
@@ -3298,10 +3502,10 @@ function Board({
     const target = direction === 'skip' ? nextPhase(board.phase) : previousPhase(board.phase);
     if (!target) return;
     // Must happen synchronously, inside this click handler — see startCaptureIfLandingOnDiscuss's
-    // own comment. The mutation itself (below) is sent either way regardless of capture's outcome.
-    startCaptureIfLandingOnDiscuss(target);
+    // own comment. The gateway itself only opens once the mutation below has actually finished.
+    const pendingStreams = startCaptureIfLandingOnDiscuss(target);
     const mutationId = uuidv7();
-    void sendMutation({
+    const result = sendMutation({
       mutationId,
       // The deadline here is an estimate — the real, server-computed one (from setPhase) arrives
       // moments later via the broadcast and replaces it; a countdown briefly off by network
@@ -3313,6 +3517,8 @@ function Board({
       },
       send: () => postMutation(accessToken, retroId, { mutationId, type, payload: {} }),
     });
+    if (pendingStreams) void result.then(() => finishStartingCapture(pendingStreams));
+    else void result;
   }
 
   // Clicking any phase pill, or the Back button (now just a jump to the one before current) —
@@ -3320,13 +3526,15 @@ function Board({
   // there, so there's nothing useful to guess optimistically; the channel handler forces a full
   // resync once the real result arrives instead (every connected client, not just this one).
   function jumpToPhase(targetPhase: RetroPhase) {
-    startCaptureIfLandingOnDiscuss(targetPhase);
+    const pendingStreams = startCaptureIfLandingOnDiscuss(targetPhase);
     const mutationId = uuidv7();
-    void sendMutation({
+    const result = sendMutation({
       mutationId,
       optimisticReduce: (b) => b,
       send: () => postMutation(accessToken, retroId, { mutationId, type: 'phase.jumpTo', payload: { targetPhase } }),
     });
+    if (pendingStreams) void result.then(() => finishStartingCapture(pendingStreams));
+    else void result;
   }
 
   function extendPhase(minutes: 1 | 2 | 5) {
@@ -3360,6 +3568,31 @@ function Board({
     setCloseDialogOpen(false);
   }
 
+  // RN-006: "Share link" button, header, top right — copies the join URL. The server only ever
+  // stores the join code's hash (never the plaintext), so a cached code from creation time
+  // (joinLinkStorage.ts) is reused whenever one exists; only the first time this browser ever
+  // needs a link for this retro (no cache — a reload in a fresh browser, or localStorage cleared)
+  // does this actually call regenerate, which invalidates whatever code existed before it.
+  async function copyShareLink() {
+    if (shareLinkPending) return;
+    let joinCode = getCachedJoinCode(retroId);
+    if (!joinCode) {
+      setShareLinkPending(true);
+      try {
+        const result = await regenerateJoinLink(accessToken, retroId);
+        joinCode = result.joinCode;
+        setCachedJoinCode(retroId, joinCode);
+      } catch {
+        setShareLinkPending(false);
+        return;
+      }
+      setShareLinkPending(false);
+    }
+    await navigator.clipboard.writeText(`${window.location.origin}/join/${joinCode}`);
+    setShareLinkCopied(true);
+    setTimeout(() => setShareLinkCopied(false), 2000);
+  }
+
   // Header pill bar (RN-010): clicking any pill jumps straight there (phase.jumpTo), facilitator
   // only — the current phase's own pill is inert (nothing to jump to).
   const PHASE_PILLS: RetroPhase[] = ['review', 'write', 'group', 'vote', 'discuss', 'wrap_up'];
@@ -3368,52 +3601,106 @@ function Board({
   return (
     <Box sx={{ fontFamily: 'system-ui, sans-serif', p: 4 }}>
       <style>{'@keyframes rn-timer-flash { 0%, 100% { background: #c00; color: #fff; } 50% { background: #fff; color: #c00; } }'}</style>
-      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 0.5 }}>
-        {/* Always reachable, any phase, including closed — a plain anchor (no router in this
-            app; see main.tsx) rather than a client-side navigation call. */}
-        <IconButton component="a" href="/" size="small" aria-label="Home" sx={{ ml: -1 }}>
-          <HomeIcon fontSize="small" />
-        </IconButton>
-        <Typography variant="h4">{initialBoard.retro.name}</Typography>
-        {/* RN-045: the recap only exists once the retro is actually closed (routes/recap.ts
-            404s otherwise) — no point linking to it before then. */}
-        {board.phase === 'closed' && (
-          <Button size="small" type="button" component="a" href={`/r/${retroId}/recap`}>
-            View recap
-          </Button>
-        )}
-        <Box sx={{ flexGrow: 1 }} />
-        <OnlineAvatarStack members={onlineMembers} />
-      </Stack>
+      {/* Three-section grid (not one flex row) so the pill bar sits dead-center on the header
+          regardless of how wide the name on the left or the timer/recording/recap/avatars
+          cluster on the right end up being — a flex row can only put it "next to" its
+          neighbors, never centered independent of their width. */}
+      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', gap: 1, mb: 0.5 }}>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+          {/* Always reachable, any phase, including closed — a plain anchor (no router in this
+              app; see main.tsx) rather than a client-side navigation call. */}
+          <IconButton component="a" href="/" size="small" aria-label="Home" sx={{ ml: -1 }}>
+            <HomeIcon fontSize="small" />
+          </IconButton>
+          <Typography sx={{ fontSize: 20, fontWeight: 600, color: '#111827' }}>{initialBoard.retro.name}</Typography>
+        </Stack>
+
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+          <Box sx={{ bgcolor: '#f3f4f6', borderRadius: 999, p: '4px', display: 'flex', gap: '2px' }}>
+            {PHASE_PILLS.map((phase, index) => (
+              <Box
+                key={phase}
+                component={isFacilitator && phase !== board.phase ? 'button' : 'span'}
+                type={isFacilitator && phase !== board.phase ? 'button' : undefined}
+                onClick={isFacilitator && phase !== board.phase ? () => jumpToPhase(phase) : undefined}
+                sx={{
+                  border: 0,
+                  font: 'inherit',
+                  cursor: isFacilitator && phase !== board.phase ? 'pointer' : 'default',
+                  bgcolor: phase === board.phase ? '#111827' : 'transparent',
+                  color: phase === board.phase ? '#fff' : index < currentPillIndex ? '#6b7280' : '#9ca3af',
+                  borderRadius: 999,
+                  px: 1.5,
+                  py: 0.75,
+                  fontSize: 13,
+                  fontWeight: 500,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {phase.replace('_', ' ')}
+              </Box>
+            ))}
+          </Box>
+          <PhaseTimer phaseDeadline={board.phaseDeadline} clockOffsetMs={clockOffsetMs} />
+          {/* Lives next to the countdown it extends, not down with the rest of the facilitator's
+              phase controls — found live: easy to miss down there right when the timer's
+              actually running low, which is the one moment this button matters. */}
+          {isFacilitator && board.phaseDeadline && (
+            <Stack direction="row" spacing={0.5}>
+              {[1, 2, 5].map((minutes) => (
+                <Button size="small" key={minutes} type="button" onClick={() => extendPhase(minutes as 1 | 2 | 5)}>
+                  +{minutes}
+                </Button>
+              ))}
+            </Stack>
+          )}
+        </Stack>
+
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'flex-end' }}>
+          {/* RN-032 AC: "The Recording badge shows on every browser while recording and
+              disappears when stopped" — specifically `recording`, not `pending`/`paused` (nothing
+              is actually being captured yet in either of those states). */}
+          {board.recordingSession?.status === 'recording' && (
+            <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', bgcolor: '#fee2e2', borderRadius: 999, px: 1.5, py: 0.75 }}>
+              <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#dc2626' }} />
+              <Typography sx={{ fontSize: 13, fontWeight: 500, color: '#b91c1c' }}>Recording</Typography>
+            </Stack>
+          )}
+          {/* RN-045: the recap only exists once the retro is actually closed (routes/recap.ts
+              404s otherwise) — no point linking to it before then. */}
+          {board.phase === 'closed' && (
+            <Button size="small" type="button" component="a" href={`/r/${retroId}/recap`}>
+              View recap
+            </Button>
+          )}
+          <OnlineAvatarStack members={onlineMembers} />
+          {/* RN-006: "Share link" button, header, top right. Facilitator-only (only they can
+              regenerate/manage the join link server-side — can()'s own 'retro.manageJoinLink');
+              gone once closed, since the link itself stops working the moment the retro does
+              (the story's own AC: "after close, the link returns 'This retro has ended'"). */}
+          {isFacilitator && board.phase !== 'closed' && (
+            <Button
+              size="small"
+              variant="outlined"
+              type="button"
+              startIcon={<ContentCopyIcon fontSize="small" />}
+              onClick={() => void copyShareLink()}
+              disabled={shareLinkPending}
+            >
+              {shareLinkCopied ? 'Copied!' : 'Share link'}
+            </Button>
+          )}
+        </Stack>
+      </Box>
       {isReconnecting && (
         <Typography role="status" variant="caption" component="p" sx={{ color: '#a66a00', mb: 0.5 }}>
           Reconnecting…
         </Typography>
       )}
-      <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', mb: 0.5 }}>
-        {PHASE_PILLS.map((phase, index) => (
-          <Chip
-            key={phase}
-            size="small"
-            label={phase.replace('_', ' ')}
-            onClick={isFacilitator && phase !== board.phase ? () => jumpToPhase(phase) : undefined}
-            sx={{
-              bgcolor: phase === board.phase ? '#222' : 'grey.200',
-              color: phase === board.phase ? '#fff' : index < currentPillIndex ? '#aaa' : '#888',
-            }}
-          />
-        ))}
-        <PhaseTimer phaseDeadline={board.phaseDeadline} clockOffsetMs={clockOffsetMs} />
-        {/* RN-032 AC: "The Recording badge shows on every browser while recording and
-            disappears when stopped" — specifically `recording`, not `pending`/`paused` (nothing
-            is actually being captured yet in either of those states). */}
-        {board.recordingSession?.status === 'recording' && (
-          <Chip size="small" color="error" label="Recording" sx={{ fontWeight: 'bold' }} />
-        )}
-      </Stack>
-      <Typography color="text.secondary" sx={{ mb: 1 }}>
-        {phaseSubtitle(board.phase)}
-      </Typography>
+      {/* <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 0.5 }}> */}
+
+      {/* </Stack> */}
+      <Typography sx={{ fontSize: 13, color: '#6b7280', mb: 1 }}>{phaseSubtitle(board.phase)}</Typography>
       {board.phase === 'vote' && (
         <Typography variant="body2" sx={{ mb: 1 }}>
           {votesRemaining} vote{votesRemaining === 1 ? '' : 's'} remaining
@@ -3444,12 +3731,6 @@ function Board({
               </Button>
             )
           )}
-          {board.phaseDeadline &&
-            [1, 2, 5].map((minutes) => (
-              <Button size="small" key={minutes} type="button" onClick={() => extendPhase(minutes as 1 | 2 | 5)}>
-                +{minutes}
-              </Button>
-            ))}
           {board.phase === 'write' && !board.cardsRevealed && (
             <Button size="small" type="button" onClick={revealCards}>
               Reveal cards
@@ -3473,13 +3754,23 @@ function Board({
             </Button>
           )}
           {board.phase !== 'closed' && captureAllowed && !captureActive && transcriptionUnavailable && (
-            <Button size="small" type="button" onClick={startCapture}>
+            <Button
+              size="small"
+              type="button"
+              onClick={() => {
+                // No phase transition in flight here — captureAllowed is already true, so there's
+                // no mutation round trip to wait for the way jumpToPhase/changePhase's own capture
+                // kickoff has to; acquiring and opening can happen back to back.
+                const pendingStreams = startCaptureIfLandingOnDiscuss('discuss');
+                if (pendingStreams) finishStartingCapture(pendingStreams);
+              }}
+            >
               Retry transcription
             </Button>
           )}
         </Stack>
       )}
-      {transcriptionUnavailable && (
+      {captureAllowed && transcriptionUnavailable && (
         <Alert severity="warning" sx={{ mb: 2 }}>
           Transcription unavailable. The retro continues on cards and notes.
         </Alert>
@@ -3562,15 +3853,14 @@ function Board({
               .sort((a, b) => a.position - b.position)
               .map((column) => {
                 const canEdit = canEditColumn(column.kind);
+                const palette = columnPalette(column.color);
                 // RN-022: action_items has no column_id FK at all (unlike cards) — it renders
                 // `board.actionItems` directly instead of anything filtered from `board.cards`.
                 if (column.kind === 'action_items') {
                   const items = [...board.actionItems].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
                   return (
                     <DroppableColumn key={column.id} column={column}>
-                      <Typography variant="subtitle1" sx={{ mb: 0.5 }}>
-                        {column.title} <Typography component="span" sx={{ fontWeight: 'normal', color: 'text.secondary' }}>({items.length})</Typography>
-                      </Typography>
+                      <ColumnHeader title={column.title} count={items.length} accent={palette.accent} />
                       {column.prompt && (
                         <Typography variant="caption" color="text.secondary" component="p" sx={{ mb: 1 }}>
                           {column.prompt}
@@ -3640,9 +3930,7 @@ function Board({
                 }
                 return (
                   <DroppableColumn key={column.id} column={column}>
-                    <Typography variant="subtitle1" sx={{ mb: 0.5 }}>
-                      {column.title} <Typography component="span" sx={{ fontWeight: 'normal', color: 'text.secondary' }}>({cards.length})</Typography>
-                    </Typography>
+                    <ColumnHeader title={column.title} count={cards.length} accent={palette.accent} />
                     {column.prompt && (
                       <Typography variant="caption" color="text.secondary" component="p" sx={{ mb: 1 }}>
                         {column.prompt}
@@ -3652,11 +3940,12 @@ function Board({
                       {displayRows.map((row) =>
                         row.kind === 'card' ? (
                           row.card.hidden ? (
-                            <HiddenCardPlaceholder key={row.card.id} columnColor={column.color} />
+                            <HiddenCardPlaceholder key={row.card.id} columnColor={palette.accent} />
                           ) : (
                             <SortableCardView
                               key={row.card.id}
                               card={row.card}
+                              cardColor={palette.card}
                               canDrag={canDragCard(row.card, column.kind)}
                               canEdit={canEdit && row.card.authorId === userId}
                               onEdit={(body) => editCard(row.card.id, body)}
@@ -3732,9 +4021,10 @@ function Board({
           </Stack>
           <DragOverlay>
             {activeCard && (
-              <Box sx={{ transform: 'rotate(2deg)', boxShadow: 3 }}>
+              <Box sx={{ transform: 'rotate(2deg)', filter: 'drop-shadow(0px 18px 14px rgba(0,0,0,0.24))' }}>
                 <CardView
                   card={activeCard}
+                  cardColor={columnPalette(board.columns.find((c) => c.id === activeCard.columnId)?.color ?? 'green').card}
                   canEdit={false}
                   onEdit={() => {}}
                   onDelete={() => {}}
@@ -3789,9 +4079,7 @@ function Board({
         )}
       </Stack>
       {footerHint(board.phase) && (
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 3 }}>
-          {footerHint(board.phase)}
-        </Typography>
+        <Typography sx={{ fontSize: 13, color: '#9ca3af', textAlign: 'center', mt: 3 }}>{footerHint(board.phase)}</Typography>
       )}
       {closeDialogOpen && (
         <CloseRetroDialog

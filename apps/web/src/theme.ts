@@ -10,7 +10,7 @@ export const theme = createTheme({
   palette: {
     primary: { main: '#2563eb' },
     secondary: { main: '#f59e0b' },
-    background: { default: '#f8fafc' },
+    background: { default: 'white' },
   },
   shape: { borderRadius: 8 },
   typography: {
