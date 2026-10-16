@@ -39,6 +39,8 @@ describe('GET /teams/:teamId/templates', () => {
         source: 'builtin',
         name: 'Start / Stop / Continue',
         columns: [{ title: 'Start', prompt: 'p', color: 'green' }],
+        description: 'A description',
+        image_url: '/templates/start-stop-continue.svg',
       },
     ];
     const supabaseAdmin = {

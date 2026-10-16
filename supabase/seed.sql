@@ -53,7 +53,8 @@ insert into public.team_members (team_id, user_id, role) values (
 
 -- Built-in templates. Column colors cycle green, pink, yellow, purple in template order; the
 -- code appends a blue Action items column at retro start (RN-007) — never stored here.
-insert into public.templates (id, team_id, source, name, columns) values
+-- description/image_url back the picker card (name + image + description, 2026-10-16 addition).
+insert into public.templates (id, team_id, source, name, columns, description, image_url) values
   (
     '00000000-0000-4000-8000-0000000000e1',
     null,
@@ -63,7 +64,9 @@ insert into public.templates (id, team_id, source, name, columns) values
       {"title": "Start", "prompt": "What should we start doing?", "color": "green"},
       {"title": "Stop", "prompt": "What should we stop doing?", "color": "pink"},
       {"title": "Continue", "prompt": "What should we keep doing?", "color": "yellow"}
-    ]'::jsonb
+    ]'::jsonb,
+    'Three columns for deciding what the team should start doing, stop doing, and keep doing.',
+    '/templates/start-stop-continue.png'
   ),
   (
     '00000000-0000-4000-8000-0000000000e2',
@@ -74,7 +77,9 @@ insert into public.templates (id, team_id, source, name, columns) values
       {"title": "Mad", "prompt": "What frustrated you?", "color": "green"},
       {"title": "Sad", "prompt": "What disappointed you?", "color": "pink"},
       {"title": "Glad", "prompt": "What made you happy?", "color": "yellow"}
-    ]'::jsonb
+    ]'::jsonb,
+    'Surface how the team felt this sprint: what frustrated, disappointed, and delighted them.',
+    '/templates/mad-sad-glad.png'
   ),
   (
     '00000000-0000-4000-8000-0000000000e3',
@@ -86,7 +91,9 @@ insert into public.templates (id, team_id, source, name, columns) values
       {"title": "Learned", "prompt": "What did you learn?", "color": "pink"},
       {"title": "Lacked", "prompt": "What was missing?", "color": "yellow"},
       {"title": "Longed for", "prompt": "What did you wish for?", "color": "purple"}
-    ]'::jsonb
+    ]'::jsonb,
+    'Reflect on what the team liked, learned, lacked, and longed for.',
+    '/templates/4ls.png'
   ),
   (
     '00000000-0000-4000-8000-0000000000e4',
@@ -98,5 +105,7 @@ insert into public.templates (id, team_id, source, name, columns) values
       {"title": "Anchor", "prompt": "What is holding us back?", "color": "pink"},
       {"title": "Rocks", "prompt": "What risks are ahead?", "color": "yellow"},
       {"title": "Island", "prompt": "What is our goal?", "color": "purple"}
-    ]'::jsonb
+    ]'::jsonb,
+    'A metaphor for the team journey: what is pushing you forward, holding you back, the risks ahead, and the destination.',
+    '/templates/sailboat.png'
   );

@@ -96,6 +96,8 @@ export interface Database {
           source: string;
           name: string;
           columns: Json;
+          description: string | null;
+          image_url: string | null;
           created_at: string;
         };
         Insert: {
@@ -104,6 +106,8 @@ export interface Database {
           source?: string;
           name: string;
           columns: Json;
+          description?: string | null;
+          image_url?: string | null;
           created_at?: string;
         };
         Update: {
@@ -112,6 +116,8 @@ export interface Database {
           source?: string;
           name?: string;
           columns?: Json;
+          description?: string | null;
+          image_url?: string | null;
           created_at?: string;
         };
         Relationships: [];

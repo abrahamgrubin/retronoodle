@@ -13,6 +13,8 @@ describe('fetchTeamTemplates', () => {
             name: 'Start / Stop / Continue',
             source: 'builtin',
             columns: [{ title: 'Start', prompt: 'p', color: 'green' }],
+            description: 'A description',
+            imageUrl: '/templates/start-stop-continue.svg',
           },
         ]),
       );

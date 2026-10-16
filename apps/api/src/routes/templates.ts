@@ -42,6 +42,8 @@ export function registerTemplateRoutes(app: FastifyInstance, deps: TemplateRoute
           name: template.name,
           source: template.source,
           columns: template.columns,
+          description: template.description,
+          imageUrl: template.image_url,
         }),
       );
     },
