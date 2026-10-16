@@ -141,8 +141,9 @@ export async function processMutation(deps: {
 
       let applyResult: unknown;
       let seq: number;
+      const sideEffects: { type: string; payload: unknown }[] = [];
       try {
-        applyResult = await def.apply({ client, retro, user, payload, jobs });
+        applyResult = await def.apply({ client, retro, user, payload, jobs, sideEffects });
 
         const storedPayload: StoredEventPayload = { payload, result: applyResult };
         const insertResult = await client.query<{ seq: number }>(
@@ -198,6 +199,14 @@ export async function processMutation(deps: {
         await realtimeBus.broadcastUser(user.id, { type: envelope.type, payload: { seq, result: applyResult } });
       } else {
         await realtimeBus.broadcastRetro(retroId, { type: envelope.type, payload: { seq, result: applyResult } });
+      }
+
+      // Unlike the mutation's own result above, these have no seq of their own and aren't gated
+      // on one client-side (registry.ts's own comment on MutationContext.sideEffects) — e.g.
+      // onTransition.ts's auto-start-recording effect, so every client learns about it reliably
+      // regardless of how a concurrent resync's seq-staleness check would have treated it.
+      for (const sideEffect of sideEffects) {
+        await realtimeBus.broadcastRetro(retroId, sideEffect);
       }
 
       return { seq, result: applyResult };

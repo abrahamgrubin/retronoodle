@@ -21,7 +21,7 @@ const JUMPABLE_PHASES = new Set<RetroPhase>(['review', 'write', 'group', 'vote',
  */
 export const phaseJumpToMutation: MutationTypeDef<PhaseJumpPayload> = {
   schema: PhaseJumpPayload,
-  async apply({ client, retro, user, payload, jobs }) {
+  async apply({ client, retro, user, payload, jobs, sideEffects }) {
     if (!can(user, 'retro.transitionPhase', { type: 'retro', teamRole: null, facilitatorId: retro.facilitator_id })) {
       throw new MutationRejected(403, 'forbidden', 'Only the facilitator may change the phase');
     }
@@ -42,7 +42,7 @@ export const phaseJumpToMutation: MutationTypeDef<PhaseJumpPayload> = {
     let current = from;
     for (let i = fromIndex + step; ; i += step) {
       const next = PHASE_ORDER[i]!;
-      await runTransitionEffect(client, retro, current, next, jobs);
+      await runTransitionEffect(client, retro, current, next, jobs, sideEffects);
       current = next;
       if (current === target) break;
     }

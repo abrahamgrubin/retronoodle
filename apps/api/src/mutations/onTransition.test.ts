@@ -21,34 +21,55 @@ describe('runTransitionEffect', () => {
   });
 
   describe('group->vote (RN-015: "every card belongs to exactly one topic" by Vote)', () => {
+    const card1Id = '00000000-0000-4000-8000-000000000101';
+    const card2Id = '00000000-0000-4000-8000-000000000102';
+    const colId = '00000000-0000-4000-8000-000000000201';
+    const topic1Id = '00000000-0000-4000-8000-000000000301';
+    const topic2Id = '00000000-0000-4000-8000-000000000302';
+
     it('turns every still-ungrouped card into its own single-card topic, and touches nothing already grouped', async () => {
       const query = vi.fn();
       query.mockResolvedValueOnce({
         rows: [
-          { id: 'card-1', column_id: 'col-1', body: 'Solo thought' },
-          { id: 'card-2', column_id: 'col-1', body: 'Another solo one' },
+          { id: card1Id, column_id: colId, body: 'Solo thought' },
+          { id: card2Id, column_id: colId, body: 'Another solo one' },
         ],
       }); // select ... where topic_id is null
-      query.mockResolvedValueOnce({ rows: [] }); // card-1's insert+update CTE
-      query.mockResolvedValueOnce({ rows: [] }); // card-2's insert+update CTE
+      query.mockResolvedValueOnce({ rows: [{ id: topic1Id }] }); // card-1's insert into topics
+      query.mockResolvedValueOnce({ rows: [] }); // card-1's update cards
+      query.mockResolvedValueOnce({ rows: [{ id: topic2Id }] }); // card-2's insert into topics
+      query.mockResolvedValueOnce({ rows: [] }); // card-2's update cards
       query.mockResolvedValueOnce({ rows: [] }); // RN-017: discard pending suggestions
 
-      await runTransitionEffect({ query } as unknown as PoolClient, retro, 'group', 'vote');
+      const sideEffects: { type: string; payload: unknown }[] = [];
+      await runTransitionEffect({ query } as unknown as PoolClient, retro, 'group', 'vote', undefined, sideEffects);
 
-      expect(query).toHaveBeenCalledTimes(4);
+      expect(query).toHaveBeenCalledTimes(6);
       const lookupCall = query.mock.calls[0] as unknown[];
       expect(lookupCall[0]).toContain('topic_id is null');
       expect(lookupCall[1]).toEqual([retro.id]);
 
-      const card1Call = query.mock.calls[1] as unknown[];
-      expect(card1Call[0]).toContain('insert into topics');
-      expect(card1Call[1]).toEqual([retro.id, 'col-1', 'Solo thought', 'card-1']);
+      const insertCall = query.mock.calls[1] as unknown[];
+      expect(insertCall[0]).toContain('insert into topics');
+      expect(insertCall[1]).toEqual([retro.id, colId, 'Solo thought']);
+      const updateCall = query.mock.calls[2] as unknown[];
+      expect(updateCall[0]).toContain('update cards');
+      expect(updateCall[1]).toEqual([topic1Id, card1Id]);
+
+      expect(sideEffects).toEqual([
+        { type: 'topics.created', payload: { topics: [expect.objectContaining({ id: topic1Id }), expect.objectContaining({ id: topic2Id })] } },
+        {
+          type: 'cards.topicAssigned',
+          payload: { assignments: [{ cardId: card1Id, topicId: topic1Id }, { cardId: card2Id, topicId: topic2Id }] },
+        },
+      ]);
     });
 
     it('truncates a long card body into the default topic name', async () => {
       const query = vi.fn();
       const longBody = 'x'.repeat(80);
-      query.mockResolvedValueOnce({ rows: [{ id: 'card-1', column_id: 'col-1', body: longBody }] });
+      query.mockResolvedValueOnce({ rows: [{ id: card1Id, column_id: colId, body: longBody }] });
+      query.mockResolvedValueOnce({ rows: [{ id: topic1Id }] });
       query.mockResolvedValueOnce({ rows: [] });
       query.mockResolvedValueOnce({ rows: [] }); // RN-017: discard pending suggestions
 
@@ -250,7 +271,7 @@ describe('runTransitionEffect', () => {
           return Promise.resolve({ rows: onlineUserIds.map((user_id) => ({ user_id })) });
         }
         if (sql.includes('insert into recording_sessions')) {
-          return Promise.resolve({ rows: [{ id: 'session-1' }] });
+          return Promise.resolve({ rows: [{ id: '00000000-0000-4000-8000-000000000099' }] });
         }
         return Promise.resolve({ rows: [] });
       });
@@ -268,7 +289,7 @@ describe('runTransitionEffect', () => {
     });
 
     it('stays pending and seeds one consent row per online participant', async () => {
-      const client = fakeClient({ onlineUserIds: ['user-a', 'user-b'] });
+      const client = fakeClient({ onlineUserIds: ['00000000-0000-4000-8000-000000000011', '00000000-0000-4000-8000-000000000012'] });
       await runTransitionEffect(client as unknown as PoolClient, retro, 'wrap_up', 'discuss');
 
       const insertCall = client.query.mock.calls.find((c) => (c[0] as string).includes('insert into recording_sessions'));
@@ -280,7 +301,7 @@ describe('runTransitionEffect', () => {
     });
 
     it('starts recording immediately when the team is facilitator-only, regardless of who else is online', async () => {
-      const client = fakeClient({ facilitatorOnly: true, onlineUserIds: ['user-a'] });
+      const client = fakeClient({ facilitatorOnly: true, onlineUserIds: ['00000000-0000-4000-8000-000000000011'] });
       await runTransitionEffect(client as unknown as PoolClient, retro, 'wrap_up', 'discuss');
 
       const insertCall = client.query.mock.calls.find((c) => (c[0] as string).includes('insert into recording_sessions'));
