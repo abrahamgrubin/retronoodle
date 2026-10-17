@@ -218,13 +218,14 @@ function AddActionItemForm({
  * skipped (no backing table: action_items has no equivalent of card_reactions, and the AC list
  * never asks for them). No avatar image infra exists yet either (same gap HiddenCardPlaceholder's
  * own comment already notes), so this shows the owner's name instead. */
-// RN-025: labels for the Review quick actions — 'carried' is "Keep open" as a button, the same
-// outcome value the review->write sweep stamps on anything left unmarked (onTransition.ts).
+// RN-025: labels for the Review outcome dropdown — 'carried' is "Not started", the same
+// outcome value the review->write sweep stamps on anything left unmarked (onTransition.ts), so
+// an item with no explicit choice yet shows that as its selected value rather than nothing.
 const REVIEW_OUTCOME_LABEL: Record<ActionItemReviewOutcome, string> = {
   done: 'Done',
   in_progress: 'In progress',
   dropped: 'Drop',
-  carried: 'Keep open',
+  carried: 'Not started',
 };
 const REVIEW_OUTCOMES: ActionItemReviewOutcome[] = ['done', 'in_progress', 'dropped', 'carried'];
 
@@ -285,23 +286,20 @@ function ActionItemRow({
         </Typography>
       )}
       {isCarriedOver && (
-        <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', mt: 0.75 }}>
+        <Select
+          size="small"
+          variant="standard"
+          aria-label={`Review outcome for ${item.title}`}
+          value={reviewOutcome ?? 'carried'}
+          onChange={(e) => onReview(e.target.value as ActionItemReviewOutcome)}
+          sx={{ mt: 0.75, fontSize: 11 }}
+        >
           {REVIEW_OUTCOMES.map((outcome) => (
-            <Button
-              key={outcome}
-              size="small"
-              type="button"
-              onClick={() => onReview(outcome)}
-              sx={{
-                fontSize: 11,
-                fontWeight: reviewOutcome === outcome ? 'bold' : 'normal',
-                textDecoration: reviewOutcome === outcome ? 'underline' : undefined,
-              }}
-            >
+            <MenuItem key={outcome} value={outcome} sx={{ fontSize: 11 }}>
               {REVIEW_OUTCOME_LABEL[outcome]}
-            </Button>
+            </MenuItem>
           ))}
-        </Stack>
+        </Select>
       )}
     </Box>
   );
