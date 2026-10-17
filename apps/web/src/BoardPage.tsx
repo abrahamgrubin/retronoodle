@@ -2398,6 +2398,14 @@ function Board({
   // anywhere, just a brief acknowledgment that resets itself a moment after each click.
   const [shareLinkCopied, setShareLinkCopied] = useState(false);
   const [shareLinkPending, setShareLinkPending] = useState(false);
+  // Bug found live: changePhase('skip') computes its target as "one past whatever phase.phase
+  // currently is" and sends a brand-new mutationId every call — unlike phase.jumpTo, which names
+  // an explicit target and is rejected server-side if already there, two rapid Next clicks (no
+  // visual feedback in between — optimisticReduce updates board.phase, but not fast enough to
+  // beat a second click) are each individually legal and serialize into two real, separate
+  // advances: Write->Group, then Group->Vote, from one intended click. Disabling Next/Back while
+  // one is still in flight is what actually closes this, not just a cosmetic debounce.
+  const [phaseChangePending, setPhaseChangePending] = useState(false);
   // The Action items column follows the matrix's separate "Create or edit action items" row
   // (Review/Discuss/Wrap up), not "Add, edit, delete own card" (Write/Group) — matching the
   // server-side check in cardCreate/cardEdit/cardDelete's apply().
@@ -3572,9 +3580,13 @@ function Board({
   }
 
   function changePhase(direction: 'skip' | 'back') {
+    // See phaseChangePending's own declaration above for why this guard exists — ignored (not
+    // queued) since the one in flight already targets whatever the next click would also compute.
+    if (phaseChangePending) return;
     const type = direction === 'skip' ? 'phase.skip' : 'phase.back';
     const target = direction === 'skip' ? nextPhase(board.phase) : previousPhase(board.phase);
     if (!target) return;
+    setPhaseChangePending(true);
     // Must happen synchronously, inside this click handler — see startCaptureIfLandingOnDiscuss's
     // own comment. The gateway itself only opens once the mutation below has actually finished.
     const pendingStreams = startCaptureIfLandingOnDiscuss(target);
@@ -3591,6 +3603,7 @@ function Board({
       },
       send: () => postMutation(accessToken, retroId, { mutationId, type, payload: {} }),
     });
+    void result.then(() => setPhaseChangePending(false));
     if (pendingStreams) void result.then(() => finishStartingCapture(pendingStreams));
     else void result;
   }
@@ -3806,7 +3819,7 @@ function Board({
             </Button>
           ) : (
             nextPhase(board.phase) && (
-              <Button size="small" type="button" onClick={() => changePhase('skip')}>
+              <Button size="small" type="button" onClick={() => changePhase('skip')} disabled={phaseChangePending}>
                 Next
               </Button>
             )
