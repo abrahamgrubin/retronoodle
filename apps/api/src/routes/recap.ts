@@ -73,7 +73,7 @@ export function registerRecapRoutes(app: FastifyInstance, deps: RecapRoutesDeps)
     }
 
     if (recapRow.status !== 'ready') {
-      return reply.send(RecapResponse.parse({ retroName: retro.name, isFacilitator, status: recapRow.status, recap: null }));
+      return reply.send(RecapResponse.parse({ teamId: retro.team_id, retroName: retro.name, isFacilitator, status: recapRow.status, recap: null }));
     }
 
     const [actionItemsResult, undiscussedResult, participantsResult] = await Promise.all([
@@ -120,6 +120,6 @@ export function registerRecapRoutes(app: FastifyInstance, deps: RecapRoutesDeps)
       generatedAt: recapRow.generated_at,
     });
 
-    return reply.send(RecapResponse.parse({ retroName: retro.name, isFacilitator, status: 'ready', recap }));
+    return reply.send(RecapResponse.parse({ teamId: retro.team_id, retroName: retro.name, isFacilitator, status: 'ready', recap }));
   });
 }

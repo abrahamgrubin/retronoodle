@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, CircularProgress, Link, Stack, Typography } from '@mui/material';
 import { AppShell } from './AppShell';
 import { signInWithGoogle } from './auth';
+import { NavDrawerContent } from './NavDrawer';
 import { supabase } from './supabaseClient';
 import { JoinError, joinRetro } from './retros';
 import { useSession } from './useSession';
@@ -60,7 +61,7 @@ export function JoinPage({ code }: { code: string }) {
   }
 
   return (
-    <AppShell>
+    <AppShell drawer={(collapsed) => <NavDrawerContent teamId={join.data.teamId} collapsed={collapsed} />}>
       <Typography>
         Joined <strong>{join.data.name}</strong>.{' '}
         <Link href={`/retros/${join.data.retroId}`}>Go to the board</Link>

@@ -22,6 +22,7 @@ import {
 } from '@mui/material';
 import { AppShell } from './AppShell';
 import { fetchMe } from './auth';
+import { NavDrawerContent } from './NavDrawer';
 import { fetchActionItemHistory, fetchTeamActions, postActionItemStatus } from './teamActions';
 import { useSession } from './useSession';
 
@@ -190,15 +191,13 @@ export function ActionsPage({ teamId }: { teamId: string }) {
     setSourceRetroFilter('');
   }
 
-  const nav = (
-    <Typography variant="body2">
-      <Link href={`/teams/${teamId}/retros`}>Retros</Link> · <strong>Action items</strong>
-    </Typography>
-  );
+  // The drawer (left-side, every page) covers this same Retros/Action items navigation now —
+  // nothing left for a page-specific `nav` to add.
+  const drawer = (collapsed: boolean) => <NavDrawerContent teamId={teamId} collapsed={collapsed} />;
 
   if (!accessToken) {
     return (
-      <AppShell nav={nav}>
+      <AppShell drawer={drawer}>
         <Typography>Sign in to see this team's action items.</Typography>
       </AppShell>
     );
@@ -206,7 +205,7 @@ export function ActionsPage({ teamId }: { teamId: string }) {
 
   if (actions.isPending || me.isPending) {
     return (
-      <AppShell nav={nav}>
+      <AppShell drawer={drawer}>
         <Typography variant="h4" gutterBottom>
           Action items
         </Typography>
@@ -221,7 +220,7 @@ export function ActionsPage({ teamId }: { teamId: string }) {
 
   if (actions.isError || me.isError) {
     return (
-      <AppShell nav={nav}>
+      <AppShell drawer={drawer}>
         <Typography variant="h4" gutterBottom>
           Action items
         </Typography>
@@ -258,7 +257,7 @@ export function ActionsPage({ teamId }: { teamId: string }) {
   });
 
   return (
-    <AppShell nav={nav}>
+    <AppShell drawer={drawer}>
       <Typography variant="h4" gutterBottom>
         Action items
       </Typography>

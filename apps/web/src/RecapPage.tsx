@@ -3,6 +3,7 @@ import { uuidv7 } from 'uuidv7';
 import { Alert, Box, Button, Chip, CircularProgress, Divider, Stack, Typography } from '@mui/material';
 import { AppShell } from './AppShell';
 import { postMutation } from './mutations';
+import { NavDrawerContent } from './NavDrawer';
 import { fetchRecap } from './recap';
 import { useSession } from './useSession';
 
@@ -63,7 +64,7 @@ export function RecapPage({ retroId }: { retroId: string }) {
   const data = recap.data;
 
   return (
-    <AppShell>
+    <AppShell drawer={(collapsed) => <NavDrawerContent teamId={data.teamId} collapsed={collapsed} />}>
       <Typography variant="h4" gutterBottom>
         {data.retroName} · Recap
       </Typography>

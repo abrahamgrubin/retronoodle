@@ -15,6 +15,7 @@ import {
   Typography,
 } from '@mui/material';
 import { AppShell } from './AppShell';
+import { NavDrawerContent } from './NavDrawer';
 import { fetchTeamRetros } from './retros';
 import { useSession } from './useSession';
 
@@ -48,15 +49,13 @@ export function RetroListPage({ teamId }: { teamId: string }) {
     enabled: !!accessToken,
   });
 
-  const nav = (
-    <Typography variant="body2">
-      <strong>Retros</strong> · <Link href={`/teams/${teamId}/actions`}>Action items</Link>
-    </Typography>
-  );
+  // The drawer (left-side, every page) covers this same Retros/Action items navigation now —
+  // nothing left for a page-specific `nav` to add.
+  const drawer = (collapsed: boolean) => <NavDrawerContent teamId={teamId} collapsed={collapsed} />;
 
   if (!accessToken) {
     return (
-      <AppShell nav={nav}>
+      <AppShell drawer={drawer}>
         <Typography>Sign in to see this team's retros.</Typography>
       </AppShell>
     );
@@ -64,7 +63,7 @@ export function RetroListPage({ teamId }: { teamId: string }) {
 
   if (retros.isPending) {
     return (
-      <AppShell nav={nav}>
+      <AppShell drawer={drawer}>
         <Typography variant="h4" gutterBottom>
           Retros
         </Typography>
@@ -79,7 +78,7 @@ export function RetroListPage({ teamId }: { teamId: string }) {
 
   if (retros.isError) {
     return (
-      <AppShell nav={nav}>
+      <AppShell drawer={drawer}>
         <Typography variant="h4" gutterBottom>
           Retros
         </Typography>
@@ -98,7 +97,7 @@ export function RetroListPage({ teamId }: { teamId: string }) {
   }
 
   return (
-    <AppShell nav={nav}>
+    <AppShell drawer={drawer}>
       <Typography variant="h4" gutterBottom>
         Retros
       </Typography>
