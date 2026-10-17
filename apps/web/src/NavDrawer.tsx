@@ -21,13 +21,13 @@ export function DrawerNavItem({ icon, label, href, collapsed }: { icon: string; 
   );
 }
 
-/** The drawer content every page shares (Figma node 31:915 expanded / 31:975 collapsed) — just
- * the three nav rows; AppShell owns the collapsible chrome (toggle button, divider, width) around
- * whatever `drawer` render-prop a page passes in. `teamId` is the one thing every caller needs to
- * already know — nothing here fetches it. */
+/** The drawer content every page shares (Figma node 37:1371) — AppShell owns the collapsible
+ * chrome (toggle button, divider, width) around whatever `drawer` render-prop a page passes in.
+ * `teamId` is the one thing every caller needs to already know — nothing here fetches it. */
 export function NavDrawerContent({ teamId, collapsed }: { teamId: string; collapsed: boolean }) {
   return (
     <List sx={{ py: '8px' }}>
+      <DrawerNavItem icon="/icons/house.svg" label="Home" href="/" collapsed={collapsed} />
       <DrawerNavItem icon="/icons/panels-top-left.svg" label="Retros" href={`/teams/${teamId}/retros`} collapsed={collapsed} />
       <DrawerNavItem icon="/icons/list-checks.svg" label="Action Items" href={`/teams/${teamId}/actions`} collapsed={collapsed} />
       <DrawerNavItem icon="/icons/users.svg" label="Your Team" collapsed={collapsed} />
