@@ -52,7 +52,7 @@ function build(teamRole: 'admin' | 'member' | null, opts: BuildOpts = {}) {
   const {
     phase = 'closed',
     facilitatorId,
-    recapRow = { status: 'ready', topic_summaries: [], decisions: [], generated_at: '2026-01-01T00:00:00.000Z' },
+    recapRow = { status: 'ready', topic_summaries: [], decisions: [], generated_at: '2026-01-01T00:00:00.000Z', additional_notes: '' },
     actionItems = [],
     undiscussedTopics = [],
     participants = [],
@@ -92,6 +92,7 @@ describe('GET /retros/:id/recap', () => {
         topic_summaries: [{ topicId: '00000000-0000-4000-8000-000000000010', topicName: 'Deploys', summary: 'Deploys are slow.' }],
         decisions: [{ topicId: '00000000-0000-4000-8000-000000000010', topicName: 'Deploys', text: 'Switch runners.' }],
         generated_at: '2026-01-01T00:00:00.000Z',
+        additional_notes: 'Great retro overall.',
       },
       actionItems: [{ id: '00000000-0000-4000-8000-000000000020', title: 'Fix CI', owner_id: ownerId, status: 'open' }],
       undiscussedTopics: [{ id: '00000000-0000-4000-8000-000000000030', name: 'Testing' }],
@@ -118,19 +119,24 @@ describe('GET /retros/:id/recap', () => {
     expect(body.recap.undiscussedTopics).toEqual([{ topicId: '00000000-0000-4000-8000-000000000030', topicName: 'Testing' }]);
     expect(body.recap.attendance).toEqual([{ id: claims.sub, displayName: 'Ada Lovelace' }]);
     expect(body.recap.generatedAt).toBe('2026-01-01T00:00:00.000Z');
+    expect(body.additionalNotes).toBe('Great retro overall.');
     // No vote counts anywhere in the payload, by design.
     expect(JSON.stringify(body.recap)).not.toContain('vote');
   });
 
   it('returns status without a recap while still pending', async () => {
-    app = await build('member', { recapRow: { status: 'pending', topic_summaries: [], decisions: [], generated_at: null } });
+    app = await build('member', {
+      recapRow: { status: 'pending', topic_summaries: [], decisions: [], generated_at: null, additional_notes: '' },
+    });
     const res = await app.inject({ method: 'GET', url: `/retros/${retroId}/recap`, headers: AUTH_HEADER });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ status: 'pending', recap: null });
   });
 
   it('returns status without a recap when unavailable', async () => {
-    app = await build('member', { recapRow: { status: 'unavailable', topic_summaries: [], decisions: [], generated_at: null } });
+    app = await build('member', {
+      recapRow: { status: 'unavailable', topic_summaries: [], decisions: [], generated_at: null, additional_notes: '' },
+    });
     const res = await app.inject({ method: 'GET', url: `/retros/${retroId}/recap`, headers: AUTH_HEADER });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ status: 'unavailable', recap: null });

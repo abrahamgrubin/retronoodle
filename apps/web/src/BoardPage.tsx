@@ -66,11 +66,13 @@ import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import AddReactionOutlinedIcon from '@mui/icons-material/AddReactionOutlined';
 import HomeIcon from '@mui/icons-material/Home';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import { AppShell } from './AppShell';
 import { signInWithGoogle } from './auth';
 import { audioGatewayUrl, fetchBoard, sendHeartbeat } from './board';
 import { reduceBoard, toggleReaction, type BoardState } from './boardReducer';
 import { computeClockOffsetMs, formatCountdown, remainingMs } from './clock';
 import { getCachedJoinCode, setCachedJoinCode } from './joinLinkStorage';
+import { NavDrawerContent } from './NavDrawer';
 import { postMutation } from './mutations';
 import { regenerateJoinLink } from './retros';
 import { createRetroStore } from './retroStore';
@@ -216,13 +218,14 @@ function AddActionItemForm({
  * skipped (no backing table: action_items has no equivalent of card_reactions, and the AC list
  * never asks for them). No avatar image infra exists yet either (same gap HiddenCardPlaceholder's
  * own comment already notes), so this shows the owner's name instead. */
-// RN-025: labels for the Review quick actions — 'carried' is "Keep open" as a button, the same
-// outcome value the review->write sweep stamps on anything left unmarked (onTransition.ts).
+// RN-025: labels for the Review outcome dropdown — 'carried' is "Not started", the same
+// outcome value the review->write sweep stamps on anything left unmarked (onTransition.ts), so
+// an item with no explicit choice yet shows that as its selected value rather than nothing.
 const REVIEW_OUTCOME_LABEL: Record<ActionItemReviewOutcome, string> = {
   done: 'Done',
   in_progress: 'In progress',
   dropped: 'Drop',
-  carried: 'Keep open',
+  carried: 'Not started',
 };
 const REVIEW_OUTCOMES: ActionItemReviewOutcome[] = ['done', 'in_progress', 'dropped', 'carried'];
 
@@ -283,23 +286,20 @@ function ActionItemRow({
         </Typography>
       )}
       {isCarriedOver && (
-        <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', mt: 0.75 }}>
+        <Select
+          size="small"
+          variant="standard"
+          aria-label={`Review outcome for ${item.title}`}
+          value={reviewOutcome ?? 'carried'}
+          onChange={(e) => onReview(e.target.value as ActionItemReviewOutcome)}
+          sx={{ mt: 0.75, fontSize: 11 }}
+        >
           {REVIEW_OUTCOMES.map((outcome) => (
-            <Button
-              key={outcome}
-              size="small"
-              type="button"
-              onClick={() => onReview(outcome)}
-              sx={{
-                fontSize: 11,
-                fontWeight: reviewOutcome === outcome ? 'bold' : 'normal',
-                textDecoration: reviewOutcome === outcome ? 'underline' : undefined,
-              }}
-            >
+            <MenuItem key={outcome} value={outcome} sx={{ fontSize: 11 }}>
               {REVIEW_OUTCOME_LABEL[outcome]}
-            </Button>
+            </MenuItem>
           ))}
-        </Stack>
+        </Select>
       )}
     </Box>
   );
@@ -1974,9 +1974,14 @@ function DroppableColumn({ column, children }: { column: BoardColumn; children: 
   );
 }
 
-/** The 320px right-edge panel (RN-017 layout spec), facilitator only. Suggestions whose cards got
- * grouped by hand elsewhere (`isStale`) are filtered out by the caller before this ever sees
- * them — rendered rows are always still-actionable. */
+// Figma "Group phase · Suggestions expanded/collapsed" (node 37:1370 / 37:1559) — 288px expanded,
+// 56px collapsed to a lightbulb + count rail, toggled by the chevron button this panel owns.
+const SUGGESTIONS_RAIL_WIDTH = 56;
+const SUGGESTIONS_DRAWER_WIDTH = 288;
+
+/** The right-edge panel's per-suggestion card (RN-017 layout spec), facilitator only.
+ * Suggestions whose cards got grouped by hand elsewhere (`isStale`) are filtered out by the
+ * caller before this ever sees them — rendered rows are always still-actionable. */
 function SuggestionRow({
   suggestion,
   columnTitle,
@@ -1994,33 +1999,41 @@ function SuggestionRow({
 }) {
   if (justAccepted) {
     return (
-      <Box sx={{ border: '1px solid', borderColor: 'grey.400', borderRadius: 1.5, p: 1, mb: 1, color: 'text.secondary', fontSize: 13 }}>
+      <Box sx={{ border: '1px solid #bfbfbf', borderRadius: '10px', p: '7px', color: 'text.secondary', fontSize: 9 }}>
         Grouped
       </Box>
     );
   }
   return (
     <Box
-      sx={{ border: '1px solid', borderColor: 'grey.400', borderRadius: 1.5, p: 1, mb: 1 }}
+      sx={{ border: '1px solid #bfbfbf', borderRadius: '10px', p: '7px' }}
       onMouseEnter={() => onHover(true)}
       onMouseLeave={() => onHover(false)}
     >
-      <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 0.25 }}>
-        {suggestion.name}
-      </Typography>
-      <Typography variant="caption" color="text.secondary" component="p" sx={{ mb: 0.75 }}>
-        {columnTitle}
-      </Typography>
-      {suggestion.cardIds.map((cardId) => (
-        <Typography key={cardId} variant="caption" component="p" sx={{ mb: 0.25, color: '#444' }}>
-          • card {cardId.slice(0, 8)}
-        </Typography>
-      ))}
-      <Stack direction="row" spacing={0.5} sx={{ mt: 0.75 }}>
-        <Button size="small" type="button" onClick={onAccept}>
+      <Stack spacing="5px">
+        <Typography sx={{ fontSize: 10, fontWeight: 600, color: '#151922' }}>{suggestion.name}</Typography>
+        <Typography sx={{ fontSize: 9, color: '#151922' }}>{columnTitle}</Typography>
+        {suggestion.cardIds.map((cardId) => (
+          <Typography key={cardId} sx={{ fontSize: 9, color: '#151922' }}>
+            · card {cardId.slice(0, 8)}
+          </Typography>
+        ))}
+      </Stack>
+      <Stack direction="row" spacing={2} sx={{ mt: '6px' }}>
+        <Button
+          size="small"
+          type="button"
+          onClick={onAccept}
+          sx={{ minWidth: 0, p: 0, fontSize: 10, fontWeight: 500, color: '#304ffe', textTransform: 'uppercase' }}
+        >
           Accept
         </Button>
-        <Button size="small" type="button" onClick={onReject} color="inherit">
+        <Button
+          size="small"
+          type="button"
+          onClick={onReject}
+          sx={{ minWidth: 0, p: 0, fontSize: 10, fontWeight: 500, color: '#151922', textTransform: 'uppercase' }}
+        >
           Reject
         </Button>
       </Stack>
@@ -2051,48 +2064,109 @@ function SuggestionsPanel({
   onReject: (suggestionId: string) => void;
   onAcceptAll: () => void;
 }) {
-  return (
-    <Box sx={{ width: 320, flexShrink: 0 }}>
-      <Button size="small" type="button" onClick={onToggleOpen}>
-        Suggestions ({suggestions.length})
-      </Button>
-      {open && (
-        <Box sx={{ mt: 1, border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 1 }}>
-          {loading && (
-            <>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                Finding similar cards…
-              </Typography>
-              {[0, 1, 2].map((i) => (
-                <Skeleton key={i} variant="rounded" height={48} sx={{ mb: 1 }} />
-              ))}
-            </>
-          )}
-          {!loading && suggestions.length === 0 && (
-            <Typography variant="body2" color="text.secondary">
-              No suggestions. Group cards by dragging.
-            </Typography>
-          )}
-          {!loading && suggestions.length > 0 && (
-            <>
-              <Button size="small" type="button" onClick={onAcceptAll} sx={{ mb: 1 }}>
-                Accept all
-              </Button>
-              {suggestions.map((s) => (
-                <SuggestionRow
-                  key={s.id}
-                  suggestion={s}
-                  columnTitle={columnTitleById.get(s.columnId) ?? ''}
-                  justAccepted={justAcceptedIds.has(s.id)}
-                  onAccept={() => onAccept(s)}
-                  onReject={() => onReject(s.id)}
-                  onHover={(hovering) => onHover(hovering ? s.id : null)}
-                />
-              ))}
-            </>
-          )}
+  if (!open) {
+    return (
+      <Box sx={{ width: SUGGESTIONS_RAIL_WIDTH, flexShrink: 0, bgcolor: 'white', borderLeft: '1px solid #e0e2e7' }}>
+        <Box
+          component="button"
+          type="button"
+          onClick={onToggleOpen}
+          aria-label="Expand suggestions panel"
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: 64,
+            width: '100%',
+            border: 0,
+            borderBottom: '1px solid #e0e2e7',
+            bgcolor: 'transparent',
+            cursor: 'pointer',
+          }}
+        >
+          <Box component="img" src="/icons/chevrons-left.svg" alt="" sx={{ width: 20, height: 20 }} />
         </Box>
-      )}
+        <Stack spacing={1} sx={{ alignItems: 'center', pt: '21px' }}>
+          <Box component="img" src="/icons/lightbulb.svg" alt="" sx={{ width: 20, height: 20 }} />
+          <Box
+            sx={{
+              width: 18,
+              height: 18,
+              borderRadius: '50%',
+              bgcolor: '#edf0ff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Typography sx={{ fontSize: 10, color: '#304ffe' }}>{suggestions.length}</Typography>
+          </Box>
+        </Stack>
+      </Box>
+    );
+  }
+
+  return (
+    <Box sx={{ width: SUGGESTIONS_DRAWER_WIDTH, flexShrink: 0, bgcolor: 'white', borderLeft: '1px solid #e0e2e7' }}>
+      <Stack
+        direction="row"
+        sx={{ alignItems: 'center', justifyContent: 'space-between', height: 64, px: '20px', borderBottom: '1px solid #e0e2e7' }}
+      >
+        <Typography sx={{ fontSize: 14, fontWeight: 500, color: '#151922' }}>Suggestions</Typography>
+        <Box
+          component="button"
+          type="button"
+          onClick={onToggleOpen}
+          aria-label="Collapse suggestions panel"
+          sx={{ display: 'flex', border: 0, bgcolor: 'transparent', cursor: 'pointer', p: 0 }}
+        >
+          <Box component="img" src="/icons/chevrons-right.svg" alt="" sx={{ width: 20, height: 20 }} />
+        </Box>
+      </Stack>
+      <Box sx={{ pt: '54px', px: '16px' }}>
+        {loading && (
+          <>
+            <Typography variant="caption" color="text.secondary" component="p" sx={{ mb: 1 }}>
+              Finding similar cards…
+            </Typography>
+            {[0, 1, 2].map((i) => (
+              <Skeleton key={i} variant="rounded" height={48} sx={{ mb: 1 }} />
+            ))}
+          </>
+        )}
+        {!loading && suggestions.length === 0 && (
+          <Typography variant="caption" color="text.secondary" component="p">
+            No suggestions. Group cards by dragging.
+          </Typography>
+        )}
+        {!loading && suggestions.length > 0 && (
+          <Stack spacing="7px" sx={{ alignItems: 'flex-start' }}>
+            <Button
+              size="small"
+              type="button"
+              onClick={onAcceptAll}
+              sx={{ minWidth: 0, p: 0, fontSize: 10, fontWeight: 500, color: '#304ffe', textTransform: 'uppercase' }}
+            >
+              Accept all
+            </Button>
+            <Box sx={{ border: '1px solid #e0e2e7', borderRadius: '13px', p: '7px', width: '100%' }}>
+              <Stack spacing={1}>
+                {suggestions.map((s) => (
+                  <SuggestionRow
+                    key={s.id}
+                    suggestion={s}
+                    columnTitle={columnTitleById.get(s.columnId) ?? ''}
+                    justAccepted={justAcceptedIds.has(s.id)}
+                    onAccept={() => onAccept(s)}
+                    onReject={() => onReject(s.id)}
+                    onHover={(hovering) => onHover(hovering ? s.id : null)}
+                  />
+                ))}
+              </Stack>
+            </Box>
+          </Stack>
+        )}
+      </Box>
     </Box>
   );
 }
@@ -2324,6 +2398,14 @@ function Board({
   // anywhere, just a brief acknowledgment that resets itself a moment after each click.
   const [shareLinkCopied, setShareLinkCopied] = useState(false);
   const [shareLinkPending, setShareLinkPending] = useState(false);
+  // Bug found live: changePhase('skip') computes its target as "one past whatever phase.phase
+  // currently is" and sends a brand-new mutationId every call — unlike phase.jumpTo, which names
+  // an explicit target and is rejected server-side if already there, two rapid Next clicks (no
+  // visual feedback in between — optimisticReduce updates board.phase, but not fast enough to
+  // beat a second click) are each individually legal and serialize into two real, separate
+  // advances: Write->Group, then Group->Vote, from one intended click. Disabling Next/Back while
+  // one is still in flight is what actually closes this, not just a cosmetic debounce.
+  const [phaseChangePending, setPhaseChangePending] = useState(false);
   // The Action items column follows the matrix's separate "Create or edit action items" row
   // (Review/Discuss/Wrap up), not "Add, edit, delete own card" (Write/Group) — matching the
   // server-side check in cardCreate/cardEdit/cardDelete's apply().
@@ -3498,9 +3580,13 @@ function Board({
   }
 
   function changePhase(direction: 'skip' | 'back') {
+    // See phaseChangePending's own declaration above for why this guard exists — ignored (not
+    // queued) since the one in flight already targets whatever the next click would also compute.
+    if (phaseChangePending) return;
     const type = direction === 'skip' ? 'phase.skip' : 'phase.back';
     const target = direction === 'skip' ? nextPhase(board.phase) : previousPhase(board.phase);
     if (!target) return;
+    setPhaseChangePending(true);
     // Must happen synchronously, inside this click handler — see startCaptureIfLandingOnDiscuss's
     // own comment. The gateway itself only opens once the mutation below has actually finished.
     const pendingStreams = startCaptureIfLandingOnDiscuss(target);
@@ -3517,6 +3603,7 @@ function Board({
       },
       send: () => postMutation(accessToken, retroId, { mutationId, type, payload: {} }),
     });
+    void result.then(() => setPhaseChangePending(false));
     if (pendingStreams) void result.then(() => finishStartingCapture(pendingStreams));
     else void result;
   }
@@ -3599,6 +3686,7 @@ function Board({
   const currentPillIndex = PHASE_PILLS.indexOf(board.phase);
 
   return (
+    <AppShell drawer={(collapsed) => <NavDrawerContent teamId={initialBoard.retro.teamId} collapsed={collapsed} />} fullWidth>
     <Box sx={{ fontFamily: 'system-ui, sans-serif', p: 4 }}>
       <style>{'@keyframes rn-timer-flash { 0%, 100% { background: #c00; color: #fff; } 50% { background: #fff; color: #c00; } }'}</style>
       {/* Three-section grid (not one flex row) so the pill bar sits dead-center on the header
@@ -3731,7 +3819,7 @@ function Board({
             </Button>
           ) : (
             nextPhase(board.phase) && (
-              <Button size="small" type="button" onClick={() => changePhase('skip')}>
+              <Button size="small" type="button" onClick={() => changePhase('skip')} disabled={phaseChangePending}>
                 Next
               </Button>
             )
@@ -4117,6 +4205,7 @@ function Board({
         </Dialog>
       )}
     </Box>
+    </AppShell>
   );
 }
 

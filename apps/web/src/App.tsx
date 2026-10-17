@@ -1,13 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { Alert, Box, Button, Card, CardActionArea, CardContent, CardMedia, Chip, Link, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, Card, CardActionArea, CardContent, CardMedia, Stack, TextField, Typography } from '@mui/material';
 import { AppShell } from './AppShell';
-import { fetchMe, signInWithGoogle, signOut } from './auth';
+import { signInWithGoogle } from './auth';
 import { supabase } from './supabaseClient';
 import { createTeam, fetchMyTeams } from './teams';
 import { createRetro } from './retros';
 import { fetchTeamTemplates } from './templates';
 import { setCachedJoinCode } from './joinLinkStorage';
+import { NavDrawerContent } from './NavDrawer';
 import { useSession } from './useSession';
 
 function RetroCreator({ accessToken, teamId }: { accessToken: string; teamId: string }) {
@@ -131,54 +132,32 @@ function TeamsPanel({ accessToken }: { accessToken: string }) {
   const [team] = teams.data;
   if (!team) return null; // unreachable: teams.data.length > 0 was checked above
 
+  // RN-024/RN-026's own "Retros"/"Action items" links now live in the page's left-side drawer
+  // (App()'s own AppShell call below) instead of inline text here.
   return (
-    <Stack spacing={2}>
-      <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-        <Typography>
-          Your team: <strong>{team.name}</strong>
-        </Typography>
-        <Chip size="small" label={team.role} />
-      </Stack>
-      {/* RN-024/RN-026: "reached from the team top bar tabs 'Retros' and 'Action items.'" Retro
-          creation stays here (the home page); the list of past retros is its own page now. */}
-      <Stack direction="row" spacing={2}>
-        <Link href={`/teams/${team.id}/retros`}>Retros</Link>
-        <Link href={`/teams/${team.id}/actions`}>Action items</Link>
-      </Stack>
-      <Card variant="outlined">
-        <CardContent>
-          <RetroCreator accessToken={accessToken} teamId={team.id} />
-        </CardContent>
-      </Card>
-    </Stack>
+    <Card variant="outlined">
+      <CardContent>
+        <RetroCreator accessToken={accessToken} teamId={team.id} />
+      </CardContent>
+    </Card>
   );
 }
 
 export function App() {
   const session = useSession();
-
   const accessToken = session?.access_token;
-  const me = useQuery({
-    queryKey: ['me', accessToken],
-    queryFn: () => fetchMe(accessToken as string),
+  const teams = useQuery({
+    queryKey: ['myTeams', accessToken],
+    queryFn: () => fetchMyTeams(accessToken as string),
     enabled: !!accessToken,
   });
+  const team = teams.data?.[0];
 
   return (
-    <AppShell>
+    <AppShell drawer={team ? (collapsed) => <NavDrawerContent teamId={team.id} collapsed={collapsed} /> : undefined}>
       <Stack spacing={3}>
         {accessToken ? (
-          <>
-            <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
-              <Typography>
-                {me.isPending ? 'Loading profile…' : me.isError ? 'Failed to load profile' : `Signed in as ${me.data.displayName}`}
-              </Typography>
-              <Button size="small" onClick={() => void signOut()}>
-                Sign out
-              </Button>
-            </Stack>
-            <TeamsPanel accessToken={accessToken} />
-          </>
+          <TeamsPanel accessToken={accessToken} />
         ) : (
           <Button variant="contained" size="large" sx={{ alignSelf: 'flex-start' }} onClick={() => void signInWithGoogle()} disabled={!supabase}>
             Continue with Google

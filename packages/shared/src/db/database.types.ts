@@ -793,6 +793,7 @@ export interface Database {
           topic_summaries: Json;
           decisions: Json;
           generated_at: string | null;
+          additional_notes: string;
           created_at: string;
           updated_at: string;
         };
@@ -803,6 +804,7 @@ export interface Database {
           topic_summaries?: Json;
           decisions?: Json;
           generated_at?: string | null;
+          additional_notes?: string;
           created_at?: string;
           updated_at?: string;
         };
@@ -813,6 +815,7 @@ export interface Database {
           topic_summaries?: Json;
           decisions?: Json;
           generated_at?: string | null;
+          additional_notes?: string;
           created_at?: string;
           updated_at?: string;
         };
