@@ -1976,9 +1976,14 @@ function DroppableColumn({ column, children }: { column: BoardColumn; children: 
   );
 }
 
-/** The 320px right-edge panel (RN-017 layout spec), facilitator only. Suggestions whose cards got
- * grouped by hand elsewhere (`isStale`) are filtered out by the caller before this ever sees
- * them — rendered rows are always still-actionable. */
+// Figma "Group phase · Suggestions expanded/collapsed" (node 37:1370 / 37:1559) — 288px expanded,
+// 56px collapsed to a lightbulb + count rail, toggled by the chevron button this panel owns.
+const SUGGESTIONS_RAIL_WIDTH = 56;
+const SUGGESTIONS_DRAWER_WIDTH = 288;
+
+/** The right-edge panel's per-suggestion card (RN-017 layout spec), facilitator only.
+ * Suggestions whose cards got grouped by hand elsewhere (`isStale`) are filtered out by the
+ * caller before this ever sees them — rendered rows are always still-actionable. */
 function SuggestionRow({
   suggestion,
   columnTitle,
@@ -1996,33 +2001,41 @@ function SuggestionRow({
 }) {
   if (justAccepted) {
     return (
-      <Box sx={{ border: '1px solid', borderColor: 'grey.400', borderRadius: 1.5, p: 1, mb: 1, color: 'text.secondary', fontSize: 13 }}>
+      <Box sx={{ border: '1px solid #bfbfbf', borderRadius: '10px', p: '7px', color: 'text.secondary', fontSize: 9 }}>
         Grouped
       </Box>
     );
   }
   return (
     <Box
-      sx={{ border: '1px solid', borderColor: 'grey.400', borderRadius: 1.5, p: 1, mb: 1 }}
+      sx={{ border: '1px solid #bfbfbf', borderRadius: '10px', p: '7px' }}
       onMouseEnter={() => onHover(true)}
       onMouseLeave={() => onHover(false)}
     >
-      <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 0.25 }}>
-        {suggestion.name}
-      </Typography>
-      <Typography variant="caption" color="text.secondary" component="p" sx={{ mb: 0.75 }}>
-        {columnTitle}
-      </Typography>
-      {suggestion.cardIds.map((cardId) => (
-        <Typography key={cardId} variant="caption" component="p" sx={{ mb: 0.25, color: '#444' }}>
-          • card {cardId.slice(0, 8)}
-        </Typography>
-      ))}
-      <Stack direction="row" spacing={0.5} sx={{ mt: 0.75 }}>
-        <Button size="small" type="button" onClick={onAccept}>
+      <Stack spacing="5px">
+        <Typography sx={{ fontSize: 10, fontWeight: 600, color: '#151922' }}>{suggestion.name}</Typography>
+        <Typography sx={{ fontSize: 9, color: '#151922' }}>{columnTitle}</Typography>
+        {suggestion.cardIds.map((cardId) => (
+          <Typography key={cardId} sx={{ fontSize: 9, color: '#151922' }}>
+            · card {cardId.slice(0, 8)}
+          </Typography>
+        ))}
+      </Stack>
+      <Stack direction="row" spacing={2} sx={{ mt: '6px' }}>
+        <Button
+          size="small"
+          type="button"
+          onClick={onAccept}
+          sx={{ minWidth: 0, p: 0, fontSize: 10, fontWeight: 500, color: '#304ffe', textTransform: 'uppercase' }}
+        >
           Accept
         </Button>
-        <Button size="small" type="button" onClick={onReject} color="inherit">
+        <Button
+          size="small"
+          type="button"
+          onClick={onReject}
+          sx={{ minWidth: 0, p: 0, fontSize: 10, fontWeight: 500, color: '#151922', textTransform: 'uppercase' }}
+        >
           Reject
         </Button>
       </Stack>
@@ -2053,48 +2066,109 @@ function SuggestionsPanel({
   onReject: (suggestionId: string) => void;
   onAcceptAll: () => void;
 }) {
-  return (
-    <Box sx={{ width: 320, flexShrink: 0 }}>
-      <Button size="small" type="button" onClick={onToggleOpen}>
-        Suggestions ({suggestions.length})
-      </Button>
-      {open && (
-        <Box sx={{ mt: 1, border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 1 }}>
-          {loading && (
-            <>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                Finding similar cards…
-              </Typography>
-              {[0, 1, 2].map((i) => (
-                <Skeleton key={i} variant="rounded" height={48} sx={{ mb: 1 }} />
-              ))}
-            </>
-          )}
-          {!loading && suggestions.length === 0 && (
-            <Typography variant="body2" color="text.secondary">
-              No suggestions. Group cards by dragging.
-            </Typography>
-          )}
-          {!loading && suggestions.length > 0 && (
-            <>
-              <Button size="small" type="button" onClick={onAcceptAll} sx={{ mb: 1 }}>
-                Accept all
-              </Button>
-              {suggestions.map((s) => (
-                <SuggestionRow
-                  key={s.id}
-                  suggestion={s}
-                  columnTitle={columnTitleById.get(s.columnId) ?? ''}
-                  justAccepted={justAcceptedIds.has(s.id)}
-                  onAccept={() => onAccept(s)}
-                  onReject={() => onReject(s.id)}
-                  onHover={(hovering) => onHover(hovering ? s.id : null)}
-                />
-              ))}
-            </>
-          )}
+  if (!open) {
+    return (
+      <Box sx={{ width: SUGGESTIONS_RAIL_WIDTH, flexShrink: 0, bgcolor: 'white', borderLeft: '1px solid #e0e2e7' }}>
+        <Box
+          component="button"
+          type="button"
+          onClick={onToggleOpen}
+          aria-label="Expand suggestions panel"
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: 64,
+            width: '100%',
+            border: 0,
+            borderBottom: '1px solid #e0e2e7',
+            bgcolor: 'transparent',
+            cursor: 'pointer',
+          }}
+        >
+          <Box component="img" src="/icons/chevrons-left.svg" alt="" sx={{ width: 20, height: 20 }} />
         </Box>
-      )}
+        <Stack spacing={1} sx={{ alignItems: 'center', pt: '21px' }}>
+          <Box component="img" src="/icons/lightbulb.svg" alt="" sx={{ width: 20, height: 20 }} />
+          <Box
+            sx={{
+              width: 18,
+              height: 18,
+              borderRadius: '50%',
+              bgcolor: '#edf0ff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Typography sx={{ fontSize: 10, color: '#304ffe' }}>{suggestions.length}</Typography>
+          </Box>
+        </Stack>
+      </Box>
+    );
+  }
+
+  return (
+    <Box sx={{ width: SUGGESTIONS_DRAWER_WIDTH, flexShrink: 0, bgcolor: 'white', borderLeft: '1px solid #e0e2e7' }}>
+      <Stack
+        direction="row"
+        sx={{ alignItems: 'center', justifyContent: 'space-between', height: 64, px: '20px', borderBottom: '1px solid #e0e2e7' }}
+      >
+        <Typography sx={{ fontSize: 14, fontWeight: 500, color: '#151922' }}>Suggestions</Typography>
+        <Box
+          component="button"
+          type="button"
+          onClick={onToggleOpen}
+          aria-label="Collapse suggestions panel"
+          sx={{ display: 'flex', border: 0, bgcolor: 'transparent', cursor: 'pointer', p: 0 }}
+        >
+          <Box component="img" src="/icons/chevrons-right.svg" alt="" sx={{ width: 20, height: 20 }} />
+        </Box>
+      </Stack>
+      <Box sx={{ pt: '54px', px: '16px' }}>
+        {loading && (
+          <>
+            <Typography variant="caption" color="text.secondary" component="p" sx={{ mb: 1 }}>
+              Finding similar cards…
+            </Typography>
+            {[0, 1, 2].map((i) => (
+              <Skeleton key={i} variant="rounded" height={48} sx={{ mb: 1 }} />
+            ))}
+          </>
+        )}
+        {!loading && suggestions.length === 0 && (
+          <Typography variant="caption" color="text.secondary" component="p">
+            No suggestions. Group cards by dragging.
+          </Typography>
+        )}
+        {!loading && suggestions.length > 0 && (
+          <Stack spacing="7px" sx={{ alignItems: 'flex-start' }}>
+            <Button
+              size="small"
+              type="button"
+              onClick={onAcceptAll}
+              sx={{ minWidth: 0, p: 0, fontSize: 10, fontWeight: 500, color: '#304ffe', textTransform: 'uppercase' }}
+            >
+              Accept all
+            </Button>
+            <Box sx={{ border: '1px solid #e0e2e7', borderRadius: '13px', p: '7px', width: '100%' }}>
+              <Stack spacing={1}>
+                {suggestions.map((s) => (
+                  <SuggestionRow
+                    key={s.id}
+                    suggestion={s}
+                    columnTitle={columnTitleById.get(s.columnId) ?? ''}
+                    justAccepted={justAcceptedIds.has(s.id)}
+                    onAccept={() => onAccept(s)}
+                    onReject={() => onReject(s.id)}
+                    onHover={(hovering) => onHover(hovering ? s.id : null)}
+                  />
+                ))}
+              </Stack>
+            </Box>
+          </Stack>
+        )}
+      </Box>
     </Box>
   );
 }
