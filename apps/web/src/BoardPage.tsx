@@ -185,6 +185,7 @@ function AddActionItemForm({
         minRows={2}
         fullWidth
         size="small"
+        sx={{ bgcolor: 'white' }}
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         onKeyDown={(e) => {
@@ -193,7 +194,7 @@ function AddActionItemForm({
             submit();
           }
         }}
-        placeholder="+ Add an action item"
+        placeholder="Add an action item"
         aria-label="Add an action item"
       />
       <Stack direction="row" spacing={1} sx={{ mt: 0.5 }}>
@@ -250,7 +251,7 @@ function ActionItemRow({
 }) {
   const ownerName = teamMembers.find((m) => m.id === item.ownerId)?.displayName ?? 'Unassigned';
   return (
-    <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1.5, p: 1, mb: 1 }}>
+    <Box sx={{ border: '1px solid', borderColor: 'divider', bgcolor: '#CFE3FF', borderRadius: 1.5, p: 1, mb: 1 }}>
       <Typography variant="body2" sx={{ mb: 0.75 }}>
         {item.title}
       </Typography>
@@ -3640,8 +3641,10 @@ function Board({
   // RN-023: bypasses sendMutation's optimistic/rollback plumbing deliberately — the dialog needs
   // its own inline error ("error (inline message, dialog stays open)" per the layout spec), not
   // the board's global `lastError` banner, and there's nothing useful to guess optimistically for
-  // a one-shot close. On success, the real phase change arrives the same way every other client's
-  // does: through the broadcast (same `retro:{retroId}` channel this browser is already on).
+  // a one-shot close. On success, this navigates straight to the recap page (RecapPage.tsx's own
+  // polling already handles the recap still being `pending` the moment you land there) rather
+  // than leaving the facilitator on the now-read-only closed board — nothing else needs the
+  // broadcast's phase='closed' event to update in place, since this browser is leaving the page.
   async function closeRetro(nextRetroAt: string, override: boolean) {
     const mutationId = uuidv7();
     const res = await postMutation(accessToken, retroId, { mutationId, type: 'retro.close', payload: { nextRetroAt, override } });
@@ -3652,7 +3655,7 @@ function Board({
         .catch(() => undefined);
       throw new Error(message ?? `Failed to close the retro (${res.status}).`);
     }
-    setCloseDialogOpen(false);
+    window.location.href = `/r/${retroId}/recap`;
   }
 
   // RN-006: "Share link" button, header, top right — copies the join URL. The server only ever
@@ -3841,11 +3844,11 @@ function Board({
               {board.recordingSession.status !== 'recording' && ` (${board.recordingSession.status})`}
             </Button>
           )}
-          {board.phase !== 'closed' && captureAllowed && captureActive && (
+          {/* {board.phase !== 'closed' && captureAllowed && captureActive && (
             <Button size="small" type="button" color="error" onClick={stopCapture}>
               Stop transcription
             </Button>
-          )}
+          )} */}
           {board.phase !== 'closed' && captureAllowed && !captureActive && transcriptionUnavailable && (
             <Button
               size="small"
