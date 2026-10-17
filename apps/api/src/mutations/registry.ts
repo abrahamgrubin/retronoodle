@@ -24,12 +24,28 @@ export interface JobSender {
   send(queueName: string, data: object): Promise<string | null>;
 }
 
+/** RN-033/found live: a mutation's own broadcast (its `result`) is gated by `seq` — the client
+ * drops anything at or below `lastAppliedSeq`, which is exactly right for keeping cards/topics/
+ * phase in strict order. `recordingSession` has no such ordering of its own (it's "whatever the
+ * row currently says," not an append-only log) — pushing it through that same seq gate meant a
+ * resync's own snapshot of it got discarded as "stale" the moment a same-transition phase broadcast
+ * had already landed first, even though the recordingSession value in that snapshot was perfectly
+ * current (found live: vote->discuss auto-starting a recording session, broadcast arrives first,
+ * the resync racing behind it gets thrown out entirely — board.recordingSession stays null
+ * forever, so transcription capture never starts no matter how long you wait). `apply()` pushes
+ * onto this instead of trying to smuggle it into its own return value — pipeline.ts broadcasts
+ * each one after COMMIT, through the same ungated `applyLocalPatch` path BoardPage.tsx already
+ * uses for the heartbeat route's late-joiner pause. */
 export interface MutationContext<TPayload> {
   client: PoolClient;
   retro: LockedRetro;
   user: AuthUser;
   payload: TPayload;
   jobs?: JobSender;
+  /** Optional the same way `jobs` is — only phaseNext/phaseBack/phaseJumpTo's own call into
+   * onTransition.ts ever pushes onto this; every other mutation type's test suite constructs a
+   * bare ctx object literal without one. */
+  sideEffects?: { type: string; payload: unknown }[];
 }
 
 export interface MutationTypeDef<TPayload = unknown> {

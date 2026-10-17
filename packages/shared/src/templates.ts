@@ -13,6 +13,10 @@ export const TemplateResponse = z.object({
   name: z.string(),
   source: TemplateSource,
   columns: z.array(TemplateColumn),
+  // Shown on the picker card (name + image + description, Material's own card pattern) — null
+  // for a team's own custom template until they set one; never required to create a retro.
+  description: z.string().nullable(),
+  imageUrl: z.string().nullable(),
 });
 export type TemplateResponse = z.infer<typeof TemplateResponse>;
 

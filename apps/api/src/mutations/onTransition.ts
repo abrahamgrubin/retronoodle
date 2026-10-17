@@ -1,10 +1,15 @@
 import type { PoolClient } from 'pg';
 import { generateKeyBetween } from 'fractional-indexing';
-import { defaultTopicName, type RetroPhase } from '@retronoodle/shared';
-import { ONLINE_WINDOW_SECONDS } from '../recordingSession.js';
+import { defaultTopicName, Topic, type RetroPhase } from '@retronoodle/shared';
+import { buildRecordingSession, ONLINE_WINDOW_SECONDS } from '../recordingSession.js';
 import type { JobSender, LockedRetro } from './registry.js';
 
-type TransitionEffect = (ctx: { client: PoolClient; retro: LockedRetro; jobs?: JobSender }) => Promise<void>;
+type TransitionEffect = (ctx: {
+  client: PoolClient;
+  retro: LockedRetro;
+  jobs?: JobSender;
+  sideEffects: { type: string; payload: unknown }[];
+}) => Promise<void>;
 
 /**
  * Transition side effects (Design 6.3), one row per `"from->to"` pair. RN-010 owns this table
@@ -62,19 +67,48 @@ const onTransition: Partial<Record<`${RetroPhase}->${RetroPhase}`, TransitionEff
   // topic; already-grouped cards are untouched. One topic id per card, server-generated directly
   // in SQL (`gen_random_uuid()`) since there's no client round trip for a transition side effect
   // (same reasoning as retro_columns' own "server-generated" copy-at-start).
-  'group->vote': async ({ client, retro, jobs }) => {
+  'group->vote': async ({ client, retro, jobs, sideEffects }) => {
     const ungrouped = await client.query<{ id: string; column_id: string; body: string }>(
       'select id, column_id, body from cards where retro_id = $1 and topic_id is null',
       [retro.id],
     );
+    // registry.ts's own comment on MutationContext.sideEffects: this transition's own broadcast
+    // only ever carries `{phase, phaseDeadline}`, same gap as vote->discuss's ranking below —
+    // every one of these brand-new topics (and the card now pointing at it) is otherwise invisible
+    // to a client until something else happens to trigger a resync that wins its race against
+    // this transition's own commit, which it reliably doesn't (found live: a lone card stayed
+    // rendered as a bare ungrouped card through Vote and Discuss, with no topic to attach its
+    // vote/queue controls to, until the page was reloaded).
+    const createdTopics: Topic[] = [];
+    const cardTopicAssignments: { cardId: string; topicId: string }[] = [];
     for (const card of ungrouped.rows) {
-      await client.query(
-        `with new_topic as (
-           insert into topics (id, retro_id, column_id, name) values (gen_random_uuid(), $1, $2, $3) returning id
-         )
-         update cards set topic_id = (select id from new_topic) where id = $4`,
-        [retro.id, card.column_id, defaultTopicName(card.body), card.id],
+      const name = defaultTopicName(card.body);
+      const inserted = await client.query<{ id: string }>(
+        'insert into topics (id, retro_id, column_id, name) values (gen_random_uuid(), $1, $2, $3) returning id',
+        [retro.id, card.column_id, name],
       );
+      const topicId = inserted.rows[0]!.id;
+      await client.query('update cards set topic_id = $1 where id = $2', [topicId, card.id]);
+      createdTopics.push(
+        Topic.parse({
+          id: topicId,
+          columnId: card.column_id,
+          name,
+          voteCount: 0,
+          discussionOrder: null,
+          startedAt: null,
+          endedAt: null,
+          groupSummaryTitle: null,
+          groupSummary: null,
+          discussionQuestions: null,
+          notes: '',
+        }),
+      );
+      cardTopicAssignments.push({ cardId: card.id, topicId });
+    }
+    if (createdTopics.length > 0) {
+      sideEffects.push({ type: 'topics.created', payload: { topics: createdTopics } });
+      sideEffects.push({ type: 'cards.topicAssigned', payload: { assignments: cardTopicAssignments } });
     }
     // RN-017: "Discard pending suggestions on group -> vote" — grouping freezes with Vote, so
     // anything the facilitator never acted on no longer means anything. 'rejected' rather than a
@@ -102,7 +136,7 @@ const onTransition: Partial<Record<`${RetroPhase}->${RetroPhase}`, TransitionEff
   // also what makes it "revealed": before this runs, every topic's count is still its
   // just-created default of 0. `discussion_order`/`started_at` are consumed by RN-019's own
   // discuss-queue UI, not built out here — this just leaves them set.
-  'vote->discuss': async ({ client, retro, jobs }) => {
+  'vote->discuss': async ({ client, retro, jobs, sideEffects }) => {
     const ranked = await client.query<{ id: string; vote_count: number }>(
       `select t.id, count(v.id)::int as vote_count
        from topics t
@@ -113,16 +147,26 @@ const onTransition: Partial<Record<`${RetroPhase}->${RetroPhase}`, TransitionEff
       [retro.id],
     );
     let previousOrder: string | null = null;
+    // registry.ts's own comment on MutationContext.sideEffects: same gap as recordingSession
+    // above — this transition's own broadcast only ever carries `{phase, phaseDeadline}|`, never
+    // the ranking this just wrote, so a resync racing this transition's commit (the same race as
+    // recordingSession, just for a different field) could still hand a client a snapshot from
+    // before any of this ran — the queue stays empty and nobody looks like "now discussing"
+    // until something else happens to trigger another resync, like a manual reload (found live).
+    const rankedTopics: { id: string; voteCount: number; discussionOrder: string; startedAt: string | null }[] = [];
     for (const [index, topic] of ranked.rows.entries()) {
       const order = generateKeyBetween(previousOrder, null);
+      const startedAt = index === 0 ? new Date() : null;
       await client.query('update topics set vote_count = $1, discussion_order = $2, started_at = $3 where id = $4', [
         topic.vote_count,
         order,
-        index === 0 ? new Date() : null,
+        startedAt,
         topic.id,
       ]);
+      rankedTopics.push({ id: topic.id, voteCount: topic.vote_count, discussionOrder: order, startedAt: startedAt?.toISOString() ?? null });
       previousOrder = order;
     }
+    if (rankedTopics.length > 0) sideEffects.push({ type: 'topics.ranked', payload: { topics: rankedTopics } });
 
     // Homework: the top-ranked topic just became current the same way startTopic() makes any
     // other topic current — this transition does its own raw `update` above instead of calling
@@ -150,7 +194,11 @@ const onTransition: Partial<Record<`${RetroPhase}->${RetroPhase}`, TransitionEff
  * all," not just a non-stopped one, so re-entering Discuss later (Back, or a backward jump) never
  * overrides a facilitator's own explicit stop.
  */
-async function autoStartRecordingIfNeeded(client: PoolClient, retro: LockedRetro): Promise<void> {
+async function autoStartRecordingIfNeeded(
+  client: PoolClient,
+  retro: LockedRetro,
+  sideEffects: { type: string; payload: unknown }[],
+): Promise<void> {
   const existing = await client.query('select 1 from recording_sessions where retro_id = $1 limit 1', [retro.id]);
   if (existing.rows.length > 0) return;
 
@@ -177,6 +225,7 @@ async function autoStartRecordingIfNeeded(client: PoolClient, retro: LockedRetro
     [retro.id, retro.facilitator_id, now.toISOString(), allAgreedAlready ? 'recording' : 'pending', allAgreedAlready ? now.toISOString() : null],
   );
   const sessionId = inserted.rows[0]!.id;
+  const status = allAgreedAlready ? 'recording' : 'pending';
 
   await client.query(`insert into recording_consents (session_id, user_id, outcome, responded_at) values ($1, $2, 'agreed', $3)`, [
     sessionId,
@@ -186,6 +235,24 @@ async function autoStartRecordingIfNeeded(client: PoolClient, retro: LockedRetro
   for (const row of onlineResult.rows) {
     await client.query('insert into recording_consents (session_id, user_id) values ($1, $2)', [sessionId, row.user_id]);
   }
+
+  // registry.ts's own comment on MutationContext.sideEffects: this transition's own broadcast
+  // only ever carries `{phase, phaseDeadline}` (phaseNext.ts/phaseJumpTo.ts), never the session
+  // this just created — without pushing it here too, board.recordingSession stays null on every
+  // client until their next resync happens to win its race against that phase broadcast, which it
+  // reliably didn't (found live).
+  sideEffects.push({
+    type: 'recording.sessionUpdated',
+    payload: {
+      session: buildRecordingSession(
+        { id: sessionId, started_by: retro.facilitator_id, facilitator_confirmed_at: now.toISOString(), status, started_at: allAgreedAlready ? now.toISOString() : null, stopped_at: null },
+        [
+          { user_id: retro.facilitator_id, outcome: 'agreed', responded_at: now.toISOString() },
+          ...onlineResult.rows.map((row) => ({ user_id: row.user_id, outcome: 'pending', responded_at: null })),
+        ],
+      ),
+    },
+  });
 }
 
 export async function runTransitionEffect(
@@ -194,8 +261,12 @@ export async function runTransitionEffect(
   from: RetroPhase,
   to: RetroPhase,
   jobs?: JobSender,
+  // Defaults to a throwaway array — every caller in production (phaseNext/phaseBack/phaseJumpTo)
+  // passes its own, but the many onTransition.test.ts call sites that only care about the DB
+  // writes have nothing to gain from threading one through just to satisfy this signature.
+  sideEffects: { type: string; payload: unknown }[] = [],
 ): Promise<void> {
   const effect = onTransition[`${from}->${to}`];
-  if (effect) await effect({ client, retro, jobs });
-  if (to === 'discuss') await autoStartRecordingIfNeeded(client, retro);
+  if (effect) await effect({ client, retro, jobs, sideEffects });
+  if (to === 'discuss') await autoStartRecordingIfNeeded(client, retro, sideEffects);
 }

@@ -5,8 +5,18 @@ export interface TranscriptionSessionHandlers {
   onError(err: Error): void;
   /** Fires when the provider's own connection ends, for any reason other than our own `close()`
    * call — e.g. the provider dropped the connection. The gateway treats this the same as a
-   * client-side socket drop: insert a gap marker, let the next connection resume. */
-  onClose(): void;
+   * client-side socket drop: insert a gap marker, let the next connection resume. `reason` is
+   * whatever the provider's own close event names (Deepgram: its WebSocket close code/reason,
+   * e.g. "1011 NET-0001") — found live: Deepgram closing well inside its own 30s idle timeout,
+   * with nothing anywhere saying why, since this previously discarded the close event entirely. */
+  onClose(reason?: string): void;
+  /** Fires exactly once, right before the session ends either way (our own `close()` or the
+   * provider's) — unlike `onClose`, not just the abnormal case. A session that runs its full
+   * course and is torn down normally (recording stopped, left Discuss) never calls `onClose` at
+   * all, so without this there was no way to tell "silently produced nothing because nobody ever
+   * spoke into a working pipeline" apart from "silently produced nothing because the pipeline
+   * never worked" (found live: a full session with no abnormal close and zero transcript either). */
+  onSessionEnd?(stats: string): void;
 }
 
 export interface TranscriptionSession {

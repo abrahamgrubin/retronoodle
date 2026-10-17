@@ -16,7 +16,7 @@ import { setPhase } from './phaseDeadline.js';
  */
 export const phaseNextMutation: MutationTypeDef<PhaseTransitionPayload> = {
   schema: PhaseTransitionPayload,
-  async apply({ client, retro, user, jobs }) {
+  async apply({ client, retro, user, jobs, sideEffects }) {
     if (!can(user, 'retro.transitionPhase', { type: 'retro', teamRole: null, facilitatorId: retro.facilitator_id })) {
       throw new MutationRejected(403, 'forbidden', 'Only the facilitator may change the phase');
     }
@@ -32,7 +32,7 @@ export const phaseNextMutation: MutationTypeDef<PhaseTransitionPayload> = {
       throw new MutationRejected(409, 'phase_not_allowed', 'Use retro.close to close the retro');
     }
 
-    await runTransitionEffect(client, retro, from, to, jobs);
+    await runTransitionEffect(client, retro, from, to, jobs, sideEffects);
     const phaseDeadline = await setPhase(client, retro.id, to);
 
     return PhaseTransitionResult.parse({ phase: to, phaseDeadline });

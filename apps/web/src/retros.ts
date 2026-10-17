@@ -23,6 +23,25 @@ export async function createRetro(
   return RetroCreatedResponse.parse(await res.json());
 }
 
+/** POST /retros/:id/join-link/regenerate (RN-006, facilitator-only): the only way to ever get the
+ * plaintext join code back after creation — the server only ever stores its hash, by design (the
+ * story's own AC: "the plaintext code is never stored in the database") — so this necessarily
+ * invalidates whatever code was issued before it. Callers cache the result (joinLinkStorage.ts)
+ * rather than calling this on every "copy link" click, which would otherwise break a link
+ * already shared with someone who hasn't joined yet. */
+export async function regenerateJoinLink(
+  accessToken: string,
+  retroId: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<RetroCreatedResponse> {
+  const res = await fetchImpl(`${API_URL}/retros/${retroId}/join-link/regenerate`, {
+    method: 'POST',
+    headers: authHeaders(accessToken),
+  });
+  if (!res.ok) throw new Error(`POST /retros/:id/join-link/regenerate failed: ${res.status}`);
+  return RetroCreatedResponse.parse(await res.json());
+}
+
 export async function fetchTeamRetros(
   accessToken: string,
   teamId: string,

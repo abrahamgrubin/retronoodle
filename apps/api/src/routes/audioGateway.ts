@@ -61,6 +61,27 @@ export function registerAudioGatewayRoutes(app: FastifyInstance, deps: AudioGate
     '/retros/:id/audio-gateway',
     { websocket: true },
     async (socket: GatewaySocket, request: FastifyRequest<{ Params: { id: string }; Querystring: { token?: string } }>) => {
+      // Found live: the browser considers its own socket "open" (and starts streaming — see
+      // audioCapture.ts) the instant the WebSocket upgrade itself completes, well before this
+      // handler function has done ANY of its own async setup below — auth, two DB round trips for
+      // the retro/recording session, and `provider.startSession()` itself, which is a full round
+      // trip to Deepgram's own connect handshake. `socket.on('message', ...)` registered only
+      // after all of that finished was missing every frame the browser sent in that window —
+      // including its very first one, the only chunk carrying the WebM container's own header, so
+      // every later chunk arrived with no header context behind it and nothing Deepgram could
+      // parse into anything at all (zero "Results" messages, ever, despite real bytes arriving,
+      // reproduced over and over regardless of client-side fixes — the loss was always here).
+      // Registering the listener as the very first thing this handler does, before any `await`,
+      // and buffering until the real processing function is ready, is what finally closes that gap.
+      const earlyFrames: Buffer[] = [];
+      let handleMessage = (chunk: Buffer) => {
+        earlyFrames.push(chunk);
+      };
+      socket.on('message', (data, isBinary) => {
+        if (!isBinary) return; // No control-frame protocol yet — every binary frame is audio.
+        handleMessage(Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer));
+      });
+
       const retroId = request.params.id;
       const token = request.query.token;
       if (!token) return closeWith(socket, 4401, 'unauthorized');
@@ -162,11 +183,21 @@ export function registerAudioGatewayRoutes(app: FastifyInstance, deps: AudioGate
             request.log.error(err, 'transcription provider error');
             closeWith(socket, 4503, 'transcription_unavailable');
           },
-          onClose: () => {
+          onClose: (reason) => {
+            // Found live: Deepgram closing the connection well inside its own documented 30s
+            // idle timeout, with nothing anywhere saying why — this previously discarded the
+            // close event's own code/reason entirely, which is the one piece of information that
+            // would actually explain an early, silent disconnect like that.
+            request.log.warn({ reason }, 'transcription provider connection closed');
             // RN-033: "facilitator tab drop records a gap and the next facilitator can resume" —
             // a marker with no text, at the moment the provider's own connection ended.
             void persistAndBroadcast('', Date.now() - streamStartedAt, Date.now() - streamStartedAt, null, true);
           },
+          // Found live: a session that runs its full course and is torn down normally (recording
+          // stopped, left Discuss) never fires onClose at all — this is the only way to tell "ran
+          // fine, nobody said anything transcribable" apart from "never actually worked," since
+          // both look identical from the outside otherwise (zero segments, no error anywhere).
+          onSessionEnd: (stats) => request.log.info({ stats }, 'transcription session ended'),
         });
       } catch (err) {
         request.log.error(err, 'failed to start transcription session');
@@ -176,9 +207,10 @@ export function registerAudioGatewayRoutes(app: FastifyInstance, deps: AudioGate
       let lastUsageFlushAt = Date.now();
       const flushIntervalMs = deps.usageFlushIntervalMs ?? USAGE_FLUSH_INTERVAL_MS_DEFAULT;
 
-      socket.on('message', (data, isBinary) => {
-        if (!isBinary) return; // No control-frame protocol yet — every binary frame is audio.
-        const chunk = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer);
+      // Swaps the early-buffering stand-in above for the real per-chunk handling, then replays
+      // anything that arrived (and was buffered) during this handler's own auth/DB/Deepgram-connect
+      // setup — in the same order it arrived, so a header chunk buffered here is still first.
+      handleMessage = (chunk: Buffer) => {
         try {
           session_.sendAudio(chunk);
         } catch (err) {
@@ -198,7 +230,9 @@ export function registerAudioGatewayRoutes(app: FastifyInstance, deps: AudioGate
           lastUsageFlushAt = now;
           void recordTranscriptionUsage(deps.supabaseAdmin, retroId, elapsedSeconds);
         }
-      });
+      };
+      for (const chunk of earlyFrames) handleMessage(chunk);
+      earlyFrames.length = 0;
 
       socket.on('close', () => {
         session_.close();

@@ -58,10 +58,15 @@ test("a non-author's network traffic never contains another participant's hidden
     await expect(page.getByText('Hidden until reveal').first()).toBeVisible();
 
     // A card created *after* "other" is already connected — proves the live broadcast path is
-    // redacted too, not just the initial GET /board.
+    // redacted too, not just the initial GET /board. The board's own content rendering (the
+    // assertions just above) isn't actually proof the Realtime channel has finished subscribing
+    // yet — found live: a real race between the two, independent of this spec's own code, that
+    // intermittently costs several seconds. A longer timeout here just gives that race room to
+    // resolve; it isn't masking anything the two assertions above wouldn't still catch if the
+    // broadcast never arrived at all.
     const secretAfterLoad = `SECRET-LIVE-${randomUUID()}`;
     await createCard(retroId, columnId, author, secretAfterLoad);
-    await expect(page.getByText('Hidden until reveal')).toHaveCount(2);
+    await expect(page.getByText('Hidden until reveal')).toHaveCount(2, { timeout: 15_000 });
 
     for (const body of responseBodies) {
       expect(body).not.toContain(secretBeforeLoad);
