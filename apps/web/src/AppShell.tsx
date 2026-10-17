@@ -6,23 +6,28 @@ import { useState, type ReactNode } from 'react';
 const DRAWER_WIDTH_EXPANDED = 240;
 const DRAWER_WIDTH_COLLAPSED = 64;
 
-/** Shared content container for every page except BoardPage (which owns its own full layout).
- * `nav` is each page's own set of links — kept as a prop rather than hard-coded here since which
- * links make sense depends on which page you're on.
+/** Shared content container for every page. `nav` is each page's own set of links — kept as a
+ * prop rather than hard-coded here since which links make sense depends on which page you're on.
  *
  * `drawer`, when given, renders the Figma-specified collapsible permanent drawer on the left —
  * a render-prop (not a plain node) because the nav items it wraps need to know the collapse
  * state too (icon-only vs. icon+label). AppShell owns the collapse toggle itself (the chevron
  * button + divider are generic drawer chrome, identical regardless of which page's links go
  * inside) so any future page that wants one gets the same collapse behavior for free. Omitted
- * entirely on every page that doesn't pass one, so this changes nothing for them. */
+ * entirely on every page that doesn't pass one, so this changes nothing for them.
+ *
+ * `fullWidth` skips the `maxWidth="md"` Container (and its own padding) in favor of a plain
+ * flex-growing Box — BoardPage's own layout is already full-bleed with its own padding, and
+ * capping it at `md` would squeeze its multi-column board into the same width as a text page. */
 export function AppShell({
   nav,
   drawer,
+  fullWidth,
   children,
 }: {
   nav?: ReactNode;
   drawer?: (collapsed: boolean) => ReactNode;
+  fullWidth?: boolean;
   children: ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -82,10 +87,17 @@ export function AppShell({
             {drawer(collapsed)}
           </Drawer>
         )}
-        <Container maxWidth="md" sx={{ py: 4, flexGrow: 1 }}>
-          {nav}
-          {children}
-        </Container>
+        {fullWidth ? (
+          <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+            {nav}
+            {children}
+          </Box>
+        ) : (
+          <Container maxWidth="md" sx={{ py: 4, flexGrow: 1 }}>
+            {nav}
+            {children}
+          </Container>
+        )}
       </Box>
     </Box>
   );

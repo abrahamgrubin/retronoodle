@@ -66,11 +66,13 @@ import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import AddReactionOutlinedIcon from '@mui/icons-material/AddReactionOutlined';
 import HomeIcon from '@mui/icons-material/Home';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import { AppShell } from './AppShell';
 import { signInWithGoogle } from './auth';
 import { audioGatewayUrl, fetchBoard, sendHeartbeat } from './board';
 import { reduceBoard, toggleReaction, type BoardState } from './boardReducer';
 import { computeClockOffsetMs, formatCountdown, remainingMs } from './clock';
 import { getCachedJoinCode, setCachedJoinCode } from './joinLinkStorage';
+import { NavDrawerContent } from './NavDrawer';
 import { postMutation } from './mutations';
 import { regenerateJoinLink } from './retros';
 import { createRetroStore } from './retroStore';
@@ -3599,6 +3601,7 @@ function Board({
   const currentPillIndex = PHASE_PILLS.indexOf(board.phase);
 
   return (
+    <AppShell drawer={(collapsed) => <NavDrawerContent teamId={initialBoard.retro.teamId} collapsed={collapsed} />} fullWidth>
     <Box sx={{ fontFamily: 'system-ui, sans-serif', p: 4 }}>
       <style>{'@keyframes rn-timer-flash { 0%, 100% { background: #c00; color: #fff; } 50% { background: #fff; color: #c00; } }'}</style>
       {/* Three-section grid (not one flex row) so the pill bar sits dead-center on the header
@@ -4117,6 +4120,7 @@ function Board({
         </Dialog>
       )}
     </Box>
+    </AppShell>
   );
 }
 
