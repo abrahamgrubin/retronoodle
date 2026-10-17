@@ -52,7 +52,7 @@ export function registerRecapRoutes(app: FastifyInstance, deps: RecapRoutesDeps)
 
     const { data: initialRecapRow, error: recapError } = await supabaseAdmin
       .from('retro_recaps')
-      .select('status, topic_summaries, decisions, generated_at')
+      .select('status, topic_summaries, decisions, generated_at, additional_notes')
       .eq('retro_id', retroId)
       .maybeSingle();
     if (recapError) {
@@ -69,11 +69,20 @@ export function registerRecapRoutes(app: FastifyInstance, deps: RecapRoutesDeps)
           // Swallowed deliberately, same as every other best-effort AI enqueue in this app.
         }
       }
-      recapRow = { status: 'pending', topic_summaries: [], decisions: [], generated_at: null };
+      recapRow = { status: 'pending', topic_summaries: [], decisions: [], generated_at: null, additional_notes: '' };
     }
 
     if (recapRow.status !== 'ready') {
-      return reply.send(RecapResponse.parse({ teamId: retro.team_id, retroName: retro.name, isFacilitator, status: recapRow.status, recap: null }));
+      return reply.send(
+        RecapResponse.parse({
+          teamId: retro.team_id,
+          retroName: retro.name,
+          isFacilitator,
+          status: recapRow.status,
+          recap: null,
+          additionalNotes: recapRow.additional_notes,
+        }),
+      );
     }
 
     const [actionItemsResult, undiscussedResult, participantsResult] = await Promise.all([
@@ -120,6 +129,15 @@ export function registerRecapRoutes(app: FastifyInstance, deps: RecapRoutesDeps)
       generatedAt: recapRow.generated_at,
     });
 
-    return reply.send(RecapResponse.parse({ teamId: retro.team_id, retroName: retro.name, isFacilitator, status: 'ready', recap }));
+    return reply.send(
+      RecapResponse.parse({
+        teamId: retro.team_id,
+        retroName: retro.name,
+        isFacilitator,
+        status: 'ready',
+        recap,
+        additionalNotes: recapRow.additional_notes,
+      }),
+    );
   });
 }

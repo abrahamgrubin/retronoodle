@@ -6,6 +6,7 @@ import { Emoji } from './reactions.js';
 import { TopicSummary, TopicSummaryPoint } from './topicSummaries.js';
 import { ActionItem, ActionItemOrigin, ActionItemReviewOutcome } from './actionItems.js';
 import { RecordingSession } from './recording.js';
+import { RecapDecision, RecapTopicSummary } from './recap.js';
 
 /** POST /retros/:id/mutations body (RN-008). Every mutation type has its own payload schema
  * below; the envelope itself only knows the type name and a client-generated mutationId used
@@ -508,3 +509,49 @@ export const RecapRegenerateResult = z.object({
   status: z.literal('pending'),
 });
 export type RecapRegenerateResult = z.infer<typeof RecapRegenerateResult>;
+
+/** `recap.editTopicSummary`: facilitator edits one topic's recap summary text in place — same
+ * "overwrite in place, no new version" precedent as `topic.editSummary`, just scoped to the
+ * recap's own stored `topic_summaries` array (one entry per discussed topic) instead of the
+ * `topic_summaries` table. Same facilitator-only gate as every other recap mutation
+ * (`retro.editAiSummary`), and only ever allowed once the retro is `closed` (same as
+ * `recap.regenerate` — there's no recap to edit before then). */
+export const RecapEditTopicSummaryPayload = z.object({
+  topicId: z.string().uuid(),
+  summary: z.string().trim().min(1).max(4000),
+});
+export type RecapEditTopicSummaryPayload = z.infer<typeof RecapEditTopicSummaryPayload>;
+
+export const RecapEditTopicSummaryResult = z.object({
+  topicSummaries: z.array(RecapTopicSummary),
+});
+export type RecapEditTopicSummaryResult = z.infer<typeof RecapEditTopicSummaryResult>;
+
+/** `recap.editDecisions`: facilitator edits the recap's Decisions list. The whole array is resent
+ * on every save (same "overwrite in place" precedent as `topic.editSummary`'s own four arrays),
+ * since an individual decision has no stable id of its own — recap-summarizer.md never assigns
+ * one, and generateRecap.ts never stores one (see its own "Never invent an id" comment, about
+ * topicId, the only id a decision carries at all). */
+export const RecapEditDecisionsPayload = z.object({
+  decisions: z.array(RecapDecision),
+});
+export type RecapEditDecisionsPayload = z.infer<typeof RecapEditDecisionsPayload>;
+
+export const RecapEditDecisionsResult = z.object({
+  decisions: z.array(RecapDecision),
+});
+export type RecapEditDecisionsResult = z.infer<typeof RecapEditDecisionsResult>;
+
+/** `recap.editNotes`: the recap page's own "Additional Notes" section — facilitator-authored free
+ * text with no AI involvement at all, unlike every other recap mutation above. Same max-length
+ * precedent as `note.upsert`, and the same "allowed to be empty" convention (clearing it back out
+ * is a valid save, not an error). */
+export const RecapEditNotesPayload = z.object({
+  notes: z.string().max(4000),
+});
+export type RecapEditNotesPayload = z.infer<typeof RecapEditNotesPayload>;
+
+export const RecapEditNotesResult = z.object({
+  notes: z.string(),
+});
+export type RecapEditNotesResult = z.infer<typeof RecapEditNotesResult>;

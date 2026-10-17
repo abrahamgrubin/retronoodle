@@ -63,5 +63,9 @@ export const RecapResponse = z.object({
   isFacilitator: z.boolean(),
   status: z.enum(['pending', 'ready', 'unavailable']),
   recap: Recap.nullable(),
+  // Facilitator-authored free text, independent of `recap` above (present even while that's
+  // still pending/unavailable — unlike topicSummaries/decisions, nothing here is AI-generated,
+  // so there's nothing to wait on). Defaults to '' until the facilitator writes something.
+  additionalNotes: z.string(),
 });
 export type RecapResponse = z.infer<typeof RecapResponse>;
