@@ -1639,10 +1639,33 @@ function SummaryCard({
   );
 }
 
-/** The 320px right-edge panel (RN-019 layout spec), open for everyone (not facilitator-gated,
- * unlike RN-017's SuggestionsPanel — "Voter sees own... Others see progress" precedent doesn't
- * apply here, the whole queue is public once Discuss starts). Two tabs: Queue (RN-019) and
- * Summaries (RN-021, "the Summaries tab of the right panel"). */
+/** Figma "Queue summaries drawer" (node 51:786) header tab — QUEUE/SUMMARIES live in the
+ * drawer's own header row now, not as MUI Buttons inside the body (collapsed state reuses the
+ * Suggestions rail's chrome exactly, node 37:1729, so there's nothing analogous to render there —
+ * no count concept applies to a discussion queue the way it does to pending AI suggestions). */
+function QueueTab({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <Box
+      component="button"
+      type="button"
+      onClick={onClick}
+      sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', border: 0, bgcolor: 'transparent', cursor: 'pointer', font: 'inherit', p: 0, mr: '16px' }}
+    >
+      <Typography
+        sx={{ fontSize: 12, fontWeight: active ? 700 : 500, color: active ? '#151922' : '#626b7f', pt: '20px', pb: '18px', textTransform: 'uppercase' }}
+      >
+        {label}
+      </Typography>
+      <Box sx={{ height: '2px', width: '100%', bgcolor: active ? '#304ffe' : 'transparent' }} />
+    </Box>
+  );
+}
+
+/** The right-edge panel (RN-019 layout spec), open for everyone (not facilitator-gated, unlike
+ * RN-017's SuggestionsPanel — "Voter sees own... Others see progress" precedent doesn't apply
+ * here, the whole queue is public once Discuss starts). Two tabs: Queue (RN-019) and Summaries
+ * (RN-021, "the Summaries tab of the right panel"). Discuss/Wrap up only (the caller's own gate) —
+ * a closed retro's recap now lives on its own dedicated page (RN-045's RecapPage.tsx) instead. */
 function DiscussQueuePanel({
   phase,
   topics,
@@ -1664,8 +1687,9 @@ function DiscussQueuePanel({
   onSaveSummary,
   onRegenerateSummary,
   onAddActionItem,
-  attendees,
   transcriptTextById,
+  open,
+  onToggleOpen,
 }: {
   phase: RetroPhase;
   topics: Topic[];
@@ -1700,7 +1724,8 @@ function DiscussQueuePanel({
   ) => void;
   onRegenerateSummary: (topicId: string) => void;
   onAddActionItem: (topicId: string, text: string) => void;
-  attendees: { id: string; displayName: string }[];
+  open: boolean;
+  onToggleOpen: () => void;
 }) {
   const current = topics.find((t) => t.startedAt && !t.endedAt) ?? null;
   const upNext = topics
@@ -1733,28 +1758,53 @@ function DiscussQueuePanel({
 
   const sortedTopics = [...topics].sort((a, b) => (a.discussionOrder ?? '').localeCompare(b.discussionOrder ?? ''));
 
-  return (
-    <Box sx={{ width: 320, flexShrink: 0 }}>
-      <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 1 }}>
-        <Stack direction="row" spacing={0.5} sx={{ mb: 1 }}>
-          <Button
-            size="small"
-            type="button"
-            onClick={() => onTabChange('queue')}
-            sx={{ fontWeight: tab === 'queue' ? 'bold' : 'normal', textDecoration: tab === 'queue' ? 'underline' : undefined }}
-          >
-            Queue
-          </Button>
-          <Button
-            size="small"
-            type="button"
-            onClick={() => onTabChange('summaries')}
-            sx={{ fontWeight: tab === 'summaries' ? 'bold' : 'normal', textDecoration: tab === 'summaries' ? 'underline' : undefined }}
-          >
-            Summaries
-          </Button>
-        </Stack>
+  if (!open) {
+    return (
+      <Box sx={{ width: RIGHT_PANEL_RAIL_WIDTH, flexShrink: 0, bgcolor: 'white', borderLeft: '1px solid #e0e2e7' }}>
+        <Box
+          component="button"
+          type="button"
+          onClick={onToggleOpen}
+          aria-label="Expand discussion queue panel"
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: 64,
+            width: '100%',
+            border: 0,
+            borderBottom: '1px solid #e0e2e7',
+            bgcolor: 'transparent',
+            cursor: 'pointer',
+          }}
+        >
+          <Box component="img" src="/icons/chevrons-left.svg" alt="" sx={{ width: 20, height: 20 }} />
+        </Box>
+      </Box>
+    );
+  }
 
+  return (
+    <Box sx={{ width: RIGHT_PANEL_DRAWER_WIDTH, flexShrink: 0, bgcolor: 'white', borderLeft: '1px solid #e0e2e7' }}>
+      <Stack
+        direction="row"
+        sx={{ alignItems: 'center', justifyContent: 'space-between', height: 64, px: '20px', borderBottom: '1px solid #e0e2e7' }}
+      >
+        <Stack direction="row">
+          <QueueTab label="Queue" active={tab === 'queue'} onClick={() => onTabChange('queue')} />
+          <QueueTab label="Summaries" active={tab === 'summaries'} onClick={() => onTabChange('summaries')} />
+        </Stack>
+        <Box
+          component="button"
+          type="button"
+          onClick={onToggleOpen}
+          aria-label="Collapse discussion queue panel"
+          sx={{ display: 'flex', border: 0, bgcolor: 'transparent', cursor: 'pointer', p: 0 }}
+        >
+          <Box component="img" src="/icons/chevrons-right.svg" alt="" sx={{ width: 20, height: 20 }} />
+        </Box>
+      </Stack>
+      <Box sx={{ p: 2 }}>
         {tab === 'queue' && current && (
           <Box sx={{ border: '2px solid #2563eb', borderRadius: 1.5, p: 1, mb: 1.5 }}>
             <Typography variant="caption" sx={{ color: '#2563eb', fontWeight: 'bold', display: 'block', mb: 0.25 }}>
@@ -1910,22 +1960,10 @@ function DiscussQueuePanel({
                 }
                 onRegenerate={() => onRegenerateSummary(t.id)}
                 onAddActionItem={(text) => onAddActionItem(t.id, text)}
-                canAddActionItem={phase !== 'closed'}
+                canAddActionItem
                 transcriptTextById={transcriptTextById}
               />
             ))}
-            {/* RN-026: "attendance" — only ever shown once the retro's actually closed, the one
-                new thing this story's summaries panel adds beyond what RN-021 already built. */}
-            {phase === 'closed' && (
-              <Box sx={{ mt: 1.5, fontSize: 12, color: 'text.secondary' }}>
-                <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block' }}>
-                  Attendance
-                </Typography>
-                <Typography variant="caption">
-                  {attendees.length > 0 ? attendees.map((a) => a.displayName).join(', ') : 'No attendance recorded.'}
-                </Typography>
-              </Box>
-            )}
           </Box>
         )}
       </Box>
@@ -1975,10 +2013,11 @@ function DroppableColumn({ column, children }: { column: BoardColumn; children: 
   );
 }
 
-// Figma "Group phase · Suggestions expanded/collapsed" (node 37:1370 / 37:1559) — 288px expanded,
-// 56px collapsed to a lightbulb + count rail, toggled by the chevron button this panel owns.
-const SUGGESTIONS_RAIL_WIDTH = 56;
-const SUGGESTIONS_DRAWER_WIDTH = 288;
+// Figma "Group phase · Suggestions expanded/collapsed" (node 37:1370/37:1559) and "Queue
+// summaries drawer" (node 51:786/37:1729) — both right-edge panels share the same 288px
+// expanded / 56px collapsed chrome, just with different header/content inside.
+const RIGHT_PANEL_RAIL_WIDTH = 56;
+const RIGHT_PANEL_DRAWER_WIDTH = 288;
 
 /** The right-edge panel's per-suggestion card (RN-017 layout spec), facilitator only.
  * Suggestions whose cards got grouped by hand elsewhere (`isStale`) are filtered out by the
@@ -2067,7 +2106,7 @@ function SuggestionsPanel({
 }) {
   if (!open) {
     return (
-      <Box sx={{ width: SUGGESTIONS_RAIL_WIDTH, flexShrink: 0, bgcolor: 'white', borderLeft: '1px solid #e0e2e7' }}>
+      <Box sx={{ width: RIGHT_PANEL_RAIL_WIDTH, flexShrink: 0, bgcolor: 'white', borderLeft: '1px solid #e0e2e7' }}>
         <Box
           component="button"
           type="button"
@@ -2108,7 +2147,7 @@ function SuggestionsPanel({
   }
 
   return (
-    <Box sx={{ width: SUGGESTIONS_DRAWER_WIDTH, flexShrink: 0, bgcolor: 'white', borderLeft: '1px solid #e0e2e7' }}>
+    <Box sx={{ width: RIGHT_PANEL_DRAWER_WIDTH, flexShrink: 0, bgcolor: 'white', borderLeft: '1px solid #e0e2e7' }}>
       <Stack
         direction="row"
         sx={{ alignItems: 'center', justifyContent: 'space-between', height: 64, px: '20px', borderBottom: '1px solid #e0e2e7' }}
@@ -2483,14 +2522,18 @@ function Board({
   const [suggestions, setSuggestions] = useState<GroupSuggestion[]>(initialBoard.suggestions ?? []);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [suggestionsPanelOpen, setSuggestionsPanelOpen] = useState(false);
+  // Found live: DiscussQueuePanel's old fixed 320px box, always rendered inline alongside the
+  // Action items column, overlapped it on narrower screens — same right-edge collapsible chrome
+  // as SuggestionsPanel (Figma node 51:786/37:1729) fixes this the same way. Defaults open since
+  // that matches the panel's previous always-visible behavior.
+  const [queuePanelOpen, setQueuePanelOpen] = useState(true);
   // RN-021 layout spec: "two tabs: Queue and Summaries... In Wrap up the panel opens on
   // Summaries." Defaulted here (not inside DiscussQueuePanel) so the same effect below that
   // already reacts to phase transitions can set it on entering Wrap up, without that component
   // needing its own copy of "was the previous phase discuss." The initial value also covers
-  // loading straight into Wrap up or Closed (no live transition to react to) — RN-026: a reader
-  // opening a closed retro wants the recap, not the queue tab's now-inert manage controls.
+  // loading straight into Wrap up (no live transition to react to).
   const [rightPanelTab, setRightPanelTab] = useState<'queue' | 'summaries'>(
-    initialBoard.retro.phase === 'wrap_up' || initialBoard.retro.phase === 'closed' ? 'summaries' : 'queue',
+    initialBoard.retro.phase === 'wrap_up' ? 'summaries' : 'queue',
   );
   const [hoveredSuggestionId, setHoveredSuggestionId] = useState<string | null>(null);
   // "accepted (collapses to 'Grouped' for 2s, then disappears)" — tracked separately from
@@ -4144,15 +4187,14 @@ function Board({
             onAcceptAll={acceptAllSuggestions}
           />
         )}
-        {/* RN-026: closed is read-only — the Summaries tab (defaulted below) is the recap view a
-            member who missed the retro actually wants; the Queue tab's manage controls
-            (canManage) are hidden rather than left to fail server-side on click. */}
-        {(board.phase === 'discuss' || board.phase === 'wrap_up' || board.phase === 'closed') && (
+        {/* RN-045 follow-up: closed retros now have their own dedicated recap page
+            (RecapPage.tsx) — this panel is Discuss/Wrap up only. */}
+        {(board.phase === 'discuss' || board.phase === 'wrap_up') && (
           <DiscussQueuePanel
             phase={board.phase}
             topics={board.topics}
             cardCountByTopic={cardCountByTopic}
-            canManage={isFacilitator && board.phase !== 'closed'}
+            canManage={isFacilitator}
             onNext={topicNext}
             onFinish={finishDiscussion}
             onJump={jumpToTopic}
@@ -4169,8 +4211,9 @@ function Board({
             onSaveSummary={editSummary}
             onRegenerateSummary={regenerateSummary}
             onAddActionItem={(topicId, text) => createActionItem(text, topicId, null, defaultActionItemDueDate(initialBoard.retro), 'ai')}
-            attendees={board.attendees}
             transcriptTextById={transcriptTextById}
+            open={queuePanelOpen}
+            onToggleOpen={() => setQueuePanelOpen((v) => !v)}
           />
         )}
       </Stack>
