@@ -64,7 +64,6 @@ import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
 import DeleteOutlinedIcon from '@mui/icons-material/DeleteOutlined';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import AddReactionOutlinedIcon from '@mui/icons-material/AddReactionOutlined';
-import HomeIcon from '@mui/icons-material/Home';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { AppShell } from './AppShell';
 import { signInWithGoogle } from './auth';
@@ -3743,9 +3742,6 @@ function Board({
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
           {/* Always reachable, any phase, including closed — a plain anchor (no router in this
               app; see main.tsx) rather than a client-side navigation call. */}
-          <IconButton component="a" href="/" size="small" aria-label="Home" sx={{ ml: -1 }}>
-            <HomeIcon fontSize="small" />
-          </IconButton>
           {/* `variant="h4"` is what gives this an accessible heading role (hidden-cards.spec.ts
               finds the board by it) — the Figma re-skin's own sx overrides its visual size/weight
               entirely, so this changes semantics only, not how it looks. */}
