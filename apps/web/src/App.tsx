@@ -2,8 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Alert, Box, Button, Card, CardActionArea, CardContent, CardMedia, Stack, TextField, Typography } from '@mui/material';
 import { AppShell } from './AppShell';
-import { signInWithGoogle } from './auth';
-import { supabase } from './supabaseClient';
+import { SignInPage } from './SignInPage';
 import { createTeam, fetchMyTeams } from './teams';
 import { createRetro } from './retros';
 import { fetchTeamTemplates } from './templates';
@@ -153,16 +152,14 @@ export function App() {
   });
   const team = teams.data?.[0];
 
+  // Signed out gets the full-page sign-in card, not an AppShell with one button in it — there's
+  // no nav to show yet (every drawer link needs a team id) and nothing else on the page.
+  if (!accessToken) return <SignInPage />;
+
   return (
     <AppShell drawer={team ? (collapsed) => <NavDrawerContent teamId={team.id} collapsed={collapsed} /> : undefined}>
       <Stack spacing={3}>
-        {accessToken ? (
-          <TeamsPanel accessToken={accessToken} />
-        ) : (
-          <Button variant="contained" size="large" sx={{ alignSelf: 'flex-start' }} onClick={() => void signInWithGoogle()} disabled={!supabase}>
-            Continue with Google
-          </Button>
-        )}
+        <TeamsPanel accessToken={accessToken} />
       </Stack>
     </AppShell>
   );

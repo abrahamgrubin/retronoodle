@@ -8,8 +8,12 @@
 -- the literal nil UUID fails that check. Found live by RN-006, the first story to validate one
 -- of these seeded ids (a template id) through a zod .uuid() schema.
 
--- A synthetic auth user so `teams.created_by` has somewhere to point on a fresh local stack.
--- Never used to sign in; RN-003 wires up real Google sign-in.
+-- A synthetic auth user so `teams.created_by` has somewhere to point on a fresh local stack, and
+-- the account SignInPage's dev-only email form signs in as: demo@retronoodle.com / retronoodle.
+-- Local Supabase has no Google provider configured (supabase/config.toml), so password sign-in is
+-- the only way into a local stack — hence a real bcrypt hash here rather than the empty string
+-- this row used to carry, and `provider: email` rather than google. This file only ever runs
+-- against a local stack (`supabase db reset`) and in CI, never production.
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password,
   email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
@@ -21,9 +25,9 @@ insert into auth.users (
   'authenticated',
   'authenticated',
   'demo@retronoodle.com',
-  '',
+  extensions.crypt('retronoodle', extensions.gen_salt('bf')),
   now(),
-  '{"provider":"google","providers":["google"]}',
+  '{"provider":"email","providers":["email"]}',
   '{"full_name":"Demo Facilitator"}',
   now(),
   now(),
