@@ -58,6 +58,11 @@ insert into public.team_members (team_id, user_id, role) values (
 -- Built-in templates. Column colors cycle green, pink, yellow, purple in template order; the
 -- code appends a blue Action items column at retro start (RN-007) — never stored here.
 -- description/image_url back the picker card (name + image + description, 2026-10-16 addition).
+--
+-- Only the first four live here. Anything added to this file stops at local and CI, so later
+-- built-ins (Energy Check, ...e5) are inserted by a migration instead — see
+-- migrations/20261019100000_energy_check_template.sql. Don't re-list those here: migrations run
+-- before the seed on `db reset`, so the ids would collide.
 insert into public.templates (id, team_id, source, name, columns, description, image_url) values
   (
     '00000000-0000-4000-8000-0000000000e1',
