@@ -55,7 +55,13 @@ export function AppShell({
                 width: drawerWidth,
                 boxSizing: 'border-box',
                 position: 'relative',
-                height: '1000%',
+                // `100%` of the row (so the nav's right border runs the full length of whatever
+                // the page is), with the viewport as a floor so a short page still gets a border
+                // all the way down. This was `1000%` — ten times the row — which made the paper
+                // ~9,700px tall on a board page and dragged the whole document to match, leaving
+                // thousands of pixels of empty scroll below the content (found live).
+                height: '100%',
+                minHeight: '100vh',
                 borderRight: '1px solid #e0e0e0',
                 transition: (theme) => theme.transitions.create('width'),
               },
