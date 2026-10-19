@@ -47,7 +47,8 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
       request.log.error({ err: retroError }, 'failed to read retro for board');
       return reply.code(500).send({ error: 'board_read_failed' });
     }
-    if (!retro) return reply.code(404).send({ error: 'not_found' });
+    // A soft-deleted retro (retros.deleted_at) is gone as far as every reader is concerned.
+    if (!retro || retro.deleted_at) return reply.code(404).send({ error: 'not_found' });
 
     const role = await getTeamRole(supabaseAdmin, retro.team_id, user.id);
     if (!can(user, 'retro.read', { type: 'retro', teamRole: role, facilitatorId: retro.facilitator_id })) {
@@ -417,14 +418,14 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
     const retroId = request.params.id;
     const { data: retro, error: retroError } = await supabaseAdmin
       .from('retros')
-      .select('team_id, facilitator_id')
+      .select('team_id, facilitator_id, deleted_at')
       .eq('id', retroId)
       .maybeSingle();
     if (retroError) {
       request.log.error({ err: retroError }, 'failed to read retro for heartbeat');
       return reply.code(500).send({ error: 'heartbeat_failed' });
     }
-    if (!retro) return reply.code(404).send({ error: 'not_found' });
+    if (!retro || retro.deleted_at) return reply.code(404).send({ error: 'not_found' });
 
     const role = await getTeamRole(supabaseAdmin, retro.team_id, user.id);
     if (!can(user, 'retro.read', { type: 'retro', teamRole: role, facilitatorId: retro.facilitator_id })) {

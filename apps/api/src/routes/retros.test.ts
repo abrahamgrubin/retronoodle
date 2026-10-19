@@ -362,6 +362,7 @@ describe('GET /teams/:teamId/retros', () => {
         phase: 'closed',
         created_at: '2026-01-02T00:00:00.000Z',
         closed_at: '2026-01-02T01:00:00.000Z',
+        facilitator_id: '00000000-0000-4000-8000-0000000000f1',
       },
       {
         id: '00000000-0000-4000-8000-0000000000c2',
@@ -369,6 +370,7 @@ describe('GET /teams/:teamId/retros', () => {
         phase: 'closed',
         created_at: '2026-01-01T00:00:00.000Z',
         closed_at: '2026-01-01T01:00:00.000Z',
+        facilitator_id: '00000000-0000-4000-8000-0000000000f2',
       },
     ];
     const supabaseAdmin = {
@@ -400,5 +402,80 @@ describe('GET /teams/:teamId/retros', () => {
     app = await buildWith(supabaseAdmin);
     const res = await app.inject({ method: 'GET', url: `/teams/${teamId}/retros`, headers: AUTH_HEADER });
     expect(res.statusCode).toBe(403);
+  });
+});
+
+describe('DELETE /retros/:id', () => {
+  const retroId = '00000000-0000-4000-8000-0000000000bb';
+  const teamId = '00000000-0000-4000-8000-0000000000aa';
+  const otherUser = '00000000-0000-4000-8000-0000000000f9';
+
+  /** `retroRow` is what the pre-check reads; `teamRole` is what `getTeamRole` resolves to. */
+  function build({ retroRow, teamRole, calls = [] }: { retroRow: unknown; teamRole: string | null; calls?: unknown[][] }) {
+    const supabaseAdmin = {
+      from(table: string) {
+        if (table === 'team_members') return chain({ data: teamRole ? { role: teamRole } : null, error: null });
+        if (table === 'retros') return chain({ data: retroRow, error: null }, calls);
+        throw new Error(`unexpected table ${table}`);
+      },
+    } as unknown as SupabaseClient<Database>;
+    return buildWith(supabaseAdmin);
+  }
+
+  const del = (a: FastifyInstance) => a.inject({ method: 'DELETE', url: `/retros/${retroId}`, headers: AUTH_HEADER });
+
+  it('the facilitator soft-deletes the retro rather than removing the row', async () => {
+    const calls: unknown[][] = [];
+    app = await build({
+      retroRow: { id: retroId, team_id: teamId, facilitator_id: claims.sub, deleted_at: null },
+      teamRole: 'member',
+      calls,
+    });
+
+    const res = await del(app);
+
+    expect(res.statusCode).toBe(204);
+    // A stamped `deleted_at`, never a `.delete()` — action_items.source_retro_id cascades.
+    const update = calls.find((c) => c[0] === 'update');
+    expect(update).toBeDefined();
+    expect((update?.[1] as { deleted_at?: string }).deleted_at).toEqual(expect.any(String));
+    expect(calls.some((c) => c[0] === 'delete')).toBe(false);
+  });
+
+  it('a team admin may delete a retro they did not facilitate', async () => {
+    app = await build({
+      retroRow: { id: retroId, team_id: teamId, facilitator_id: otherUser, deleted_at: null },
+      teamRole: 'admin',
+    });
+    expect((await del(app)).statusCode).toBe(204);
+  });
+
+  it('rejects a plain member who is not the facilitator', async () => {
+    app = await build({
+      retroRow: { id: retroId, team_id: teamId, facilitator_id: otherUser, deleted_at: null },
+      teamRole: 'member',
+    });
+    expect((await del(app)).statusCode).toBe(403);
+  });
+
+  it('rejects a non-member', async () => {
+    app = await build({
+      retroRow: { id: retroId, team_id: teamId, facilitator_id: otherUser, deleted_at: null },
+      teamRole: null,
+    });
+    expect((await del(app)).statusCode).toBe(403);
+  });
+
+  it('reads an already-deleted retro as gone, so a double-click cannot succeed twice', async () => {
+    app = await build({
+      retroRow: { id: retroId, team_id: teamId, facilitator_id: claims.sub, deleted_at: '2026-01-01T00:00:00.000Z' },
+      teamRole: 'admin',
+    });
+    expect((await del(app)).statusCode).toBe(404);
+  });
+
+  it('404s for a retro that does not exist', async () => {
+    app = await build({ retroRow: null, teamRole: 'admin' });
+    expect((await del(app)).statusCode).toBe(404);
   });
 });

@@ -40,7 +40,9 @@ describe('fetchTeamRetros', () => {
     const fetchImpl = vi.fn(
       async () =>
         new Response(
-          JSON.stringify([{ id: retro.id, name: retro.name, phase: 'closed', createdAt: retro.createdAt, closedAt: retro.createdAt }]),
+          JSON.stringify([
+            { id: retro.id, name: retro.name, phase: 'closed', createdAt: retro.createdAt, closedAt: retro.createdAt, facilitatorId: retro.facilitatorId },
+          ]),
         ),
     );
     const retros = await fetchTeamRetros('token-123', retro.teamId, fetchImpl as unknown as typeof fetch);

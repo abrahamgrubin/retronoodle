@@ -49,6 +49,10 @@ export const RetroListItem = z.object({
   phase: RetroPhase,
   createdAt: z.string(),
   closedAt: z.string().nullable(),
+  /** So the list can decide whether to offer this row's delete control without a permission
+   * request per row — `retro.delete` is "facilitator or team admin", and the caller already
+   * knows its own team role from `GET /me/teams`. */
+  facilitatorId: z.string().uuid(),
 });
 export type RetroListItem = z.infer<typeof RetroListItem>;
 

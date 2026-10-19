@@ -26,6 +26,7 @@ interface LockAndCheckRow {
   cards_revealed: boolean;
   phase_deadline: Date | null;
   vote_budget: number;
+  deleted_at: Date | null;
   team_role: TeamRole | null;
   existing_seq: number | null;
   existing_payload: StoredEventPayload | null;
@@ -100,7 +101,7 @@ export async function processMutation(deps: {
     try {
       const lockResult = await client.query<LockAndCheckRow>(
         `with locked as (
-           select id, team_id, facilitator_id, phase, cards_revealed, phase_deadline, vote_budget
+           select id, team_id, facilitator_id, phase, cards_revealed, phase_deadline, vote_budget, deleted_at
            from retros
            where id = $1
            for update
@@ -118,7 +119,9 @@ export async function processMutation(deps: {
         [retroId, envelope.mutationId, user.id],
       );
       const row = lockResult.rows[0];
-      if (!row) throw new MutationRejected(404, 'not_found', 'Retro not found');
+      // A soft-deleted retro (retros.deleted_at) takes no further writes — it reads as gone
+      // here for the same reason it does from the board and the list.
+      if (!row || row.deleted_at) throw new MutationRejected(404, 'not_found', 'Retro not found');
 
       if (row.existing_seq !== null) {
         await client.query('COMMIT');

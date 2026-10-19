@@ -78,3 +78,10 @@ export async function joinRetro(
   if (!res.ok) throw new JoinError('unknown', `Join failed: ${res.status}`);
   return JoinResponse.parse(await res.json());
 }
+
+/** DELETE /retros/:id (facilitator or team admin). A soft delete server-side — the retro leaves
+ * every list and its board stops resolving, but its action items keep their source retro name. */
+export async function deleteRetro(accessToken: string, retroId: string, fetchImpl: typeof fetch = fetch): Promise<void> {
+  const res = await fetchImpl(`${API_URL}/retros/${retroId}`, { method: 'DELETE', headers: authHeaders(accessToken) });
+  if (!res.ok) throw new Error(`DELETE /retros/:id failed: ${res.status}`);
+}

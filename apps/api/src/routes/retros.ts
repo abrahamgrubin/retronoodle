@@ -175,8 +175,9 @@ export function registerRetroRoutes(app: FastifyInstance, deps: RetroRoutesDeps)
 
     const { data: retros, error } = await supabaseAdmin
       .from('retros')
-      .select('id, name, phase, created_at, closed_at')
+      .select('id, name, phase, created_at, closed_at, facilitator_id')
       .eq('team_id', teamId)
+      .is('deleted_at', null)
       .order('created_at', { ascending: false });
     if (error) {
       request.log.error({ err: error }, 'failed to list team retros');
@@ -184,8 +185,58 @@ export function registerRetroRoutes(app: FastifyInstance, deps: RetroRoutesDeps)
     }
 
     return TeamRetrosResponse.parse(
-      (retros ?? []).map((r) => ({ id: r.id, name: r.name, phase: r.phase, createdAt: r.created_at, closedAt: r.closed_at })),
+      (retros ?? []).map((r) => ({
+        id: r.id,
+        name: r.name,
+        phase: r.phase,
+        createdAt: r.created_at,
+        closedAt: r.closed_at,
+        // The list is the only place the delete control is offered, and whether to offer it is
+        // the same `retro.delete` question the route itself answers — the client needs both
+        // halves of it (this, plus its own team role) to decide without a request per row.
+        facilitatorId: r.facilitator_id,
+      })),
     );
+  });
+
+  /** DELETE /retros/:id — facilitator or team admin (`retro.delete`). A soft delete: it stamps
+   * `deleted_at` rather than removing the row, because `action_items.source_retro_id` cascades
+   * and those items deliberately outlive their retro (see the migration's own comment). Every
+   * read that would otherwise still serve the retro — this team's list, the board, the recap,
+   * the join link, and the mutation pipeline's own lock — filters it out. */
+  app.delete<{ Params: { id: string } }>('/retros/:id', { preHandler: requireAuth }, async (request, reply) => {
+    const user = request.user;
+    if (!user) return reply.code(401).send({ error: 'unauthorized' });
+
+    const { data: retro, error: fetchError } = await supabaseAdmin
+      .from('retros')
+      .select('id, team_id, facilitator_id, deleted_at')
+      .eq('id', request.params.id)
+      .maybeSingle();
+    if (fetchError) {
+      request.log.error({ err: fetchError }, 'failed to read retro before delete');
+      return reply.code(500).send({ error: 'retro_read_failed' });
+    }
+    // An already-deleted retro reads as gone rather than as a second successful delete, so a
+    // double-click can't report success twice over.
+    if (!retro || retro.deleted_at) return reply.code(404).send({ error: 'not_found' });
+
+    const role = await getTeamRole(supabaseAdmin, retro.team_id, user.id);
+    if (!can(user, 'retro.delete', { type: 'retro', teamRole: role, facilitatorId: retro.facilitator_id })) {
+      return reply.code(403).send({ error: 'forbidden' });
+    }
+
+    const { error: deleteError } = await supabaseAdmin
+      .from('retros')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('id', retro.id)
+      .is('deleted_at', null);
+    if (deleteError) {
+      request.log.error({ err: deleteError }, 'failed to delete retro');
+      return reply.code(500).send({ error: 'retro_delete_failed' });
+    }
+
+    return reply.code(204).send();
   });
 
   app.post<{ Params: { id: string } }>(
@@ -241,8 +292,9 @@ export function registerRetroRoutes(app: FastifyInstance, deps: RetroRoutesDeps)
       request.log.error({ err: error }, 'failed to look up join code');
       return reply.code(500).send({ error: 'join_failed' });
     }
-    // Also covers a regenerated (now-stale) code: its hash no longer matches any retro.
-    if (!retro) return reply.code(404).send({ error: 'invalid_link' });
+    // Also covers a regenerated (now-stale) code: its hash no longer matches any retro. A
+    // deleted retro reads the same way — the link is simply no longer good for anything.
+    if (!retro || retro.deleted_at) return reply.code(404).send({ error: 'invalid_link' });
     if (retro.phase === 'closed') {
       return reply.code(410).send({ error: 'retro_closed', teamId: retro.team_id });
     }

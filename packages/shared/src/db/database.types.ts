@@ -141,6 +141,7 @@ export interface Database {
           template_source: string;
           created_at: string;
           closed_at: string | null;
+          deleted_at: string | null;
         };
         Insert: {
           id: string;
@@ -160,6 +161,7 @@ export interface Database {
           template_source: string;
           created_at?: string;
           closed_at?: string | null;
+          deleted_at?: string | null;
         };
         Update: {
           id?: string;
@@ -179,6 +181,7 @@ export interface Database {
           template_source?: string;
           created_at?: string;
           closed_at?: string | null;
+          deleted_at?: string | null;
         };
         Relationships: [];
       };
