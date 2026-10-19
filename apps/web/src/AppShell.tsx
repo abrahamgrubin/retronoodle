@@ -23,11 +23,18 @@ export function AppShell({
   nav,
   drawer,
   fullWidth,
+  rightPanel,
   children,
 }: {
   nav?: ReactNode;
   drawer?: (collapsed: boolean) => ReactNode;
   fullWidth?: boolean;
+  /** A full-height panel pinned to the right edge, opposite `drawer` — BoardPage's Suggestions
+   * (Group) and Queue/Summaries (Discuss/Wrap up) panels. It belongs here rather than inside
+   * `children` because only a direct child of the row below can start at the top of the page:
+   * nested inside a page's own content it begins under that page's header and padding, and ends
+   * wherever its content does (found live — the panel started ~150px down and stopped short). */
+  rightPanel?: ReactNode;
   children: ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -97,6 +104,34 @@ export function AppShell({
             {nav}
             {children}
           </Container>
+        )}
+        {rightPanel && (
+          <Box
+            sx={{
+              flexShrink: 0,
+              display: 'flex',
+              // Without this the default `stretch` pins the panel to exactly this container's
+              // height, so content taller than the viewport scrolls out beyond the panel's own
+              // background and left border and paints over the board (found live). Sizing it to
+              // its content instead, with the `minHeight` below as the floor, keeps the panel's
+              // surface under its content at every scroll position.
+              alignItems: 'flex-start',
+              // Sticky rather than stretched: the panel stays pinned to the viewport while a
+              // tall board scrolls past it, instead of scrolling away and leaving a gap.
+              // `alignSelf` keeps the flex row from stretching it, which sticky can't survive.
+              position: 'sticky',
+              top: 0,
+              alignSelf: 'flex-start',
+              height: '100vh',
+              overflowY: 'auto',
+              // The panel owns its own width, border and background — this only guarantees it
+              // covers the full viewport when its content is short, and keeps covering it when
+              // the content is long enough to scroll this container.
+              '& > *': { minHeight: '100%' },
+            }}
+          >
+            {rightPanel}
+          </Box>
         )}
       </Box>
     </Box>
