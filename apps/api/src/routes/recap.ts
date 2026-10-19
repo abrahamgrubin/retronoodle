@@ -32,14 +32,14 @@ export function registerRecapRoutes(app: FastifyInstance, deps: RecapRoutesDeps)
     const retroId = request.params.id;
     const { data: retro, error: retroError } = await supabaseAdmin
       .from('retros')
-      .select('team_id, facilitator_id, phase, name')
+      .select('team_id, facilitator_id, phase, name, deleted_at')
       .eq('id', retroId)
       .maybeSingle();
     if (retroError) {
       request.log.error({ err: retroError }, 'failed to read retro for recap');
       return reply.code(500).send({ error: 'recap_read_failed' });
     }
-    if (!retro) return reply.code(404).send({ error: 'not_found' });
+    if (!retro || retro.deleted_at) return reply.code(404).send({ error: 'not_found' });
 
     const role = await getTeamRole(supabaseAdmin, retro.team_id, user.id);
     if (!can(user, 'retro.read', { type: 'retro', teamRole: role, facilitatorId: retro.facilitator_id })) {

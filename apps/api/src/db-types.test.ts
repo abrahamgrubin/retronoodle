@@ -21,6 +21,7 @@ describe('generated db types resolve through @retronoodle/shared', () => {
       closed_with_override: false,
       created_at: new Date().toISOString(),
       closed_at: null,
+      deleted_at: null,
     };
 
     expect(retro.phase).toBe('write');

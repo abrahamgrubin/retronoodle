@@ -43,6 +43,7 @@ export type Action =
   | 'retro.manageDiscussQueue'
   | 'retro.editAiSummary'
   | 'retro.close'
+  | 'retro.delete'
   | 'retro.manageRecording'
   | 'template.read'
   | 'actionItem.read'
@@ -111,6 +112,11 @@ export function can(user: CanUser, action: Action, resource: Resource): boolean 
       // primary button in the header ... facilitator only"; RN-032 — "Facilitator clicks Record").
       // Facilitator isn't a stored role (see RetroResource) — it's just facilitatorId === user.id.
       return resource?.type === 'retro' && resource.facilitatorId === user.id;
+    case 'retro.delete':
+      // The one retro action that isn't facilitator-only: a team admin can clear out a retro
+      // whoever facilitated it, which matters once that person has left the team. Soft delete
+      // (retros.deleted_at), so this is recoverable in the database rather than destructive.
+      return resource?.type === 'retro' && (resource.facilitatorId === user.id || resource.teamRole === 'admin');
     case 'card.edit':
     case 'card.delete':
       // Ownership, not a role (RN-009): only the author may edit or delete their own card.

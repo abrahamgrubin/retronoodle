@@ -61,7 +61,10 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
       : false,
   });
 
-  await app.register(cors, { origin: options.webOrigin });
+  // `methods` is explicit because @fastify/cors defaults to GET/HEAD/POST/PUT/PATCH and friends
+  // without DELETE — the browser preflight for `DELETE /retros/:id` failed CORS while the same
+  // request from curl (no preflight) succeeded, so the route looked fine from every test.
+  await app.register(cors, { origin: options.webOrigin, methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'] });
   // RN-033: the audio gateway's one WebSocket route (routes/audioGateway.ts).
   await app.register(websocket);
 

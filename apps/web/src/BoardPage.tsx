@@ -65,6 +65,7 @@ import DeleteOutlinedIcon from '@mui/icons-material/DeleteOutlined';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import AddReactionOutlinedIcon from '@mui/icons-material/AddReactionOutlined';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import AccessAlarmIcon from '@mui/icons-material/AccessAlarm';
 import { AppShell } from './AppShell';
 import { signInWithGoogle } from './auth';
 import { audioGatewayUrl, fetchBoard, sendHeartbeat } from './board';
@@ -2213,25 +2214,6 @@ function SuggestionsPanel({
 /** A single short beep (RN-012: "At zero the pill flashes and chimes once"). Best-effort — a
  * blocked AudioContext (autoplay policy, a headless test run) shouldn't break anything else, so
  * failures are swallowed; the visual flash still carries the alert either way. */
-function playChime() {
-  try {
-    const AudioCtx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx = new AudioCtx();
-    const oscillator = ctx.createOscillator();
-    const gain = ctx.createGain();
-    oscillator.type = 'sine';
-    oscillator.frequency.value = 880;
-    gain.gain.setValueAtTime(0.2, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.5);
-    oscillator.connect(gain);
-    gain.connect(ctx.destination);
-    oscillator.start();
-    oscillator.stop(ctx.currentTime + 0.5);
-  } catch {
-    // Best-effort, as above.
-  }
-}
 
 /** The phase countdown pill (RN-012). Ticks once a second purely for display — the deadline
  * itself only ever changes on a transition or extend broadcast, never from a local timer. */
@@ -2249,7 +2231,6 @@ function PhaseTimer({ phaseDeadline, clockOffsetMs }: { phaseDeadline: string | 
   useEffect(() => {
     if (isExpired && phaseDeadline && alertedForRef.current !== phaseDeadline) {
       alertedForRef.current = phaseDeadline;
-      playChime();
     }
   }, [isExpired, phaseDeadline]);
 
@@ -2327,10 +2308,13 @@ export function columnPalette(colorName: string): { accent: string; card: string
 function OnlineAvatarStack({ members }: { members: { id: string; displayName: string }[] }) {
   if (members.length === 0) return null;
   return (
-    <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+    // `minWidth: 0` plus the label's own ellipsis make this the part of the header that gives way
+    // first: at 1440 with the right-edge panel open the header row has ~900px to work with, and
+    // without somewhere to absorb that the avatars and share button collide with the phase pills.
+    <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
       <AvatarGroup
         max={6}
-        sx={{ '& .MuiAvatar-root': { width: 32, height: 32, fontSize: 12, fontWeight: 600, border: '2px solid white', ml: '-4px' } }}
+        sx={{ flexShrink: 0, '& .MuiAvatar-root': { width: 32, height: 32, fontSize: 12, fontWeight: 600, border: '2px solid white', ml: '-4px' } }}
       >
         {members.map((m) => (
           <Avatar key={m.id} title={m.displayName} sx={{ bgcolor: colorForId(m.id) }}>
@@ -2338,7 +2322,7 @@ function OnlineAvatarStack({ members }: { members: { id: string; displayName: st
           </Avatar>
         ))}
       </AvatarGroup>
-      <Typography sx={{ fontSize: 13, color: '#6b7280' }}>
+      <Typography sx={{ fontSize: 13, color: '#6b7280', minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
         {members.length} {members.length === 1 ? 'person' : 'people'} online
       </Typography>
     </Stack>
@@ -3731,14 +3715,81 @@ function Board({
   const currentPillIndex = PHASE_PILLS.indexOf(board.phase);
 
   return (
-    <AppShell drawer={(collapsed) => <NavDrawerContent teamId={initialBoard.retro.teamId} collapsed={collapsed} />} fullWidth>
-    <Box sx={{ fontFamily: 'system-ui, sans-serif', p: 4 }}>
+    <AppShell
+      drawer={(collapsed) => <NavDrawerContent teamId={initialBoard.retro.teamId} collapsed={collapsed} />}
+      fullWidth
+      rightPanel={
+        <>
+          {isFacilitator && board.phase === 'group' && (
+            <SuggestionsPanel
+              suggestions={visibleSuggestions}
+              loading={suggestionsLoading}
+              open={suggestionsPanelOpen}
+              onToggleOpen={() => setSuggestionsPanelOpen((v) => !v)}
+              justAcceptedIds={justAcceptedIds}
+              columnTitleById={columnTitleById}
+              onHover={setHoveredSuggestionId}
+              onAccept={acceptSuggestion}
+              onReject={rejectSuggestion}
+              onAcceptAll={acceptAllSuggestions}
+            />
+          )}
+          {/* RN-045 follow-up: closed retros now have their own dedicated recap page
+              (RecapPage.tsx) — this panel is Discuss/Wrap up only. */}
+          {(board.phase === 'discuss' || board.phase === 'wrap_up') && (
+            <DiscussQueuePanel
+              phase={board.phase}
+              topics={board.topics}
+              cardCountByTopic={cardCountByTopic}
+              canManage={isFacilitator}
+              onNext={topicNext}
+              onFinish={finishDiscussion}
+              onJump={jumpToTopic}
+              onReorder={reorderQueueTopic}
+              onSkipTopic={skipTopic}
+              onRemoveTopic={removeTopic}
+              canEditNotes={canEditNotes}
+              onNotesChange={updateNotes}
+              tab={rightPanelTab}
+              onTabChange={setRightPanelTab}
+              topicSummaries={board.topicSummaries}
+              summaryUnavailableTopicIds={board.summaryUnavailableTopicIds}
+              onHoverSummarySources={hoverSummarySources}
+              onSaveSummary={editSummary}
+              onRegenerateSummary={regenerateSummary}
+              onAddActionItem={(topicId, text) => createActionItem(text, topicId, null, defaultActionItemDueDate(initialBoard.retro), 'ai')}
+              transcriptTextById={transcriptTextById}
+              open={queuePanelOpen}
+              onToggleOpen={() => setQueuePanelOpen((v) => !v)}
+            />
+          )}
+        </>
+      }
+    >
+    <Box sx={{ fontFamily: 'system-ui, sans-serif', p: 4, containerType: 'inline-size' }}>
       <style>{'@keyframes rn-timer-flash { 0%, 100% { background: #c00; color: #fff; } 50% { background: #fff; color: #c00; } }'}</style>
       {/* Three-section grid (not one flex row) so the pill bar sits dead-center on the header
           regardless of how wide the name on the left or the timer/recording/recap/avatars
           cluster on the right end up being — a flex row can only put it "next to" its
-          neighbors, never centered independent of their width. */}
-      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', gap: 1, mb: 0.5 }}>
+          neighbors, never centered independent of their width.
+          `minmax(max-content, 1fr)` on the controls column, because a grid item's default
+          `min-width: auto` is min-content: without it the cluster shrinks below its own controls
+          and spills back over the phase pills once the right-edge panel takes its 288px out of
+          this row. The name column may still shrink to nothing (it wraps).
+          Below ~1100px of *container* width — a 1440px viewport with both the nav and that panel
+          open leaves ~910px — the three clusters genuinely cannot fit on one line, so they stack
+          instead of overlapping. A container query, not a viewport one: the space available here
+          depends on whether the panel is open, which a viewport query can't see. */}
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(0, 1fr) auto minmax(max-content, 1fr)',
+          alignItems: 'center',
+          gap: 1,
+          mb: 0.5,
+          '@container (max-width: 1100px)': { gridTemplateColumns: '1fr', justifyItems: 'center', rowGap: 1.5 },
+        }}
+      >
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
           {/* Always reachable, any phase, including closed — a plain anchor (no router in this
               app; see main.tsx) rather than a client-side navigation call. */}
@@ -3776,27 +3827,75 @@ function Board({
               </Box>
             ))}
           </Box>
-          <PhaseTimer phaseDeadline={board.phaseDeadline} clockOffsetMs={clockOffsetMs} />
-          {/* Lives next to the countdown it extends, not down with the rest of the facilitator's
-              phase controls — found live: easy to miss down there right when the timer's
-              actually running low, which is the one moment this button matters. */}
-          {isFacilitator && board.phaseDeadline && (
-            <Stack direction="row" spacing={0.5}>
-              {[1, 2, 5].map((minutes) => (
-                <Button size="small" key={minutes} type="button" onClick={() => extendPhase(minutes as 1 | 2 | 5)}>
-                  +{minutes}
-                </Button>
-              ))}
-            </Stack>
+          {/* Hangs off the countdown it extends rather than sitting beside it permanently —
+              three buttons the facilitator only needs in the last minute of a phase otherwise
+              crowd the header the whole time.
+              Hidden with `opacity` and `pointer-events` rather than `visibility`/`display`, and
+              positioned absolutely instead of portalled into a Tooltip, so the buttons stay in
+              the DOM right after the timer: that keeps them in tab order (a `visibility: hidden`
+              or portalled control is unreachable by keyboard — the Tooltip version of this sent
+              the next Tab straight to "Share link"). `:focus-within` is what then reveals them,
+              so tabbing in shows the same menu hovering does. */}
+          {isFacilitator && board.phaseDeadline ? (
+            <Box
+              sx={{
+                position: 'relative',
+                display: 'inline-flex',
+                '&:hover .rn-extend, &:focus-within .rn-extend': { opacity: 1, pointerEvents: 'auto' },
+              }}
+            >
+              <PhaseTimer phaseDeadline={board.phaseDeadline} clockOffsetMs={clockOffsetMs} />
+              <Stack
+                className="rn-extend"
+                direction="column"
+                spacing={0.5}
+                sx={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  mt: 0.5,
+                  p: 0.5,
+                  bgcolor: 'background.paper',
+                  borderRadius: 1,
+                  boxShadow: 3,
+                  zIndex: 10,
+                  opacity: 0,
+                  pointerEvents: 'none',
+                  transition: (theme) => theme.transitions.create('opacity'),
+                }}
+              >
+                {[1, 2, 5].map((minutes) => (
+                  <Button
+                    size="small"
+                    key={minutes}
+                    type="button"
+                    aria-label={`Extend this phase by ${minutes} minute${minutes === 1 ? '' : 's'}`}
+                    // A clicked button keeps focus, and `:focus-within` would hold this menu open
+                    // over the board until something else was clicked. `detail > 0` is only true
+                    // for a real pointer click (Enter/Space report 0), so the menu closes behind a
+                    // mouse without yanking focus away from someone using the keyboard.
+                    onClick={(e) => {
+                      extendPhase(minutes as 1 | 2 | 5);
+                      if (e.detail > 0) e.currentTarget.blur();
+                    }}
+                  >
+                    +{minutes}<AccessAlarmIcon /> 
+                  </Button>
+                ))}
+              </Stack>
+            </Box>
+          ) : (
+            <PhaseTimer phaseDeadline={board.phaseDeadline} clockOffsetMs={clockOffsetMs} />
           )}
         </Stack>
 
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'flex-end' }}>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'flex-end', minWidth: 0 }}>
           {/* RN-032 AC: "The Recording badge shows on every browser while recording and
               disappears when stopped" — specifically `recording`, not `pending`/`paused` (nothing
               is actually being captured yet in either of those states). */}
           {board.recordingSession?.status === 'recording' && (
-            <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', bgcolor: '#fee2e2', borderRadius: 999, px: 1.5, py: 0.75 }}>
+            <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', bgcolor: '#fee2e2', borderRadius: 999, px: 1.5, py: 0.75, flexShrink: 0 }}>
               <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#dc2626' }} />
               <Typography sx={{ fontSize: 13, fontWeight: 500, color: '#b91c1c' }}>Recording</Typography>
             </Stack>
@@ -3821,6 +3920,7 @@ function Board({
               startIcon={<ContentCopyIcon fontSize="small" />}
               onClick={() => void copyShareLink()}
               disabled={shareLinkPending}
+              sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}
             >
               {shareLinkCopied ? 'Copied!' : 'Share link'}
             </Button>
@@ -4169,49 +4269,6 @@ function Board({
             )}
           </DragOverlay>
         </DndContext>
-        {isFacilitator && board.phase === 'group' && (
-          <SuggestionsPanel
-            suggestions={visibleSuggestions}
-            loading={suggestionsLoading}
-            open={suggestionsPanelOpen}
-            onToggleOpen={() => setSuggestionsPanelOpen((v) => !v)}
-            justAcceptedIds={justAcceptedIds}
-            columnTitleById={columnTitleById}
-            onHover={setHoveredSuggestionId}
-            onAccept={acceptSuggestion}
-            onReject={rejectSuggestion}
-            onAcceptAll={acceptAllSuggestions}
-          />
-        )}
-        {/* RN-045 follow-up: closed retros now have their own dedicated recap page
-            (RecapPage.tsx) — this panel is Discuss/Wrap up only. */}
-        {(board.phase === 'discuss' || board.phase === 'wrap_up') && (
-          <DiscussQueuePanel
-            phase={board.phase}
-            topics={board.topics}
-            cardCountByTopic={cardCountByTopic}
-            canManage={isFacilitator}
-            onNext={topicNext}
-            onFinish={finishDiscussion}
-            onJump={jumpToTopic}
-            onReorder={reorderQueueTopic}
-            onSkipTopic={skipTopic}
-            onRemoveTopic={removeTopic}
-            canEditNotes={canEditNotes}
-            onNotesChange={updateNotes}
-            tab={rightPanelTab}
-            onTabChange={setRightPanelTab}
-            topicSummaries={board.topicSummaries}
-            summaryUnavailableTopicIds={board.summaryUnavailableTopicIds}
-            onHoverSummarySources={hoverSummarySources}
-            onSaveSummary={editSummary}
-            onRegenerateSummary={regenerateSummary}
-            onAddActionItem={(topicId, text) => createActionItem(text, topicId, null, defaultActionItemDueDate(initialBoard.retro), 'ai')}
-            transcriptTextById={transcriptTextById}
-            open={queuePanelOpen}
-            onToggleOpen={() => setQueuePanelOpen((v) => !v)}
-          />
-        )}
       </Stack>
       {footerHint(board.phase) && (
         <Typography sx={{ fontSize: 13, color: '#9ca3af', textAlign: 'center', mt: 3 }}>{footerHint(board.phase)}</Typography>
