@@ -13,6 +13,15 @@ export async function signInWithGoogle(): Promise<void> {
   if (error) throw error;
 }
 
+/** Dev-only (SignInPage renders the form behind `import.meta.env.DEV`): a local Supabase stack
+ * has no Google provider configured, so password sign-in is the only way in. The account comes
+ * from supabase/seed.sql — demo@retronoodle.com / retronoodle. */
+export async function signInWithPassword(email: string, password: string): Promise<void> {
+  if (!supabase) throw new Error('Supabase is not configured (see .env.example).');
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) throw error;
+}
+
 export async function signOut(): Promise<void> {
   if (!supabase) return;
   await supabase.auth.signOut();
