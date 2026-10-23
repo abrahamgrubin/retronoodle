@@ -27,6 +27,7 @@ const emptyBoard: BoardState = {
   recordingSession: null,
   transcriptSegments: [],
   unmatchedSpeakers: null,
+  additionalNotes: '',
 };
 
 function createEvent(overrides: Partial<Record<string, unknown>> = {}): RetroEvent {
@@ -857,5 +858,10 @@ describe('reduceBoard', () => {
       expect(updated.topics.map((t) => t.id)).toEqual([otherTopicId]);
       expect(updated.cards[0]).toMatchObject({ topicId: null });
     });
+  });
+
+  it("recap.editNotes replaces Wrap up's additional notes for every viewer", () => {
+    const updated = reduceBoard({ ...emptyBoard, additionalNotes: 'old' }, { seq: 1, type: 'recap.editNotes', payload: { notes: 'Follow up with design.' } });
+    expect(updated.additionalNotes).toBe('Follow up with design.');
   });
 });

@@ -21,20 +21,20 @@ import { colorForId, columnPalette, initialsFor } from './palette';
  * Ziti"). Only a label — the agents themselves are unchanged (.claude/agents/*). */
 const AI_ASSISTANT_NAME = 'Ziti';
 
-const MAX_ACTION_ITEM_LENGTH = 500;
+export const MAX_ACTION_ITEM_LENGTH = 500;
 
 // Figma "Discuss · Transcript collapsed/expanded" (nodes 77:821 / 69:2772) tokens.
-const TEXT = '#171c2a';
-const TEXT_SECONDARY = '#626b7d';
-const TEXT_TERTIARY = '#9299a8';
-const BORDER = '#e3e5eb';
-const SURFACE = '#f8f9fb';
-const CHIP_BG = '#f1f3f6';
-const PRIMARY = '#365cf5';
-const PRIMARY_BORDER = '#bfcbff';
-const PRIMARY_TINT = '#edf1ff';
-const PRIMARY_CHIP_BG = '#f2f4ff';
-const SUCCESS_TEXT = '#32824d';
+export const TEXT = '#171c2a';
+export const TEXT_SECONDARY = '#626b7d';
+export const TEXT_TERTIARY = '#9299a8';
+export const BORDER = '#e3e5eb';
+export const SURFACE = '#f8f9fb';
+export const CHIP_BG = '#f1f3f6';
+export const PRIMARY = '#365cf5';
+export const PRIMARY_BORDER = '#bfcbff';
+export const PRIMARY_TINT = '#edf1ff';
+export const PRIMARY_CHIP_BG = '#f2f4ff';
+export const SUCCESS_TEXT = '#32824d';
 
 /** The design's category chips (Start/Stop/Continue) use softer tints than the board's column
  * accents; keyed by the same `column.color` names as columnPalette. Unknown colors fall back to
@@ -52,7 +52,7 @@ function categoryChipColors(colorName: string): { text: string; bg: string } {
   return { text: accent, bg: `color-mix(in srgb, ${accent} 10%, white)` };
 }
 
-function topicLabel(topic: Topic): string {
+export function topicLabel(topic: Topic): string {
   return topic.groupSummaryTitle || topic.name || 'Untitled group';
 }
 
@@ -60,11 +60,11 @@ function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
 
-function Icon({ name, size }: { name: string; size: number }) {
+export function Icon({ name, size }: { name: string; size: number }) {
   return <Box component="img" src={`/icons/${name}.svg`} alt="" sx={{ width: size, height: size, flexShrink: 0, display: 'block' }} />;
 }
 
-function CategoryChip({ column }: { column: BoardColumn | undefined }) {
+export function CategoryChip({ column }: { column: BoardColumn | undefined }) {
   if (!column) return null;
   const { text, bg } = categoryChipColors(column.color);
   return (
@@ -75,7 +75,7 @@ function CategoryChip({ column }: { column: BoardColumn | undefined }) {
   );
 }
 
-function PersonAvatar({ id, name }: { id: string | null; name: string }) {
+export function PersonAvatar({ id, name }: { id: string | null; name: string }) {
   return (
     <Box
       sx={{
@@ -94,7 +94,7 @@ function PersonAvatar({ id, name }: { id: string | null; name: string }) {
   );
 }
 
-function OutlinedButton({ icon, children, onClick, disabled }: { icon?: string; children: ReactNode; onClick: () => void; disabled?: boolean }) {
+export function OutlinedButton({ icon, children, onClick, disabled }: { icon?: string; children: ReactNode; onClick: () => void; disabled?: boolean }) {
   return (
     <Button
       type="button"
@@ -119,7 +119,7 @@ function OutlinedButton({ icon, children, onClick, disabled }: { icon?: string; 
   );
 }
 
-function PrimaryButton({
+export function PrimaryButton({
   icon,
   children,
   onClick,
@@ -163,7 +163,7 @@ function PrimaryButton({
   );
 }
 
-function SecondaryButton({ children, onClick }: { children: ReactNode; onClick: () => void }) {
+export function SecondaryButton({ children, onClick }: { children: ReactNode; onClick: () => void }) {
   return (
     <Button
       type="button"
@@ -175,7 +175,7 @@ function SecondaryButton({ children, onClick }: { children: ReactNode; onClick: 
   );
 }
 
-function Panel({ children, p = '20px', gap = '20px' }: { children: ReactNode; p?: string; gap?: string }) {
+export function Panel({ children, p = '20px', gap = '20px' }: { children: ReactNode; p?: string; gap?: string }) {
   return (
     <Stack sx={{ bgcolor: 'white', border: `1px solid ${BORDER}`, borderRadius: '14px', p, gap, width: '100%', boxSizing: 'border-box' }}>
       {children}
@@ -183,7 +183,7 @@ function Panel({ children, p = '20px', gap = '20px' }: { children: ReactNode; p?
   );
 }
 
-function PanelHeading({ title, icon, aside }: { title: string; icon?: string; aside?: ReactNode }) {
+export function PanelHeading({ title, icon, aside }: { title: string; icon?: string; aside?: ReactNode }) {
   return (
     <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
       <Typography sx={{ fontSize: 18, fontWeight: 600, color: TEXT }}>{title}</Typography>
@@ -193,7 +193,7 @@ function PanelHeading({ title, icon, aside }: { title: string; icon?: string; as
   );
 }
 
-function CountChip({ children }: { children: ReactNode }) {
+export function CountChip({ children }: { children: ReactNode }) {
   return (
     <Box sx={{ bgcolor: PRIMARY_CHIP_BG, borderRadius: 999, px: 1, py: 0.5 }}>
       <Typography sx={{ fontSize: 12, fontWeight: 500, color: PRIMARY, lineHeight: 'normal' }}>{children}</Typography>
@@ -204,7 +204,7 @@ function CountChip({ children }: { children: ReactNode }) {
 /** Same countdown as the board header's PhaseTimer (RN-012), restyled as the design's "Topic
  * timer" box. There's no pause mutation, so the design's pause icon is left out; the facilitator
  * keeps the header's +1/+2/+5 extend menu here instead, revealed the same way (hover or focus). */
-function DiscussTimer({
+export function DiscussTimer({
   phaseDeadline,
   clockOffsetMs,
   onExtend,
@@ -519,7 +519,9 @@ function CreatedActionItems({
   );
 }
 
-function CaptureAction({ topicName, onSave }: { topicName: string; onSave: (title: string) => void }) {
+/** "Capture an action" (Figma 77:1001 / 87:1698 / 98:1877). `topicName` is null on the Wrap up
+ * screen, where new items aren't tied to a topic — the "Linked to" line is left out there. */
+export function CaptureAction({ topicName, onSave }: { topicName: string | null; onSave: (title: string) => void }) {
   const [draft, setDraft] = useState('');
   const trimmed = draft.trim();
   return (
@@ -557,10 +559,12 @@ function CaptureAction({ topicName, onSave }: { topicName: string; onSave: (titl
           }}
         />
       </Stack>
-      <Stack direction="row" spacing="6px" sx={{ alignItems: 'flex-start' }}>
-        <Icon name="link" size={14} />
-        <Typography sx={{ fontSize: 12, lineHeight: '17px', color: TEXT_SECONDARY }}>Linked to {topicName}</Typography>
-      </Stack>
+      {topicName && (
+        <Stack direction="row" spacing="6px" sx={{ alignItems: 'flex-start' }}>
+          <Icon name="link" size={14} />
+          <Typography sx={{ fontSize: 12, lineHeight: '17px', color: TEXT_SECONDARY }}>Linked to {topicName}</Typography>
+        </Stack>
+      )}
       <PrimaryButton
         icon="plus-white"
         height={42}

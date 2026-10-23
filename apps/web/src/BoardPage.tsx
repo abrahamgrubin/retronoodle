@@ -13,7 +13,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
-import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { SortableContext, sortableKeyboardCoordinates, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { generateKeyBetween } from 'fractional-indexing';
 import {
@@ -45,7 +45,6 @@ import {
   AvatarGroup,
   Box,
   Button,
-  Chip,
   Dialog,
   DialogActions,
   DialogContent,
@@ -59,7 +58,6 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
 import DeleteOutlinedIcon from '@mui/icons-material/DeleteOutlined';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
@@ -73,6 +71,7 @@ import { reduceBoard, toggleReaction, type BoardState } from './boardReducer';
 import { computeClockOffsetMs, formatCountdown, remainingMs } from './clock';
 import { getCachedJoinCode, setCachedJoinCode } from './joinLinkStorage';
 import { DiscussScreen, TranscriptPanel } from './DiscussScreen';
+import { WrapUpScreen } from './WrapUpScreen';
 import { NavDrawerContent } from './NavDrawer';
 import { postMutation } from './mutations';
 import { colorForId, columnPalette, initialsFor } from './palette';
@@ -1183,134 +1182,6 @@ function buildColumnRows(cards: BoardCard[], topics: Topic[]): ColumnRow[] {
   return entries.sort((a, b) => a.sortKey.localeCompare(b.sortKey)).map((e) => e.row);
 }
 
-/** One row of the Discuss queue panel's "Up next" list (RN-019 layout spec: "rank, name, vote
- * count, drag handle for the facilitator"). The drag handle is a separate span from the row
- * itself — same reasoning as SortableCardView's dragHandleProps — so a participant (no handle,
- * no drag listeners) can still have the row be clickable to jump, without the two ever fighting
- * over the same pointer events. */
-function UpNextRow({
-  topic,
-  rank,
-  canManage,
-  onJump,
-  onSkip,
-  onRemove,
-}: {
-  topic: Topic;
-  rank: number;
-  canManage: boolean;
-  onJump: () => void;
-  onSkip: () => void;
-  onRemove: () => void;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: topic.id, disabled: !canManage });
-  // Groups still show their AI summary title here once one exists, same as the "Now discussing"
-  // card and the Discussed list — the facilitator picking a topic from the queue cares about what
-  // it's actually about, not its default "first card's text" name.
-  const label = topic.groupSummaryTitle || topic.name || 'Untitled group';
-  return (
-    <Stack
-      direction="row"
-      spacing={0.75}
-      ref={setNodeRef}
-      sx={{
-        transform: CSS.Transform.toString(transform),
-        transition,
-        opacity: isDragging ? 0.4 : 1,
-        alignItems: 'center',
-        py: 0.5,
-      }}
-    >
-      {canManage && (
-        <Box
-          component="span"
-          {...attributes}
-          {...listeners}
-          sx={{ cursor: 'grab', color: 'text.disabled', display: 'flex' }}
-          aria-label={`Reorder ${label}`}
-        >
-          <DragIndicatorIcon fontSize="small" />
-        </Box>
-      )}
-      <Typography variant="caption" color="text.secondary" sx={{ width: 14, flexShrink: 0 }}>
-        {rank}
-      </Typography>
-      <Button
-        type="button"
-        onClick={canManage ? onJump : undefined}
-        disabled={!canManage}
-        sx={{ flex: 1, textAlign: 'left', justifyContent: 'flex-start', color: 'inherit' }}
-      >
-        {label}
-      </Button>
-      <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
-        {topic.voteCount} vote{topic.voteCount === 1 ? '' : 's'}
-      </Typography>
-      {canManage && (
-        <>
-          <Button size="small" type="button" onClick={onSkip} sx={{ minWidth: 0, flexShrink: 0 }}>
-            Skip
-          </Button>
-          <Button size="small" type="button" color="error" onClick={onRemove} sx={{ minWidth: 0, flexShrink: 0 }}>
-            Remove
-          </Button>
-        </>
-      )}
-    </Stack>
-  );
-}
-
-/** RN-020 layout spec: "the notes box from RN-020" lives in the "Now discussing" card. Debounces
- * 800ms of inactivity before actually sending — every keystroke updates local state instantly,
- * nothing is sent until typing pauses. `key={topicId}` at the call site forces a fresh mount (and
- * therefore fresh local state) whenever the current topic changes, rather than this component
- * trying to detect "that's a different topic now" itself. */
-function NotesEditor({
-  topicId,
-  initialBody,
-  canEdit,
-  onSave,
-}: {
-  topicId: string;
-  initialBody: string;
-  canEdit: boolean;
-  onSave: (topicId: string, body: string) => void;
-}) {
-  const [draft, setDraft] = useState(initialBody);
-  const lastSavedRef = useRef(initialBody);
-
-  useEffect(() => {
-    if (draft === lastSavedRef.current) return;
-    const timeout = setTimeout(() => {
-      lastSavedRef.current = draft;
-      onSave(topicId, draft);
-    }, 800);
-    return () => clearTimeout(timeout);
-  }, [draft, topicId, onSave]);
-
-  if (!canEdit) {
-    return draft ? (
-      <Typography variant="caption" component="p" sx={{ whiteSpace: 'pre-wrap' }}>
-        {draft}
-      </Typography>
-    ) : null;
-  }
-
-  return (
-    <TextField
-      multiline
-      fullWidth
-      size="small"
-      minRows={3}
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      placeholder="Type notes…"
-      aria-label="Topic notes"
-      slotProps={{ htmlInput: { maxLength: 4000 } }}
-    />
-  );
-}
-
 /** RN-021 layout spec: "hovering [a source chip] outlines those cards on the board and scrolls
  * them into view." A point with zero sources (always a facilitator's manual edit — see
  * topicSummaries.ts's own comment on why that's legitimate) simply has no chip to hover.
@@ -1377,601 +1248,6 @@ function SummaryPointList({
           </Typography>
         );
       })}
-    </Box>
-  );
-}
-
-/** RN-021: one topic's full summary card in the Summaries tab — "Summaries tab ... showing every
- * topic stacked in vote order." No mock distinguishes a one-topic "detail" view (reached by
- * clicking a Queue row) from the stacked list in Wrap up — this is deliberately the same
- * component either way, just scrolled to and briefly highlighted when opened from the Queue,
- * rather than a separate navigable detail screen with its own back arrow. */
-function SummaryCard({
-  topic,
-  summary,
-  unavailable,
-  canManage,
-  onHoverSources,
-  onSave,
-  onRegenerate,
-  onAddActionItem,
-  canAddActionItem,
-  transcriptTextById,
-}: {
-  topic: Topic;
-  summary: TopicSummary | null;
-  unavailable: boolean;
-  canManage: boolean;
-  onHoverSources: (sources: string[] | null) => void;
-  transcriptTextById?: Map<string, string>;
-  onSave: (
-    keyPoints: TopicSummaryPoint[],
-    decisions: TopicSummaryPoint[],
-    disagreements: TopicSummaryPoint[],
-    proposedActionItems: TopicSummaryPoint[],
-  ) => void;
-  onRegenerate: () => void;
-  // RN-022: "'Add as action item' on a proposal pre-fills title and source topic" — available to
-  // anyone, same as the rest of this panel (summaries are public; only editing is facilitator-only,
-  // per topicSummaries.ts's own comment), not gated behind `canManage`.
-  onAddActionItem: (text: string) => void;
-  // RN-026: "no add ... " on a closed (read-only) retro — the mutation would already be rejected
-  // server-side, but the button shouldn't be offered at all once there's nothing it can do.
-  canAddActionItem: boolean;
-}) {
-  const [editing, setEditing] = useState(false);
-  // Local only — "Added" is feedback that this click already fired, not server state (nothing
-  // here tracks whether an action item from this exact point still exists or was since deleted).
-  const [addedIndices, setAddedIndices] = useState<Set<number>>(new Set());
-  const [draftKeyPoints, setDraftKeyPoints] = useState('');
-  const [draftDecisions, setDraftDecisions] = useState('');
-  const [draftDisagreements, setDraftDisagreements] = useState('');
-  const [draftProposedActionItems, setDraftProposedActionItems] = useState('');
-
-  function linesToPoints(text: string): TopicSummaryPoint[] {
-    return text
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((text) => ({ text, sources: [] }));
-  }
-  function pointsToLines(points: TopicSummaryPoint[]): string {
-    return points.map((p) => p.text).join('\n');
-  }
-
-  function startEditing() {
-    if (!summary) return;
-    setDraftKeyPoints(pointsToLines(summary.keyPoints));
-    setDraftDecisions(pointsToLines(summary.decisions));
-    setDraftDisagreements(pointsToLines(summary.disagreements));
-    setDraftProposedActionItems(pointsToLines(summary.proposedActionItems));
-    setEditing(true);
-  }
-
-  function save() {
-    onSave(linesToPoints(draftKeyPoints), linesToPoints(draftDecisions), linesToPoints(draftDisagreements), linesToPoints(draftProposedActionItems));
-    setEditing(false);
-  }
-
-  // Layout spec: "Regenerating an edited summary first asks 'Replace your edits?'."
-  function regenerate() {
-    if (summary?.edited && !window.confirm('Replace your edits?')) return;
-    onRegenerate();
-  }
-
-  const cardSx = { border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 1, mb: 1.5 };
-
-  if (!topic.startedAt) {
-    return (
-      <Box id={`summary-card-${topic.id}`} sx={cardSx}>
-        <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-          {topic.name || 'Untitled group'}
-        </Typography>
-        <Typography variant="caption" color="text.disabled" component="p" sx={{ mt: 0.5 }}>
-          Not discussed
-        </Typography>
-      </Box>
-    );
-  }
-
-  return (
-    <Box id={`summary-card-${topic.id}`} sx={cardSx}>
-      <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 0.25 }}>
-        {topic.name || 'Untitled group'}
-      </Typography>
-      <Typography variant="caption" color="text.secondary" component="p" sx={{ mb: 1 }}>
-        {topic.voteCount} vote{topic.voteCount === 1 ? '' : 's'}
-      </Typography>
-
-      {/* "States: summarizing (skeleton and spinner)" — a topic that's ended (or is still the
-          current one — generation only ever starts once it ends, see summarizeTopic.ts) with
-          nothing stored and no failure reported yet. */}
-      {!summary && !unavailable && (
-        <>
-          <Typography variant="caption" color="text.secondary" component="p" sx={{ mb: 1 }}>
-            Summarizing…
-          </Typography>
-          {[0, 1].map((i) => (
-            <Skeleton key={i} variant="rounded" height={14} sx={{ mb: 0.75 }} />
-          ))}
-        </>
-      )}
-
-      {!summary && unavailable && (
-        <Box>
-          <Alert severity="error" sx={{ mb: 1 }}>
-            Summary unavailable.
-          </Alert>
-          {canManage && (
-            <Button size="small" type="button" onClick={regenerate}>
-              Retry
-            </Button>
-          )}
-        </Box>
-      )}
-
-      {summary && !editing && (
-        <>
-          <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mt: 1, mb: 0.25 }}>
-            Key points
-          </Typography>
-          <SummaryPointList points={summary.keyPoints} onHoverSources={onHoverSources} transcriptTextById={transcriptTextById} />
-          <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mt: 1, mb: 0.25 }}>
-            Decisions
-          </Typography>
-          <SummaryPointList points={summary.decisions} onHoverSources={onHoverSources} transcriptTextById={transcriptTextById} />
-          <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mt: 1, mb: 0.25 }}>
-            Disagreements
-          </Typography>
-          <SummaryPointList points={summary.disagreements} onHoverSources={onHoverSources} transcriptTextById={transcriptTextById} />
-          <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mt: 1, mb: 0.25 }}>
-            Proposed action items
-          </Typography>
-          <SummaryPointList
-            points={summary.proposedActionItems}
-            onHoverSources={onHoverSources}
-            transcriptTextById={transcriptTextById}
-            renderAction={
-              canAddActionItem
-                ? (p, i) =>
-                    addedIndices.has(i) ? (
-                      <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 0.75 }}>
-                        Added
-                      </Typography>
-                    ) : (
-                      <Button
-                        size="small"
-                        type="button"
-                        onClick={() => {
-                          onAddActionItem(p.text);
-                          setAddedIndices((s) => new Set(s).add(i));
-                        }}
-                        sx={{ ml: 0.75, fontSize: 11 }}
-                      >
-                        Add as action item
-                      </Button>
-                    )
-                : undefined
-            }
-          />
-
-          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mt: 1, fontSize: 11, color: 'text.secondary' }}>
-            <Typography variant="caption">v{summary.version}</Typography>
-            {summary.edited && (
-              <Box component="span" sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 999, px: 0.75, fontSize: 11 }}>
-                Edited
-              </Box>
-            )}
-            {canManage && (
-              <>
-                <Button size="small" type="button" onClick={startEditing}>
-                  Edit
-                </Button>
-                <Button size="small" type="button" onClick={regenerate}>
-                  Regenerate
-                </Button>
-              </>
-            )}
-          </Stack>
-        </>
-      )}
-
-      {summary && editing && (
-        <>
-          <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mb: 0.25 }}>
-            Key points
-          </Typography>
-          <TextField
-            multiline
-            fullWidth
-            size="small"
-            minRows={3}
-            value={draftKeyPoints}
-            onChange={(e) => setDraftKeyPoints(e.target.value)}
-            aria-label="Key points (one per line)"
-            sx={{ mb: 1 }}
-          />
-          <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mb: 0.25 }}>
-            Decisions
-          </Typography>
-          <TextField
-            multiline
-            fullWidth
-            size="small"
-            minRows={3}
-            value={draftDecisions}
-            onChange={(e) => setDraftDecisions(e.target.value)}
-            aria-label="Decisions (one per line)"
-            sx={{ mb: 1 }}
-          />
-          <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mb: 0.25 }}>
-            Disagreements
-          </Typography>
-          <TextField
-            multiline
-            fullWidth
-            size="small"
-            minRows={3}
-            value={draftDisagreements}
-            onChange={(e) => setDraftDisagreements(e.target.value)}
-            aria-label="Disagreements (one per line)"
-            sx={{ mb: 1 }}
-          />
-          <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mb: 0.25 }}>
-            Proposed action items
-          </Typography>
-          <TextField
-            multiline
-            fullWidth
-            size="small"
-            minRows={3}
-            value={draftProposedActionItems}
-            onChange={(e) => setDraftProposedActionItems(e.target.value)}
-            aria-label="Proposed action items (one per line)"
-            sx={{ mb: 1 }}
-          />
-          <Stack direction="row" spacing={0.5}>
-            <Button size="small" type="button" onClick={save}>
-              Save
-            </Button>
-            <Button size="small" type="button" onClick={() => setEditing(false)}>
-              Cancel
-            </Button>
-          </Stack>
-        </>
-      )}
-    </Box>
-  );
-}
-
-/** Figma "Queue summaries drawer" (node 51:786) header tab — QUEUE/SUMMARIES live in the
- * drawer's own header row now, not as MUI Buttons inside the body (collapsed state reuses the
- * Suggestions rail's chrome exactly, node 37:1729, so there's nothing analogous to render there —
- * no count concept applies to a discussion queue the way it does to pending AI suggestions). */
-function QueueTab({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
-  return (
-    <Box
-      component="button"
-      type="button"
-      onClick={onClick}
-      sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', border: 0, bgcolor: 'transparent', cursor: 'pointer', font: 'inherit', p: 0, mr: '16px' }}
-    >
-      <Typography
-        sx={{ fontSize: 12, fontWeight: active ? 700 : 500, color: active ? '#151922' : '#626b7f', pt: '20px', pb: '18px', textTransform: 'uppercase' }}
-      >
-        {label}
-      </Typography>
-      <Box sx={{ height: '2px', width: '100%', bgcolor: active ? '#304ffe' : 'transparent' }} />
-    </Box>
-  );
-}
-
-/** The right-edge panel (RN-019 layout spec), open for everyone (not facilitator-gated, unlike
- * RN-017's SuggestionsPanel — "Voter sees own... Others see progress" precedent doesn't apply
- * here, the whole queue is public once Discuss starts). Two tabs: Queue (RN-019) and Summaries
- * (RN-021, "the Summaries tab of the right panel"). Discuss/Wrap up only (the caller's own gate) —
- * a closed retro's recap now lives on its own dedicated page (RN-045's RecapPage.tsx) instead. */
-function DiscussQueuePanel({
-  phase,
-  topics,
-  cardCountByTopic,
-  canManage,
-  onNext,
-  onFinish,
-  onJump,
-  onReorder,
-  onSkipTopic,
-  onRemoveTopic,
-  canEditNotes,
-  onNotesChange,
-  tab,
-  onTabChange,
-  topicSummaries,
-  summaryUnavailableTopicIds,
-  onHoverSummarySources,
-  onSaveSummary,
-  onRegenerateSummary,
-  onAddActionItem,
-  transcriptTextById,
-  open,
-  onToggleOpen,
-}: {
-  phase: RetroPhase;
-  topics: Topic[];
-  cardCountByTopic: Map<string, number>;
-  canManage: boolean;
-  onNext: () => void;
-  onFinish: () => void;
-  onJump: (topicId: string) => void;
-  onReorder: (topicId: string, discussionOrder: string) => void;
-  onSkipTopic: (topicId: string) => void;
-  onRemoveTopic: (topicId: string) => void;
-  // RN-020: "editable only in Discuss and Wrap up" — no ownership check beyond that (unlike
-  // `canManage`'s facilitator-only queue controls above), so this is its own separate flag.
-  canEditNotes: boolean;
-  onNotesChange: (topicId: string, body: string) => void;
-  // RN-021: "two tabs: Queue and Summaries." Lifted to the caller (not local state) because
-  // clicking a Discussed row needs to switch tabs from inside the Queue tab's own content, and
-  // entering Wrap up defaults the tab for the whole panel — both are easier to drive from one
-  // place than threaded back up through this component.
-  tab: 'queue' | 'summaries';
-  onTabChange: (tab: 'queue' | 'summaries') => void;
-  topicSummaries: TopicSummary[];
-  summaryUnavailableTopicIds: string[];
-  onHoverSummarySources: (sources: string[] | null) => void;
-  transcriptTextById?: Map<string, string>;
-  onSaveSummary: (
-    topicId: string,
-    keyPoints: TopicSummaryPoint[],
-    decisions: TopicSummaryPoint[],
-    disagreements: TopicSummaryPoint[],
-    proposedActionItems: TopicSummaryPoint[],
-  ) => void;
-  onRegenerateSummary: (topicId: string) => void;
-  onAddActionItem: (topicId: string, text: string) => void;
-  open: boolean;
-  onToggleOpen: () => void;
-}) {
-  const current = topics.find((t) => t.startedAt && !t.endedAt) ?? null;
-  const upNext = topics
-    .filter((t) => !t.startedAt)
-    .sort((a, b) => (a.discussionOrder ?? '').localeCompare(b.discussionOrder ?? ''));
-  const discussed = topics.filter((t) => t.endedAt).sort((a, b) => (a.endedAt ?? '').localeCompare(b.endedAt ?? ''));
-  const isLastTopic = upNext.length === 0;
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
-
-  // Ordinary dnd-kit sortable reordering (unlike the board's own DndContext, this list has no
-  // competing "drop on center" gesture, so the default live-preview strategy is exactly right
-  // here rather than something to work around — see BoardPage.tsx's noSortPreview for why the
-  // board's own list disables it).
-  function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
-    if (!over || over.id === active.id) return;
-    const activeIndex = upNext.findIndex((t) => t.id === active.id);
-    const overIndex = upNext.findIndex((t) => t.id === over.id);
-    if (activeIndex === -1 || overIndex === -1) return;
-    const reordered = arrayMove(upNext, activeIndex, overIndex);
-    const newIndex = reordered.findIndex((t) => t.id === active.id);
-    const prev = reordered[newIndex - 1];
-    const next = reordered[newIndex + 1];
-    onReorder(active.id as string, generateKeyBetween(prev?.discussionOrder ?? null, next?.discussionOrder ?? null));
-  }
-
-  const sortedTopics = [...topics].sort((a, b) => (a.discussionOrder ?? '').localeCompare(b.discussionOrder ?? ''));
-
-  if (!open) {
-    return (
-      <Box sx={{ width: RIGHT_PANEL_RAIL_WIDTH, flexShrink: 0, bgcolor: 'white', borderLeft: '1px solid #e0e2e7' }}>
-        <Box
-          component="button"
-          type="button"
-          onClick={onToggleOpen}
-          aria-label="Expand discussion queue panel"
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: 64,
-            width: '100%',
-            border: 0,
-            borderBottom: '1px solid #e0e2e7',
-            bgcolor: 'transparent',
-            cursor: 'pointer',
-          }}
-        >
-          <Box component="img" src="/icons/chevrons-left.svg" alt="" sx={{ width: 20, height: 20 }} />
-        </Box>
-      </Box>
-    );
-  }
-
-  return (
-    <Box sx={{ width: RIGHT_PANEL_DRAWER_WIDTH, flexShrink: 0, bgcolor: 'white', borderLeft: '1px solid #e0e2e7' }}>
-      <Stack
-        direction="row"
-        sx={{ alignItems: 'center', justifyContent: 'space-between', height: 64, px: '20px', borderBottom: '1px solid #e0e2e7' }}
-      >
-        <Stack direction="row">
-          <QueueTab label="Queue" active={tab === 'queue'} onClick={() => onTabChange('queue')} />
-          <QueueTab label="Summaries" active={tab === 'summaries'} onClick={() => onTabChange('summaries')} />
-        </Stack>
-        <Box
-          component="button"
-          type="button"
-          onClick={onToggleOpen}
-          aria-label="Collapse discussion queue panel"
-          sx={{ display: 'flex', border: 0, bgcolor: 'transparent', cursor: 'pointer', p: 0 }}
-        >
-          <Box component="img" src="/icons/chevrons-right.svg" alt="" sx={{ width: 20, height: 20 }} />
-        </Box>
-      </Stack>
-      <Box sx={{ p: 2 }}>
-        {tab === 'queue' && current && (
-          <Box sx={{ border: '2px solid #2563eb', borderRadius: 1.5, p: 1, mb: 1.5 }}>
-            <Typography variant="caption" sx={{ color: '#2563eb', fontWeight: 'bold', display: 'block', mb: 0.25 }}>
-              Now discussing
-            </Typography>
-            <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 0.5 }}>
-              {current.groupSummaryTitle || current.name || 'Untitled group'}
-            </Typography>
-            <Typography variant="caption" color="text.secondary" component="p" sx={{ mb: 1 }}>
-              {current.voteCount} vote{current.voteCount === 1 ? '' : 's'} · {cardCountByTopic.get(current.id) ?? 0} card
-              {(cardCountByTopic.get(current.id) ?? 0) === 1 ? '' : 's'}
-            </Typography>
-            {/* Homework: question-suggester's output — written the moment this topic became
-                current (discussHelpers.ts's startTopic); null until it runs. */}
-            {current.discussionQuestions && current.discussionQuestions.length > 0 && (
-              <Box component="ul" sx={{ m: 0, mb: 1, pl: 2, fontSize: 12 }}>
-                {current.discussionQuestions.map((q, i) => (
-                  <li key={i}>{q}</li>
-                ))}
-              </Box>
-            )}
-            <Box sx={{ mb: 1 }}>
-              <NotesEditor
-                key={current.id}
-                topicId={current.id}
-                initialBody={current.notes}
-                canEdit={canEditNotes}
-                onSave={onNotesChange}
-              />
-            </Box>
-            {canManage && (
-              <Button size="small" type="button" onClick={isLastTopic ? onFinish : onNext}>
-                {isLastTopic ? 'Finish discussion' : 'Next topic'}
-              </Button>
-            )}
-          </Box>
-        )}
-
-        {tab === 'queue' && phase === 'discuss' && upNext.length > 0 && (
-          <Box sx={{ mb: 1.5 }}>
-            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold', display: 'block', mb: 0.5 }}>
-              Up next
-            </Typography>
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-              <SortableContext items={upNext.map((t) => t.id)} strategy={verticalListSortingStrategy}>
-                {upNext.map((t, i) => (
-                  <UpNextRow
-                    key={t.id}
-                    topic={t}
-                    rank={i + 1}
-                    canManage={canManage}
-                    onJump={() => onJump(t.id)}
-                    onSkip={() => onSkipTopic(t.id)}
-                    onRemove={() => onRemoveTopic(t.id)}
-                  />
-                ))}
-              </SortableContext>
-            </DndContext>
-          </Box>
-        )}
-
-        {tab === 'queue' && (
-          <Box sx={{ mb: phase === 'wrap_up' ? 1.5 : 0 }}>
-            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold', display: 'block', mb: 0.5 }}>
-              Discussed
-            </Typography>
-            {discussed.length === 0 && (
-              <Typography variant="caption" color="text.secondary">
-                Nothing discussed yet.
-              </Typography>
-            )}
-            {discussed.map((t) => {
-              // RN-021: "Clicking a discussed topic in the Queue opens its summary there" — a
-              // read-only navigation available to everyone, not the facilitator-only queue jump
-              // (`onJump`) this row used before summaries existed.
-              const status = topicSummaries.some((s) => s.topicId === t.id)
-                ? 'Ready'
-                : summaryUnavailableTopicIds.includes(t.id)
-                  ? 'Unavailable'
-                  : 'Summarizing…';
-              return (
-                <Stack
-                  key={t.id}
-                  direction="row"
-                  spacing={0.75}
-                  sx={{ alignItems: 'center', py: 0.5, cursor: 'pointer' }}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => {
-                    onTabChange('summaries');
-                    setTimeout(() => document.getElementById(`summary-card-${t.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      onTabChange('summaries');
-                      setTimeout(() => document.getElementById(`summary-card-${t.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
-                    }
-                  }}
-                >
-                  <Box component="span" aria-hidden="true">
-                    ✓
-                  </Box>
-                  <Typography variant="body2" sx={{ flex: 1 }}>
-                    {t.groupSummaryTitle || t.name || 'Untitled group'}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {t.voteCount} vote{t.voteCount === 1 ? '' : 's'}
-                  </Typography>
-                  <Chip size="small" variant="outlined" label={status} />
-                </Stack>
-              );
-            })}
-          </Box>
-        )}
-
-        {/* "Undiscussed topics are labeled 'not discussed' in Wrap up" — during Discuss itself
-            the exact same topics already render above as "Up next"; this section only exists
-            once that list stops being meaningful (reordering/jumping both end with Discuss). */}
-        {tab === 'queue' && phase === 'wrap_up' && upNext.length > 0 && (
-          <Box>
-            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold', display: 'block', mb: 0.5 }}>
-              Not discussed
-            </Typography>
-            {upNext.map((t) => (
-              <Stack key={t.id} direction="row" spacing={0.75} sx={{ alignItems: 'center', py: 0.5, color: 'text.disabled' }}>
-                <Typography variant="body2" sx={{ flex: 1 }}>
-                  {t.groupSummaryTitle || t.name || 'Untitled group'}
-                </Typography>
-                <Typography variant="caption">
-                  {t.voteCount} vote{t.voteCount === 1 ? '' : 's'} · Not discussed
-                </Typography>
-              </Stack>
-            ))}
-          </Box>
-        )}
-
-        {/* RN-021: "the Summaries tab ... showing every topic stacked in vote order" — every
-            topic, not just discussed ones (SummaryCard itself renders the right state for
-            not-yet-started, in-progress, ready, or failed). */}
-        {tab === 'summaries' && (
-          <Box>
-            {sortedTopics.map((t) => (
-              <SummaryCard
-                key={t.id}
-                topic={t}
-                summary={topicSummaries.find((s) => s.topicId === t.id) ?? null}
-                unavailable={summaryUnavailableTopicIds.includes(t.id)}
-                canManage={canManage}
-                onHoverSources={onHoverSummarySources}
-                onSave={(keyPoints, decisions, disagreements, proposedActionItems) =>
-                  onSaveSummary(t.id, keyPoints, decisions, disagreements, proposedActionItems)
-                }
-                onRegenerate={() => onRegenerateSummary(t.id)}
-                onAddActionItem={(text) => onAddActionItem(t.id, text)}
-                canAddActionItem
-                transcriptTextById={transcriptTextById}
-              />
-            ))}
-          </Box>
-        )}
-      </Box>
     </Box>
   );
 }
@@ -2341,6 +1617,7 @@ function Board({
         recordingSession: initialBoard.recordingSession,
         transcriptSegments: initialBoard.transcriptSegments,
         unmatchedSpeakers: initialBoard.unmatchedSpeakers,
+        additionalNotes: initialBoard.additionalNotes,
       },
       initialSeq: initialBoard.seq,
       reduce: reduceBoard,
@@ -2462,22 +1739,9 @@ function Board({
   const [suggestions, setSuggestions] = useState<GroupSuggestion[]>(initialBoard.suggestions ?? []);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [suggestionsPanelOpen, setSuggestionsPanelOpen] = useState(false);
-  // Found live: DiscussQueuePanel's old fixed 320px box, always rendered inline alongside the
-  // Action items column, overlapped it on narrower screens — same right-edge collapsible chrome
-  // as SuggestionsPanel (Figma node 51:786/37:1729) fixes this the same way. Defaults open since
-  // that matches the panel's previous always-visible behavior.
-  const [queuePanelOpen, setQueuePanelOpen] = useState(true);
-  // Discuss screen's transcript sidebar (Figma 77:821 collapsed / 69:2772 expanded) — starts
-  // collapsed, matching the design's default frame.
+  // Discuss and Wrap up screens' transcript sidebar (Figma 77:821 collapsed / 69:2772 expanded) —
+  // starts collapsed, matching the design's default frame.
   const [transcriptPanelOpen, setTranscriptPanelOpen] = useState(false);
-  // RN-021 layout spec: "two tabs: Queue and Summaries... In Wrap up the panel opens on
-  // Summaries." Defaulted here (not inside DiscussQueuePanel) so the same effect below that
-  // already reacts to phase transitions can set it on entering Wrap up, without that component
-  // needing its own copy of "was the previous phase discuss." The initial value also covers
-  // loading straight into Wrap up (no live transition to react to).
-  const [rightPanelTab, setRightPanelTab] = useState<'queue' | 'summaries'>(
-    initialBoard.retro.phase === 'wrap_up' ? 'summaries' : 'queue',
-  );
   const [hoveredSuggestionId, setHoveredSuggestionId] = useState<string | null>(null);
   // "accepted (collapses to 'Grouped' for 2s, then disappears)" — tracked separately from
   // actually removing the suggestion so the collapsed state has something to render first.
@@ -2701,6 +1965,17 @@ function Board({
   function summarizeTopic(topicId: string) {
     applyLocalPatch((b) => ({ ...b, summaryUnavailableTopicIds: b.summaryUnavailableTopicIds.filter((id) => id !== topicId) }));
     regenerateSummary(topicId);
+  }
+
+  // Wrap up's "Additional notes" — the recap's own notes field (recap.editNotes), which the server
+  // now also accepts during Wrap up. Facilitator-only, enforced server-side too.
+  function saveAdditionalNotes(notes: string) {
+    const mutationId = uuidv7();
+    void sendMutation({
+      mutationId,
+      optimisticReduce: (b) => ({ ...b, additionalNotes: notes }),
+      send: () => postMutation(accessToken, retroId, { mutationId, type: 'recap.editNotes', payload: { notes } }),
+    });
   }
 
   // RN-022: manual creation (sourceTopicId null) and "Add as action item" on a proposal
@@ -3035,6 +2310,7 @@ function Board({
               recordingSession: fresh.recordingSession,
               transcriptSegments: fresh.transcriptSegments,
               unmatchedSpeakers: fresh.unmatchedSpeakers,
+              additionalNotes: fresh.additionalNotes,
             },
             fresh.seq,
           );
@@ -3314,9 +2590,6 @@ function Board({
     // failing) — "failure shows nothing," the same empty message as zero suggestions.
     if (previousPhaseRef.current === 'write' && board.phase === 'group' && isFacilitator) {
       setSuggestionsLoading(true);
-    }
-    if (previousPhaseRef.current === 'discuss' && board.phase === 'wrap_up') {
-      setRightPanelTab('summaries');
     }
     previousPhaseRef.current = board.phase;
   }, [board.phase, isFacilitator]);
@@ -3739,41 +3012,12 @@ function Board({
           )}
           {/* RN-045 follow-up: closed retros now have their own dedicated recap page
               (RecapPage.tsx) — this panel is Discuss/Wrap up only. */}
-          {board.phase === 'discuss' && (
+          {(board.phase === 'discuss' || board.phase === 'wrap_up') && (
             <TranscriptPanel
               segments={board.transcriptSegments}
               teamMembers={board.teamMembers}
               open={transcriptPanelOpen}
               onToggleOpen={() => setTranscriptPanelOpen((v) => !v)}
-            />
-          )}
-          {/* Discuss has its own screen (DiscussScreen) with the queue built in; Wrap up keeps
-              this panel for its Summaries tab and "Not discussed" list. */}
-          {board.phase === 'wrap_up' && (
-            <DiscussQueuePanel
-              phase={board.phase}
-              topics={board.topics}
-              cardCountByTopic={cardCountByTopic}
-              canManage={isFacilitator}
-              onNext={topicNext}
-              onFinish={finishDiscussion}
-              onJump={jumpToTopic}
-              onReorder={reorderQueueTopic}
-              onSkipTopic={skipTopic}
-              onRemoveTopic={removeTopic}
-              canEditNotes={canEditNotes}
-              onNotesChange={updateNotes}
-              tab={rightPanelTab}
-              onTabChange={setRightPanelTab}
-              topicSummaries={board.topicSummaries}
-              summaryUnavailableTopicIds={board.summaryUnavailableTopicIds}
-              onHoverSummarySources={hoverSummarySources}
-              onSaveSummary={editSummary}
-              onRegenerateSummary={regenerateSummary}
-              onAddActionItem={(topicId, text) => createActionItem(text, topicId, null, defaultActionItemDueDate(initialBoard.retro), 'ai')}
-              transcriptTextById={transcriptTextById}
-              open={queuePanelOpen}
-              onToggleOpen={() => setQueuePanelOpen((v) => !v)}
             />
           )}
         </>
@@ -3939,6 +3183,19 @@ function Board({
               {shareLinkCopied ? 'Copied!' : 'Share link'}
             </Button>
           )}
+          {/* Wrap up screen (Figma 96:875): RN-023's close button, renamed and moved up here from
+              the board's facilitator row — still opens the same CloseRetroDialog. */}
+          {isFacilitator && board.phase === 'wrap_up' && (
+            <Button
+              size="small"
+              variant="contained"
+              type="button"
+              onClick={() => setCloseDialogOpen(true)}
+              sx={{ flexShrink: 0, whiteSpace: 'nowrap', bgcolor: '#365cf5', textTransform: 'none', fontWeight: 500, '&:hover': { bgcolor: '#2a4bd9' } }}
+            >
+              Complete retro
+            </Button>
+          )}
         </Stack>
       </Box>
       {isReconnecting && (
@@ -3956,7 +3213,7 @@ function Board({
           {board.votingProgress && ` · ${board.votingProgress.done} of ${board.votingProgress.total} done voting`}
         </Typography>
       )}
-      {isFacilitator && board.phase !== 'discuss' && (
+      {isFacilitator && board.phase !== 'discuss' && board.phase !== 'wrap_up' && (
         <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', mb: 2 }}>
           {/* Back now jumps to whichever phase is one before current on the pill bar (same
               phase.jumpTo the pills themselves use) — shown on every phase except Review, which
@@ -3966,19 +3223,12 @@ function Board({
               Back
             </Button>
           )}
-          {/* RN-023: wrap_up's "Next" is replaced by this dialog-opening button — phase.skip (same
-              mutation type as phase.next) is rejected server-side for that specific target now,
-              so this is the only door from here to Closed. */}
-          {board.phase === 'wrap_up' ? (
-            <Button size="small" variant="contained" type="button" onClick={() => setCloseDialogOpen(true)}>
-              Close retro
+          {/* Wrap up's door to Closed is the header's "Complete retro" (RN-023's dialog) — phase.skip
+              is rejected server-side for that target, so this row (board phases only) never needs it. */}
+          {nextPhase(board.phase) && (
+            <Button size="small" type="button" onClick={() => changePhase('skip')} disabled={phaseChangePending}>
+              Next
             </Button>
-          ) : (
-            nextPhase(board.phase) && (
-              <Button size="small" type="button" onClick={() => changePhase('skip')} disabled={phaseChangePending}>
-                Next
-              </Button>
-            )
           )}
           {board.phase === 'write' && !board.cardsRevealed && (
             <Button size="small" type="button" onClick={revealCards}>
@@ -4009,8 +3259,8 @@ function Board({
           </Button>
         </Stack>
       )}
-      {/* Discuss shows the transcript in its own right-edge panel (TranscriptPanel) instead. */}
-      {board.phase !== 'discuss' && board.transcriptSegments.length > 0 && (
+      {/* Discuss and Wrap up show the transcript in their own right-edge panel (TranscriptPanel) instead. */}
+      {board.phase !== 'discuss' && board.phase !== 'wrap_up' && board.transcriptSegments.length > 0 && (
         <Box sx={{ mb: 2, maxHeight: 200, overflowY: 'auto', border: 1, borderColor: 'divider', borderRadius: 1, p: 1 }}>
           <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
             Transcript
@@ -4026,35 +3276,6 @@ function Board({
               </Typography>
             ),
           )}
-        </Box>
-      )}
-      {isFacilitator && board.phase === 'wrap_up' && board.unmatchedSpeakers && board.unmatchedSpeakers.length > 0 && (
-        <Box sx={{ mb: 2, border: 1, borderColor: 'divider', borderRadius: 1, p: 1 }}>
-          <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
-            Who is this?
-          </Typography>
-          {board.unmatchedSpeakers.map((speaker) => (
-            <Stack key={`${speaker.topicId}-${speaker.speakerTag}`} direction="row" spacing={1} sx={{ alignItems: 'center', mb: 0.5 }}>
-              <Typography variant="body2" sx={{ fontStyle: 'italic', flex: 1 }}>
-                "{speaker.sampleText}"
-              </Typography>
-              <Select
-                size="small"
-                displayEmpty
-                value=""
-                onChange={(e) => assignSpeaker(speaker.topicId, speaker.speakerTag, e.target.value)}
-              >
-                <MenuItem value="" disabled>
-                  Assign to…
-                </MenuItem>
-                {board.teamMembers.map((member) => (
-                  <MenuItem key={member.id} value={member.id}>
-                    {member.displayName}
-                  </MenuItem>
-                ))}
-              </Select>
-            </Stack>
-          ))}
         </Box>
       )}
       {lastError && (
@@ -4118,6 +3339,30 @@ function Board({
           renderSummaryPoints={(points) => (
             <SummaryPointList points={points} onHoverSources={hoverSummarySources} transcriptTextById={transcriptTextById} />
           )}
+          extraControls={recordingControls}
+        />
+      ) : board.phase === 'wrap_up' ? (
+        <WrapUpScreen
+          retroName={initialBoard.retro.name}
+          facilitatorId={initialBoard.retro.facilitatorId}
+          topics={board.topics}
+          topicSummaries={board.topicSummaries}
+          summaryUnavailableTopicIds={board.summaryUnavailableTopicIds}
+          actionItems={board.actionItems}
+          teamMembers={board.teamMembers}
+          attendees={board.attendees}
+          additionalNotes={board.additionalNotes}
+          unmatchedSpeakers={board.unmatchedSpeakers}
+          isFacilitator={isFacilitator}
+          canEditActionItems={allowedActions(board.phase).actionItemEdit}
+          phaseChangePending={phaseChangePending}
+          onBack={currentPillIndex > 0 ? () => jumpToPhase(PHASE_PILLS[currentPillIndex - 1]!) : null}
+          onSaveSummary={editSummary}
+          onRegenerateSummary={summarizeTopic}
+          onUpdateActionItem={updateActionItem}
+          onCreateActionItem={(title) => createActionItem(title, null, null, defaultActionItemDueDate(initialBoard.retro), 'manual')}
+          onSaveNotes={saveAdditionalNotes}
+          onAssignSpeaker={assignSpeaker}
           extraControls={recordingControls}
         />
       ) : (
@@ -4312,7 +3557,7 @@ function Board({
         </DndContext>
       </Stack>
       )}
-      {footerHint(board.phase) && (
+      {board.phase !== 'wrap_up' && footerHint(board.phase) && (
         <Typography sx={{ fontSize: 13, color: '#9ca3af', textAlign: 'center', mt: 3 }}>{footerHint(board.phase)}</Typography>
       )}
       {closeDialogOpen && (

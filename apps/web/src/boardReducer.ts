@@ -23,6 +23,7 @@ import type {
   QueueReorderResult,
   TopicEditGroupSummaryResult,
   NoteUpsertResult,
+  RecapEditNotesResult,
   TopicEditSummaryResult,
   TopicSummary,
   VisibleBoardCard,
@@ -95,6 +96,8 @@ export interface BoardState {
   // RN-036: diarized voices still waiting on a "Who is this?" fix — null for anyone but the
   // facilitator, same convention as suggestions.
   unmatchedSpeakers: UnmatchedSpeaker[] | null;
+  // Wrap up's "Additional notes" (recap.editNotes) — mirrors BoardResponse.additionalNotes.
+  additionalNotes: string;
 }
 
 function isHiddenPayload(payload: unknown): payload is HiddenBoardCard {
@@ -436,6 +439,10 @@ export function reduceBoard(board: BoardState, event: RetroEvent): BoardState {
         topics: board.topics.filter((t) => t.id !== result.topicId),
         cards: board.cards.map((c) => (ungroupedCardIds.has(c.id) ? { ...c, topicId: null } : c)),
       };
+    }
+    case 'recap.editNotes': {
+      const result = event.payload as RecapEditNotesResult;
+      return { ...board, additionalNotes: result.notes };
     }
     default:
       return board;
