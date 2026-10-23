@@ -145,9 +145,10 @@ test('a full retro walkthrough across every phase, then a second retro opens wit
     // browser page, not a fresh GET /board (found live: vote->discuss's own broadcast never
     // carries the updated topics, same gap write->group/group->vote already had a resync for;
     // a fresh fetch would hide this bug since the server-side ranking is correct either way).
-    // "Grouped topic" (the current topic's own name) isn't asserted here too — it also renders
-    // as that group's header on the main board, so it's not a unique match on this page.
-    await expect(observerPage.getByText('Now discussing')).toBeVisible();
+    // "Grouped topic" (the current topic's own name) isn't asserted here too — it renders in both
+    // the Discuss screen's topic queue and its center heading, so it's not a unique match. The
+    // queue's "DISCUSSING" tag only appears on the current topic's card.
+    await expect(observerPage.getByText('DISCUSSING', { exact: true })).toBeVisible();
 
     // Only now does vote_count become accurate (the vote->discuss sweep computes it from `votes`)
     // — and it's a plain aggregate, safe for the observer to see.
