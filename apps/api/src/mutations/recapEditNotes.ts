@@ -6,8 +6,12 @@ import { MutationRejected } from './errors.js';
 /**
  * recap.editNotes (RN-045 follow-up): the recap page's own "Additional Notes" section —
  * facilitator-authored free text with no AI involvement at all, unlike every other recap
- * mutation. Same facilitator-only gate and `closed`-only gate as the rest of this group, for
- * consistency, even though nothing here actually touches AI-generated content.
+ * mutation. Same facilitator-only gate as the rest of this group.
+ *
+ * Also allowed in Wrap up, where the Wrap up screen's "Additional notes" section writes the same
+ * field before the retro closes. No recap row exists yet at that point (retro.close seeds it), so
+ * Wrap up upserts one as `pending`; retro.close's own `on conflict do nothing` insert then keeps
+ * it, notes included, and ai.generateRecap only ever updates the other columns.
  */
 export const recapEditNotesMutation: MutationTypeDef<RecapEditNotesPayload> = {
   schema: RecapEditNotesPayload,
@@ -16,8 +20,18 @@ export const recapEditNotesMutation: MutationTypeDef<RecapEditNotesPayload> = {
       throw new MutationRejected(403, 'forbidden', 'Only the facilitator may edit the recap');
     }
     const phase = retro.phase as RetroPhase;
-    if (phase !== 'closed') {
+    if (phase !== 'closed' && phase !== 'wrap_up') {
       throw new MutationRejected(409, 'phase_not_allowed', `recap.editNotes is not allowed during ${phase}`);
+    }
+
+    if (phase === 'wrap_up') {
+      const upserted = await client.query<{ additional_notes: string }>(
+        `insert into retro_recaps (retro_id, status, additional_notes) values ($1, 'pending', $2)
+         on conflict (retro_id) do update set additional_notes = excluded.additional_notes
+         returning additional_notes`,
+        [retro.id, payload.notes],
+      );
+      return RecapEditNotesResult.parse({ notes: upserted.rows[0]!.additional_notes });
     }
 
     const updated = await client.query<{ additional_notes: string }>(

@@ -52,6 +52,20 @@ describe('recap.editNotes', () => {
     ).rejects.toMatchObject({ status: 404, code: 'not_found' });
   });
 
+  it('upserts the recap row during wrap_up, before retro.close has seeded one', async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [{ additional_notes: 'Follow up with design.' }] });
+    const client = { query } as unknown as PoolClient;
+    const retro = retroAt('wrap_up');
+
+    const result = await recapEditNotesMutation.apply({ client, retro, user: facilitator, payload: { notes: 'Follow up with design.' } });
+
+    expect(result).toEqual({ notes: 'Follow up with design.' });
+    expect(query).toHaveBeenCalledWith(expect.stringContaining('on conflict (retro_id) do update set additional_notes'), [
+      retro.id,
+      'Follow up with design.',
+    ]);
+  });
+
   it('rejects a non-facilitator', async () => {
     const client = { query: vi.fn() } as unknown as PoolClient;
     await expect(
@@ -59,8 +73,8 @@ describe('recap.editNotes', () => {
     ).rejects.toMatchObject({ status: 403, code: 'forbidden' });
   });
 
-  it('rejects outside Closed', async () => {
-    for (const phase of ['review', 'write', 'group', 'vote', 'discuss', 'wrap_up', 'setup']) {
+  it('rejects outside Wrap up and Closed', async () => {
+    for (const phase of ['review', 'write', 'group', 'vote', 'discuss', 'setup']) {
       const client = { query: vi.fn() } as unknown as PoolClient;
       await expect(
         recapEditNotesMutation.apply({ client, retro: retroAt(phase), user: facilitator, payload: { notes: 'x' } }),

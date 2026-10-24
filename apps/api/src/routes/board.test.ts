@@ -106,6 +106,8 @@ function build(teamRole: 'admin' | 'member' | null, opts: { facilitatorId?: stri
       if (table === 'action_item_reviews') return chain({ data: [], error: null });
       // RN-032: no active recording session in any of this file's fixtures.
       if (table === 'recording_sessions') return chain({ data: null, error: null });
+      // No recap row until Wrap up notes are saved or the retro closes.
+      if (table === 'retro_recaps') return chain({ data: null, error: null });
       throw new Error(`unexpected table ${table}`);
     },
   } as unknown as SupabaseClient<Database>;
@@ -131,6 +133,7 @@ describe('GET /retros/:id/board', () => {
       voteBudget: 3,
     });
     expect(typeof body.serverTime).toBe('string');
+    expect(body.additionalNotes).toBe(''); // no recap row yet
     expect(body.columns).toEqual([
       { id: columnRow.id, title: 'Start', prompt: 'p', color: 'green', kind: 'standard', position: 0 },
     ]);

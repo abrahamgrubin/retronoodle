@@ -316,6 +316,18 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
     // RN-036: facilitator-only, same "absent for everyone else" convention as `suggestions`.
     const unmatchedSpeakers = user.id === retro.facilitator_id ? buildUnmatchedSpeakers(transcriptSegments) : null;
 
+    // Wrap up's "Additional notes" — the row only exists once someone has saved notes (Wrap up)
+    // or the retro has closed (retro.close seeds it), so a missing row just means no notes yet.
+    const { data: recapRow, error: recapError } = await supabaseAdmin
+      .from('retro_recaps')
+      .select('additional_notes')
+      .eq('retro_id', retroId)
+      .maybeSingle();
+    if (recapError) {
+      request.log.error({ err: recapError }, 'failed to read recap notes');
+      return reply.code(500).send({ error: 'board_read_failed' });
+    }
+
     const redactCtx = { viewerId: user.id, phase: retro.phase as RetroPhase, cardsRevealed: retro.cards_revealed };
 
     return BoardResponse.parse({
@@ -398,6 +410,7 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
       recordingSession,
       transcriptSegments,
       unmatchedSpeakers,
+      additionalNotes: recapRow?.additional_notes ?? '',
       seq: lastEventResult.data?.seq ?? 0,
       // RN-012: this specific response is what a late joiner's clock-offset calculation anchors
       // to, so it's set explicitly here rather than relying solely on the global serverTime hook

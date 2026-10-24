@@ -130,6 +130,10 @@ export const BoardResponse = z.object({
   // every other viewer, same "facilitator-only, absent for everyone else" convention as
   // `suggestions` above.
   unmatchedSpeakers: z.array(UnmatchedSpeaker).nullable(),
+  // The recap's "Additional notes" (retro_recaps.additional_notes), editable by the facilitator
+  // from Wrap up onward (recap.editNotes) — empty until someone writes some, and before any recap
+  // row exists. Visible to everyone, same as the recap page itself.
+  additionalNotes: z.string().default(''),
   seq: z.number().int().nonnegative(),
   // RN-012: "every API response includes serverTime" — the client compares this to its own
   // clock once, at load, to get a stable offset, then counts the phase timer down locally
