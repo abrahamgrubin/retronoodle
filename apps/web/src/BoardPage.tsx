@@ -2910,9 +2910,8 @@ function Board({
   // RN-023: bypasses sendMutation's optimistic/rollback plumbing deliberately — the dialog needs
   // its own inline error ("error (inline message, dialog stays open)" per the layout spec), not
   // the board's global `lastError` banner, and there's nothing useful to guess optimistically for
-  // a one-shot close. On success, this navigates straight to the recap page (RecapPage.tsx's own
-  // polling already handles the recap still being `pending` the moment you land there) rather
-  // than leaving the facilitator on the now-read-only closed board — nothing else needs the
+  // a one-shot close. On success, this navigates straight to the recap page (built from what Wrap
+  // up left behind, so it's ready immediately) rather than leaving the facilitator on the now-read-only closed board — nothing else needs the
   // broadcast's phase='closed' event to update in place, since this browser is leaving the page.
   async function closeRetro(nextRetroAt: string, override: boolean) {
     const mutationId = uuidv7();

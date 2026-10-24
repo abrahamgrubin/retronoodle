@@ -134,7 +134,7 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
     registerTemplateRoutes(app, { supabaseAdmin, requireAuth });
     registerBoardRoutes(app, { supabaseAdmin, requireAuth, realtimeBus, transcriptMasterKey });
     registerActionItemRoutes(app, { supabaseAdmin, requireAuth });
-    registerRecapRoutes(app, { supabaseAdmin, requireAuth, jobs });
+    registerRecapRoutes(app, { supabaseAdmin, requireAuth });
     registerSpeechActivityRoutes(app, { supabaseAdmin, requireAuth });
     registerAudioGatewayRoutes(app, {
       supabaseAdmin,

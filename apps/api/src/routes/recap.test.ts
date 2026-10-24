@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { Database } from '@retronoodle/shared';
 import type { FastifyInstance } from 'fastify';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -41,37 +41,33 @@ interface BuildOpts {
   phase?: string;
   facilitatorId?: string;
   recapRow?: unknown;
+  topics?: unknown[];
+  topicSummaries?: unknown[];
   actionItems?: unknown[];
-  undiscussedTopics?: unknown[];
   participants?: unknown[];
   profiles?: unknown[];
-  jobsSend?: (queueName: string, data: object) => Promise<string | null>;
 }
 
 function build(teamRole: 'admin' | 'member' | null, opts: BuildOpts = {}) {
   const {
     phase = 'closed',
     facilitatorId,
-    recapRow = { status: 'ready', topic_summaries: [], decisions: [], generated_at: '2026-01-01T00:00:00.000Z', additional_notes: '' },
+    recapRow = { additional_notes: '' },
+    topics = [],
+    topicSummaries = [],
     actionItems = [],
-    undiscussedTopics = [],
     participants = [],
     profiles = [],
-    jobsSend,
   } = opts;
 
   const supabaseAdmin = {
     from(table: string) {
       if (table === 'retros') return chain({ data: retroRow(phase, facilitatorId), error: null });
       if (table === 'team_members') return teamMembersChain(teamRole);
-      if (table === 'retro_recaps') {
-        return {
-          ...chain({ data: recapRow, error: null }),
-          insert: vi.fn().mockResolvedValue({ data: null, error: null }),
-        };
-      }
+      if (table === 'retro_recaps') return chain({ data: recapRow, error: null });
+      if (table === 'topics') return chain({ data: topics, error: null });
+      if (table === 'topic_summaries') return chain({ data: topicSummaries, error: null });
       if (table === 'action_items') return chain({ data: actionItems, error: null });
-      if (table === 'topics') return chain({ data: undiscussedTopics, error: null });
       if (table === 'retro_participants') return chain({ data: participants, error: null });
       if (table === 'profiles') return chain({ data: profiles, error: null });
       throw new Error(`unexpected table ${table}`);
@@ -80,75 +76,72 @@ function build(teamRole: 'admin' | 'member' | null, opts: BuildOpts = {}) {
 
   return buildServer({
     webOrigin: 'http://localhost:5173',
-    auth: testAuthOptions({ verifyAccessToken, supabaseAdmin, jobs: jobsSend ? { send: jobsSend } : undefined }),
+    auth: testAuthOptions({ verifyAccessToken, supabaseAdmin }),
   });
 }
 
+const deploysId = '00000000-0000-4000-8000-000000000010';
+const testingId = '00000000-0000-4000-8000-000000000030';
+const onboardingId = '00000000-0000-4000-8000-000000000040';
+const facilitatorUserId = '00000000-0000-4000-8000-000000000099';
+
 describe('GET /retros/:id/recap', () => {
-  it('returns the assembled recap for a team member once ready', async () => {
+  it('builds the recap from what Wrap up showed', async () => {
     app = await build('member', {
-      recapRow: {
-        status: 'ready',
-        topic_summaries: [{ topicId: '00000000-0000-4000-8000-000000000010', topicName: 'Deploys', summary: 'Deploys are slow.' }],
-        decisions: [{ topicId: '00000000-0000-4000-8000-000000000010', topicName: 'Deploys', text: 'Switch runners.' }],
-        generated_at: '2026-01-01T00:00:00.000Z',
-        additional_notes: 'Great retro overall.',
-      },
-      actionItems: [{ id: '00000000-0000-4000-8000-000000000020', title: 'Fix CI', owner_id: ownerId, status: 'open' }],
-      undiscussedTopics: [{ id: '00000000-0000-4000-8000-000000000030', name: 'Testing' }],
-      participants: [{ user_id: claims.sub }],
+      recapRow: { additional_notes: 'Great retro overall.' },
+      topics: [
+        { id: onboardingId, name: 'Onboarding', ai_group_summary_title: null, discussion_order: 'b', started_at: '2026-01-01T00:10:00.000Z' },
+        { id: testingId, name: 'Testing', ai_group_summary_title: null, discussion_order: 'c', started_at: null },
+        { id: deploysId, name: 'deploy stuff', ai_group_summary_title: 'Deploys', discussion_order: 'a', started_at: '2026-01-01T00:00:00.000Z' },
+      ],
+      // Ordered topic_id, version desc — the route keeps only each topic's first (latest) row.
+      topicSummaries: [
+        { topic_id: deploysId, version: 2, key_points: [{ text: 'Deploys are slow', sources: [] }], decisions: [{ text: 'Switch runners', sources: [] }] },
+        { topic_id: deploysId, version: 1, key_points: [{ text: 'Old draft', sources: [] }], decisions: [] },
+      ],
+      actionItems: [
+        { id: '00000000-0000-4000-8000-000000000021', title: 'Write docs', owner_id: null, status: 'in_progress', created_at: '2026-01-01T00:20:00.000Z' },
+        { id: '00000000-0000-4000-8000-000000000020', title: 'Fix CI', owner_id: ownerId, status: 'open', created_at: '2026-01-01T00:05:00.000Z' },
+      ],
+      participants: [{ user_id: claims.sub }, { user_id: facilitatorUserId }],
       profiles: [
         { id: ownerId, display_name: 'Owner Name' },
         { id: claims.sub, display_name: 'Ada Lovelace' },
+        { id: facilitatorUserId, display_name: 'Zed Facilitator' },
       ],
     });
 
     const res = await app.inject({ method: 'GET', url: `/retros/${retroId}/recap`, headers: AUTH_HEADER });
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body.status).toBe('ready');
     expect(body.retroName).toBe('Sprint 1 retro');
     expect(body.isFacilitator).toBe(false);
     expect(body.recap.topicSummaries).toEqual([
-      { topicId: '00000000-0000-4000-8000-000000000010', topicName: 'Deploys', summary: 'Deploys are slow.' },
+      { topicId: deploysId, topicName: 'Deploys', summary: 'Deploys are slow. Decisions: Switch runners.' },
+      { topicId: onboardingId, topicName: 'Onboarding', summary: null },
     ]);
-    expect(body.recap.decisions).toEqual([
-      { topicId: '00000000-0000-4000-8000-000000000010', topicName: 'Deploys', text: 'Switch runners.' },
+    expect(body.recap.actionItems).toEqual([
+      { id: '00000000-0000-4000-8000-000000000020', title: 'Fix CI', ownerName: 'Owner Name', status: 'open' },
+      { id: '00000000-0000-4000-8000-000000000021', title: 'Write docs', ownerName: null, status: 'in_progress' },
     ]);
-    expect(body.recap.actionItems).toEqual([{ id: '00000000-0000-4000-8000-000000000020', title: 'Fix CI', ownerName: 'Owner Name', status: 'open' }]);
-    expect(body.recap.undiscussedTopics).toEqual([{ topicId: '00000000-0000-4000-8000-000000000030', topicName: 'Testing' }]);
-    expect(body.recap.attendance).toEqual([{ id: claims.sub, displayName: 'Ada Lovelace' }]);
-    expect(body.recap.generatedAt).toBe('2026-01-01T00:00:00.000Z');
+    expect(body.recap.undiscussedTopics).toEqual([{ topicId: testingId, topicName: 'Testing' }]);
+    expect(body.recap.attendance).toEqual([
+      { id: facilitatorUserId, displayName: 'Zed Facilitator', isFacilitator: true },
+      { id: claims.sub, displayName: 'Ada Lovelace', isFacilitator: false },
+    ]);
     expect(body.additionalNotes).toBe('Great retro overall.');
     // No vote counts anywhere in the payload, by design.
     expect(JSON.stringify(body.recap)).not.toContain('vote');
   });
 
-  it('returns status without a recap while still pending', async () => {
-    app = await build('member', {
-      recapRow: { status: 'pending', topic_summaries: [], decisions: [], generated_at: null, additional_notes: '' },
+  it('returns an empty recap with no notes when nothing was recorded', async () => {
+    app = await build('member', { recapRow: null });
+    const res = await app.inject({ method: 'GET', url: `/retros/${retroId}/recap`, headers: AUTH_HEADER });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      recap: { topicSummaries: [], actionItems: [], undiscussedTopics: [], attendance: [] },
+      additionalNotes: '',
     });
-    const res = await app.inject({ method: 'GET', url: `/retros/${retroId}/recap`, headers: AUTH_HEADER });
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ status: 'pending', recap: null });
-  });
-
-  it('returns status without a recap when unavailable', async () => {
-    app = await build('member', {
-      recapRow: { status: 'unavailable', topic_summaries: [], decisions: [], generated_at: null, additional_notes: '' },
-    });
-    const res = await app.inject({ method: 'GET', url: `/retros/${retroId}/recap`, headers: AUTH_HEADER });
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ status: 'unavailable', recap: null });
-  });
-
-  it('self-heals by seeding a pending row and enqueuing the job when none exists yet', async () => {
-    const jobsSend = vi.fn().mockResolvedValue('job-id');
-    app = await build('member', { recapRow: null, jobsSend });
-    const res = await app.inject({ method: 'GET', url: `/retros/${retroId}/recap`, headers: AUTH_HEADER });
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ status: 'pending', recap: null });
-    expect(jobsSend).toHaveBeenCalledWith('ai.generateRecap', { retroId });
   });
 
   it('returns 404 for a retro that is not closed yet', async () => {
