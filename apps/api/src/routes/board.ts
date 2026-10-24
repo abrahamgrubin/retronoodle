@@ -20,6 +20,15 @@ import { fetchActiveRecordingSession } from '../recordingSession.js';
 import type { RealtimeBus } from '../realtime/RealtimeBus.js';
 import { buildTranscriptSegments, buildUnmatchedSpeakers } from '../transcription/boardTranscript.js';
 
+const MAX_SNAPSHOT_ATTEMPTS = 3;
+
+/** readBoard's error exit: sends the response itself, then returns null so the caller (which
+ * owns the retry loop) knows there's no board to return. */
+function sendError(reply: FastifyReply, code: number, body: { error: string }): null {
+  void reply.code(code).send(body);
+  return null;
+}
+
 export interface BoardRoutesDeps {
   supabaseAdmin: SupabaseClient<Database>;
   requireAuth: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
@@ -33,9 +42,52 @@ export interface BoardRoutesDeps {
 export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps): void {
   const { supabaseAdmin, requireAuth, realtimeBus, transcriptMasterKey } = deps;
 
+  // Bug found live (production only — Render-to-Supabase latency widens the window): every read
+  // below is its own PostgREST request, not one snapshot, so a mutation committing midway through
+  // used to produce a torn board — e.g. vote->discuss committing between the `retros` read and the
+  // `retro_events` read paired phase 'vote' with phase.skip's own seq. The client trusted that seq,
+  // reverted to Vote, then dropped phase.skip's broadcast as "already applied," leaving the
+  // facilitator stuck on Vote until a reload. Bracketing the whole read with the latest seq, and
+  // retrying if it moved, guarantees the snapshot matches the seq it's returned with. If it keeps
+  // moving (a busy retro), the *earlier* seq is the safe fallback: the client replays anything
+  // after it on top, and every event result folds in idempotently — unlike a too-new seq, which
+  // silently swallows the very event that would have fixed a stale snapshot.
   app.get<{ Params: { id: string } }>('/retros/:id/board', { preHandler: requireAuth }, async (request, reply) => {
+    for (let attempt = 1; ; attempt += 1) {
+      const seqBefore = await readLatestSeq(request.params.id);
+      if (seqBefore.seq === null) {
+        request.log.error({ err: seqBefore.error }, 'failed to read latest seq for board');
+        return reply.code(500).send({ error: 'board_read_failed' });
+      }
+      const board = await readBoard(request, reply, seqBefore.seq);
+      if (!board) return reply; // already sent its own error response
+      const seqAfter = await readLatestSeq(request.params.id);
+      if (seqAfter.seq === null) {
+        request.log.error({ err: seqAfter.error }, 'failed to read latest seq for board');
+        return reply.code(500).send({ error: 'board_read_failed' });
+      }
+      if (seqAfter.seq === seqBefore.seq || attempt === MAX_SNAPSHOT_ATTEMPTS) return board;
+    }
+  });
+
+  async function readLatestSeq(retroId: string): Promise<{ seq: number; error: null } | { seq: null; error: unknown }> {
+    const { data, error } = await supabaseAdmin
+      .from('retro_events')
+      .select('seq')
+      .eq('retro_id', retroId)
+      .order('seq', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    return error ? { seq: null, error } : { seq: data?.seq ?? 0, error: null };
+  }
+
+  async function readBoard(
+    request: FastifyRequest<{ Params: { id: string } }>,
+    reply: FastifyReply,
+    seq: number,
+  ): Promise<BoardResponse | null> {
     const user = request.user;
-    if (!user) return reply.code(401).send({ error: 'unauthorized' });
+    if (!user) return sendError(reply, 401, { error: 'unauthorized' });
 
     const retroId = request.params.id;
     const { data: retro, error: retroError } = await supabaseAdmin
@@ -45,14 +97,14 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
       .maybeSingle();
     if (retroError) {
       request.log.error({ err: retroError }, 'failed to read retro for board');
-      return reply.code(500).send({ error: 'board_read_failed' });
+      return sendError(reply, 500, { error: 'board_read_failed' });
     }
     // A soft-deleted retro (retros.deleted_at) is gone as far as every reader is concerned.
-    if (!retro || retro.deleted_at) return reply.code(404).send({ error: 'not_found' });
+    if (!retro || retro.deleted_at) return sendError(reply, 404, { error: 'not_found' });
 
     const role = await getTeamRole(supabaseAdmin, retro.team_id, user.id);
     if (!can(user, 'retro.read', { type: 'retro', teamRole: role, facilitatorId: retro.facilitator_id })) {
-      return reply.code(403).send({ error: 'forbidden' });
+      return sendError(reply, 403, { error: 'forbidden' });
     }
 
     // RN-025: "On setup -> review, load team items with status open or in progress into the
@@ -68,7 +120,6 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
       columnsResult,
       cardsResult,
       topicsResult,
-      lastEventResult,
       teamResult,
       actionItemsResult,
       teamMemberRowsResult,
@@ -78,7 +129,6 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
       supabaseAdmin.from('retro_columns').select().eq('retro_id', retroId).order('position'),
       supabaseAdmin.from('cards').select().eq('retro_id', retroId),
       supabaseAdmin.from('topics').select().eq('retro_id', retroId),
-      supabaseAdmin.from('retro_events').select('seq').eq('retro_id', retroId).order('seq', { ascending: false }).limit(1).maybeSingle(),
       supabaseAdmin.from('teams').select('retro_cadence_days').eq('id', retro.team_id).single(),
       actionItemsQuery,
       supabaseAdmin.from('team_members').select('user_id').eq('team_id', retro.team_id),
@@ -94,7 +144,6 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
       columnsResult.error ||
       cardsResult.error ||
       topicsResult.error ||
-      lastEventResult.error ||
       teamResult.error ||
       actionItemsResult.error ||
       teamMemberRowsResult.error ||
@@ -106,7 +155,6 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
           columns: columnsResult.error,
           cards: cardsResult.error,
           topics: topicsResult.error,
-          event: lastEventResult.error,
           team: teamResult.error,
           actionItems: actionItemsResult.error,
           teamMembers: teamMemberRowsResult.error,
@@ -115,7 +163,7 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
         },
         'failed to read board data',
       );
-      return reply.code(500).send({ error: 'board_read_failed' });
+      return sendError(reply, 500, { error: 'board_read_failed' });
     }
 
     // RN-022: the owner picker lists every team member, not just whoever's online — same
@@ -129,7 +177,7 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
         .in('id', memberIds);
       if (memberProfilesError) {
         request.log.error({ err: memberProfilesError }, 'failed to read team member profiles');
-        return reply.code(500).send({ error: 'board_read_failed' });
+        return sendError(reply, 500, { error: 'board_read_failed' });
       }
       for (const profile of memberProfiles ?? []) teamMembers.push({ id: profile.id, displayName: profile.display_name });
     }
@@ -149,7 +197,7 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
         .in('id', authorIds);
       if (authorsError) {
         request.log.error({ err: authorsError }, 'failed to read card authors');
-        return reply.code(500).send({ error: 'board_read_failed' });
+        return sendError(reply, 500, { error: 'board_read_failed' });
       }
       for (const author of authors ?? []) authorNameById.set(author.id, author.display_name);
     }
@@ -166,7 +214,7 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
         .in('card_id', cardIds);
       if (reactionsError) {
         request.log.error({ err: reactionsError }, 'failed to read card reactions');
-        return reply.code(500).send({ error: 'board_read_failed' });
+        return sendError(reply, 500, { error: 'board_read_failed' });
       }
       for (const row of reactionRows ?? []) {
         const byEmoji = reactionsByCard.get(row.card_id) ?? new Map<string, string[]>();
@@ -191,7 +239,7 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
       const { data: noteRows, error: notesError } = await supabaseAdmin.from('topic_notes').select('topic_id, body').in('topic_id', topicIds);
       if (notesError) {
         request.log.error({ err: notesError }, 'failed to read topic notes');
-        return reply.code(500).send({ error: 'board_read_failed' });
+        return sendError(reply, 500, { error: 'board_read_failed' });
       }
       for (const row of noteRows ?? []) notesByTopic.set(row.topic_id, row.body);
     }
@@ -210,7 +258,7 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
         .order('version', { ascending: false });
       if (summariesError) {
         request.log.error({ err: summariesError }, 'failed to read topic summaries');
-        return reply.code(500).send({ error: 'board_read_failed' });
+        return sendError(reply, 500, { error: 'board_read_failed' });
       }
       for (const row of summaryRows ?? []) {
         if (latestSummaryByTopic.has(row.topic_id)) continue;
@@ -245,7 +293,7 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
         .eq('status', 'pending');
       if (suggestionsError) {
         request.log.error({ err: suggestionsError }, 'failed to read group suggestions');
-        return reply.code(500).send({ error: 'board_read_failed' });
+        return sendError(reply, 500, { error: 'board_read_failed' });
       }
       const cardColumnById = new Map(cards.map((c) => [c.id, c.column_id]));
       suggestions = (pending ?? [])
@@ -265,7 +313,7 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
       .eq('user_id', user.id);
     if (myVotesError) {
       request.log.error({ err: myVotesError }, 'failed to read own votes');
-      return reply.code(500).send({ error: 'board_read_failed' });
+      return sendError(reply, 500, { error: 'board_read_failed' });
     }
     const myVotesByTopic = new Map<string, number>();
     for (const row of myVoteRows ?? []) myVotesByTopic.set(row.topic_id, (myVotesByTopic.get(row.topic_id) ?? 0) + 1);
@@ -285,7 +333,7 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
       ]);
       if (participantsError || votesError) {
         request.log.error({ participants: participantsError, votes: votesError }, 'failed to read voting progress');
-        return reply.code(500).send({ error: 'board_read_failed' });
+        return sendError(reply, 500, { error: 'board_read_failed' });
       }
       const countByUser = new Map<string, number>();
       for (const row of voteRows ?? []) countByUser.set(row.user_id, (countByUser.get(row.user_id) ?? 0) + 1);
@@ -298,7 +346,7 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
     const { data: recordingSession, error: recordingSessionError } = await fetchActiveRecordingSession(supabaseAdmin, retroId);
     if (recordingSessionError) {
       request.log.error({ err: recordingSessionError }, 'failed to read recording session');
-      return reply.code(500).send({ error: 'board_read_failed' });
+      return sendError(reply, 500, { error: 'board_read_failed' });
     }
 
     // RN-033/034: every transcript line so far, decrypted and tagged to its topic — visible to
@@ -311,7 +359,7 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
     );
     if (transcriptError) {
       request.log.error({ err: transcriptError }, 'failed to read transcript segments');
-      return reply.code(500).send({ error: 'board_read_failed' });
+      return sendError(reply, 500, { error: 'board_read_failed' });
     }
     // RN-036: facilitator-only, same "absent for everyone else" convention as `suggestions`.
     const unmatchedSpeakers = user.id === retro.facilitator_id ? buildUnmatchedSpeakers(transcriptSegments) : null;
@@ -325,7 +373,7 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
       .maybeSingle();
     if (recapError) {
       request.log.error({ err: recapError }, 'failed to read recap notes');
-      return reply.code(500).send({ error: 'board_read_failed' });
+      return sendError(reply, 500, { error: 'board_read_failed' });
     }
 
     const redactCtx = { viewerId: user.id, phase: retro.phase as RetroPhase, cardsRevealed: retro.cards_revealed };
@@ -411,13 +459,13 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
       transcriptSegments,
       unmatchedSpeakers,
       additionalNotes: recapRow?.additional_notes ?? '',
-      seq: lastEventResult.data?.seq ?? 0,
+      seq,
       // RN-012: this specific response is what a late joiner's clock-offset calculation anchors
       // to, so it's set explicitly here rather than relying solely on the global serverTime hook
       // (server.ts) — that hook still covers every other response, this one just can't risk it.
       serverTime: new Date().toISOString(),
     });
-  });
+  }
 
   // RN-032: "a late joiner pauses recording until they agree" — nothing before this story ever
   // tracked who's *currently* connected to a retro (retro_participants.joined_at is set once and
@@ -426,7 +474,7 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
   // just arrived, so one is inserted (pending) and an actively-recording session pauses.
   app.post<{ Params: { id: string } }>('/retros/:id/heartbeat', { preHandler: requireAuth }, async (request, reply) => {
     const user = request.user;
-    if (!user) return reply.code(401).send({ error: 'unauthorized' });
+    if (!user) return sendError(reply, 401, { error: 'unauthorized' });
 
     const retroId = request.params.id;
     const { data: retro, error: retroError } = await supabaseAdmin
@@ -436,13 +484,13 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
       .maybeSingle();
     if (retroError) {
       request.log.error({ err: retroError }, 'failed to read retro for heartbeat');
-      return reply.code(500).send({ error: 'heartbeat_failed' });
+      return sendError(reply, 500, { error: 'heartbeat_failed' });
     }
-    if (!retro || retro.deleted_at) return reply.code(404).send({ error: 'not_found' });
+    if (!retro || retro.deleted_at) return sendError(reply, 404, { error: 'not_found' });
 
     const role = await getTeamRole(supabaseAdmin, retro.team_id, user.id);
     if (!can(user, 'retro.read', { type: 'retro', teamRole: role, facilitatorId: retro.facilitator_id })) {
-      return reply.code(403).send({ error: 'forbidden' });
+      return sendError(reply, 403, { error: 'forbidden' });
     }
 
     const now = new Date().toISOString();
@@ -451,7 +499,7 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
       .upsert({ retro_id: retroId, user_id: user.id, last_seen_at: now }, { onConflict: 'retro_id,user_id' });
     if (upsertError) {
       request.log.error({ err: upsertError }, 'failed to record heartbeat');
-      return reply.code(500).send({ error: 'heartbeat_failed' });
+      return sendError(reply, 500, { error: 'heartbeat_failed' });
     }
 
     const { data: session, error: sessionError } = await supabaseAdmin
@@ -462,7 +510,7 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
       .maybeSingle();
     if (sessionError) {
       request.log.error({ err: sessionError }, 'failed to read recording session for heartbeat');
-      return reply.code(500).send({ error: 'heartbeat_failed' });
+      return sendError(reply, 500, { error: 'heartbeat_failed' });
     }
 
     if (session) {
@@ -474,7 +522,7 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
         .maybeSingle();
       if (consentError) {
         request.log.error({ err: consentError }, 'failed to read recording consent for heartbeat');
-        return reply.code(500).send({ error: 'heartbeat_failed' });
+        return sendError(reply, 500, { error: 'heartbeat_failed' });
       }
 
       if (!existingConsent) {
@@ -483,21 +531,21 @@ export function registerBoardRoutes(app: FastifyInstance, deps: BoardRoutesDeps)
           .insert({ session_id: session.id, user_id: user.id });
         if (insertConsentError) {
           request.log.error({ err: insertConsentError }, 'failed to insert late-joiner recording consent');
-          return reply.code(500).send({ error: 'heartbeat_failed' });
+          return sendError(reply, 500, { error: 'heartbeat_failed' });
         }
 
         if (session.status === 'recording') {
           const { error: pauseError } = await supabaseAdmin.from('recording_sessions').update({ status: 'paused' }).eq('id', session.id);
           if (pauseError) {
             request.log.error({ err: pauseError }, 'failed to pause recording session for late joiner');
-            return reply.code(500).send({ error: 'heartbeat_failed' });
+            return sendError(reply, 500, { error: 'heartbeat_failed' });
           }
         }
 
         const { data: updatedSession, error: updatedSessionError } = await fetchActiveRecordingSession(supabaseAdmin, retroId);
         if (updatedSessionError) {
           request.log.error({ err: updatedSessionError }, 'failed to read recording session after late-joiner pause');
-          return reply.code(500).send({ error: 'heartbeat_failed' });
+          return sendError(reply, 500, { error: 'heartbeat_failed' });
         }
         await realtimeBus.broadcastRetro(retroId, { type: 'recording.sessionUpdated', payload: { session: updatedSession } });
       }

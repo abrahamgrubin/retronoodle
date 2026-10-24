@@ -86,11 +86,23 @@ function teamMembersChain(teamRole: 'admin' | 'member' | null) {
   return api;
 }
 
-function build(teamRole: 'admin' | 'member' | null, opts: { facilitatorId?: string } = {}) {
+// Successive reads of a table return successive values (the last one repeats) — how the tests
+// below simulate a mutation committing partway through a board read.
+function sequence<T>(values: T[]): () => T {
+  let i = 0;
+  return () => values[Math.min(i++, values.length - 1)]!;
+}
+
+function build(
+  teamRole: 'admin' | 'member' | null,
+  opts: { facilitatorId?: string; phases?: string[]; seqs?: number[] } = {},
+) {
   const retro = opts.facilitatorId ? { ...retroRow, facilitator_id: opts.facilitatorId } : retroRow;
+  const nextPhase = sequence(opts.phases ?? [retro.phase]);
+  const nextSeq = sequence(opts.seqs ?? [3]);
   const supabaseAdmin = {
     from(table: string) {
-      if (table === 'retros') return chain({ data: retro, error: null });
+      if (table === 'retros') return chain({ data: { ...retro, phase: nextPhase() }, error: null });
       if (table === 'team_members') return teamMembersChain(teamRole);
       if (table === 'retro_columns') return chain({ data: [columnRow], error: null });
       if (table === 'cards') return chain({ data: [cardRow], error: null });
@@ -100,7 +112,7 @@ function build(teamRole: 'admin' | 'member' | null, opts: { facilitatorId?: stri
       if (table === 'votes') return chain({ data: [], error: null });
       if (table === 'retro_participants') return chain({ data: [], error: null });
       if (table === 'profiles') return chain({ data: [{ id: claims.sub, display_name: 'Ada Lovelace' }], error: null });
-      if (table === 'retro_events') return chain({ data: { seq: 3 }, error: null });
+      if (table === 'retro_events') return chain({ data: { seq: nextSeq() }, error: null });
       if (table === 'teams') return chain({ data: { retro_cadence_days: 14 }, error: null });
       if (table === 'action_items') return chain({ data: [], error: null });
       if (table === 'action_item_reviews') return chain({ data: [], error: null });
@@ -164,6 +176,27 @@ describe('GET /retros/:id/board', () => {
     app = await build(null);
     const res = await app.inject({ method: 'GET', url: `/retros/${retroId}/board`, headers: AUTH_HEADER });
     expect(res.statusCode).toBe(403);
+  });
+
+  // Bug found live: phase.skip (vote->discuss) committing between the retros read and the
+  // retro_events read paired phase 'vote' with phase.skip's own seq — the client then reverted
+  // to Vote and dropped phase.skip's broadcast as already applied.
+  it('rereads when the seq moves mid-read, so the phase always matches the seq it ships with', async () => {
+    app = await build('member', { phases: ['vote', 'discuss'], seqs: [3, 4, 4, 4] });
+    const res = await app.inject({ method: 'GET', url: `/retros/${retroId}/board`, headers: AUTH_HEADER });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().retro.phase).toBe('discuss');
+    expect(res.json().seq).toBe(4);
+  });
+
+  it('when the seq never settles, falls back to the seq read before the data, never after', async () => {
+    // Pairing newer data with an older seq is safe (the client replays the gap idempotently);
+    // the reverse is what swallowed phase.skip's broadcast.
+    app = await build('member', { phases: ['vote', 'vote', 'discuss'], seqs: [3, 4, 4, 5, 5, 6] });
+    const res = await app.inject({ method: 'GET', url: `/retros/${retroId}/board`, headers: AUTH_HEADER });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().retro.phase).toBe('discuss');
+    expect(res.json().seq).toBe(5);
   });
 
   it('redacts a non-author card during Write before reveal (RN-011)', async () => {
