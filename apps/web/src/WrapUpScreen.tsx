@@ -1,5 +1,5 @@
 import { useRef, useState, type ChangeEvent, type ReactNode } from 'react';
-import type { ActionItem, Topic, TopicSummary, TopicSummaryPoint, UnmatchedSpeaker } from '@retronoodle/shared';
+import { topicSummaryParagraph, type ActionItem, type Topic, type TopicSummary, type TopicSummaryPoint, type UnmatchedSpeaker } from '@retronoodle/shared';
 import { Box, Button, MenuItem, Select, Skeleton, Stack, Typography } from '@mui/material';
 import {
   BORDER,
@@ -104,19 +104,6 @@ const textareaSx = {
   '&::placeholder': { color: TEXT_TERTIARY },
   '&:focus': { outline: `2px solid ${PRIMARY}`, outlineOffset: -1 },
 } as const;
-
-/** One topic's summary as the design's single paragraph: key points, then decisions. */
-function asSentence(text: string): string {
-  const trimmed = text.trim();
-  return /[.!?…]$/.test(trimmed) ? trimmed : `${trimmed}.`;
-}
-
-function summaryParagraph(summary: TopicSummary): string {
-  const keyPoints = summary.keyPoints.map((p) => asSentence(p.text)).join(' ');
-  const decisions = summary.decisions.map((p) => asSentence(p.text)).join(' ');
-  if (!keyPoints && !decisions) return 'There were no substantive key points or decisions recorded for this topic.';
-  return [keyPoints, decisions && `Decisions: ${decisions}`].filter(Boolean).join(' ');
-}
 
 function pointsToLines(points: TopicSummaryPoint[]): string {
   return points.map((p) => p.text).join('\n');
@@ -255,7 +242,7 @@ function TopicSummaries({
               </Stack>
             )}
             {summary && (!editing || !draft) && (
-              <Typography sx={{ fontSize: 14, lineHeight: '22px', color: TEXT_SECONDARY, overflowWrap: 'anywhere' }}>{summaryParagraph(summary)}</Typography>
+              <Typography sx={{ fontSize: 14, lineHeight: '22px', color: TEXT_SECONDARY, overflowWrap: 'anywhere' }}>{topicSummaryParagraph(summary)}</Typography>
             )}
             {summary && editing && draft && (
               <Stack spacing={1.5}>
