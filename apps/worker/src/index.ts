@@ -8,7 +8,6 @@ import { runSuggestQuestionsJob } from './jobs/suggestQuestions.js';
 import { runSummarizeTopicJob } from './jobs/summarizeTopic.js';
 import { runTranscriptRetentionJob } from './jobs/transcriptRetention.js';
 import { runMatchSpeakersJob } from './jobs/matchSpeakers.js';
-import { runGenerateRecapJob } from './jobs/generateRecap.js';
 
 export type { WorkerLogger } from './logger.js';
 // RN-033: apps/api's audio gateway persists encrypted transcript text through the same
@@ -30,9 +29,6 @@ export const TRANSCRIPT_RETENTION_QUEUE = 'transcript.retention';
 // RN-036: enqueued from discussHelpers.ts's endCurrentTopic, alongside ai.summarizeTopic — a
 // topic ending is also when its transcript_segments/speech_activity are complete enough to match.
 export const TRANSCRIPTION_MATCH_SPEAKERS_QUEUE = 'transcription.matchSpeakers';
-// RN-045: enqueued once from retro.close (retroClose.ts) and once more from recap.regenerate —
-// never from onTransition.ts, since there's nothing to recap before the retro is actually closed.
-export const AI_GENERATE_RECAP_QUEUE = 'ai.generateRecap';
 
 /** The union of every job's own (narrower) RealtimeBusLike requirement — groupCards.ts only ever
  * needs broadcastUser, summarizeGroup.ts/suggestQuestions.ts only ever need broadcastRetro, but
@@ -141,13 +137,6 @@ export async function startWorker(options: StartWorkerOptions): Promise<RunningW
         await runSummarizeTopicJob(job.data, { supabaseAdmin, realtimeBus, anthropicApiKey, monthlyCapUsd, transcriptMasterKey, logger: options.logger });
       }
     });
-
-    await queue.createQueue(AI_GENERATE_RECAP_QUEUE);
-    await queue.work<{ retroId: string }>(AI_GENERATE_RECAP_QUEUE, async (jobs) => {
-      for (const job of jobs) {
-        await runGenerateRecapJob(job.data, { supabaseAdmin, anthropicApiKey, monthlyCapUsd, logger: options.logger });
-      }
-    });
   }
 
   if (options.transcriptRetention) {
@@ -199,7 +188,6 @@ export async function createJobSender(databaseUrl: string, logger: WorkerLogger)
   await boss.createQueue(AI_SUGGEST_QUESTIONS_QUEUE);
   await boss.createQueue(AI_SUMMARIZE_TOPIC_QUEUE);
   await boss.createQueue(TRANSCRIPTION_MATCH_SPEAKERS_QUEUE);
-  await boss.createQueue(AI_GENERATE_RECAP_QUEUE);
   return {
     sender: { send: (queueName, data) => boss.send(queueName, data) },
     async stop() {
