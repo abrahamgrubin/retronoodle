@@ -1281,8 +1281,8 @@ function DroppableColumn({ column, children }: { column: BoardColumn; children: 
       component="section"
       ref={setNodeRef}
       sx={{
-        width: 260,
-        flexShrink: 0,
+        flex: '1 1 0',
+        minWidth: 0,
         bgcolor: isOver ? '#f1f6ff' : '#f6f7f9',
         border: isOver ? '2px solid #3b82f6' : '1px solid #e5e7eb',
         borderRadius: '16px',
@@ -1305,14 +1305,12 @@ const RIGHT_PANEL_DRAWER_WIDTH = 288;
  * caller before this ever sees them — rendered rows are always still-actionable. */
 function SuggestionRow({
   suggestion,
-  columnTitle,
   justAccepted,
   onAccept,
   onReject,
   onHover,
 }: {
   suggestion: GroupSuggestion;
-  columnTitle: string;
   justAccepted: boolean;
   onAccept: () => void;
   onReject: () => void;
@@ -1333,12 +1331,6 @@ function SuggestionRow({
     >
       <Stack spacing="5px">
         <Typography sx={{ fontSize: 10, fontWeight: 600, color: '#151922' }}>{suggestion.name}</Typography>
-        <Typography sx={{ fontSize: 9, color: '#151922' }}>{columnTitle}</Typography>
-        {suggestion.cardIds.map((cardId) => (
-          <Typography key={cardId} sx={{ fontSize: 9, color: '#151922' }}>
-            · card {cardId.slice(0, 8)}
-          </Typography>
-        ))}
       </Stack>
       <Stack direction="row" spacing={2} sx={{ mt: '6px' }}>
         <Button
@@ -1368,7 +1360,6 @@ function SuggestionsPanel({
   open,
   onToggleOpen,
   justAcceptedIds,
-  columnTitleById,
   onHover,
   onAccept,
   onReject,
@@ -1379,7 +1370,6 @@ function SuggestionsPanel({
   open: boolean;
   onToggleOpen: () => void;
   justAcceptedIds: Set<string>;
-  columnTitleById: Map<string, string>;
   onHover: (suggestionId: string | null) => void;
   onAccept: (suggestion: GroupSuggestion) => void;
   onReject: (suggestionId: string) => void;
@@ -1476,7 +1466,6 @@ function SuggestionsPanel({
                   <SuggestionRow
                     key={s.id}
                     suggestion={s}
-                    columnTitle={columnTitleById.get(s.columnId) ?? ''}
                     justAccepted={justAcceptedIds.has(s.id)}
                     onAccept={() => onAccept(s)}
                     onReject={() => onReject(s.id)}
@@ -1754,7 +1743,6 @@ function Board({
   const visibleSuggestions = suggestions.filter(
     (s) => !justAcceptedIds.has(s.id) && !s.cardIds.some((id) => board.cards.find((c) => c.id === id)?.topicId),
   );
-  const columnTitleById = new Map(board.columns.map((c) => [c.id, c.title]));
   // RN-021: "hovering a point highlights its source cards" — the same amber outline suggestion-
   // hover already uses, just driven by a second, independent hover source. The two never overlap
   // in practice (suggestions only exist in Group, summary points only exist in Discuss/Wrap up).
@@ -2729,14 +2717,13 @@ function Board({
 
   // RN-035: on-device speech detection — any participant, not just the facilitator. Starts
   // automatically whenever audio capture would be allowed (same phase/session gate as the
-  // facilitator's own capture above) and the participant hasn't turned it off; "Mic permission
+  // facilitator's own capture above); "Mic permission
   // requested only after consent" holds because captureAllowed can only ever be true once a
   // recording session has reached `recording`, which itself requires every online participant's
   // consent (RN-032).
-  const [speechDetectionEnabled, setSpeechDetectionEnabled] = useState(true);
   const speechHandleRef = useRef<SpeechDetectionHandle | null>(null);
   useEffect(() => {
-    if (!captureAllowed || !speechDetectionEnabled) return;
+    if (!captureAllowed) return;
     let cancelled = false;
     // Dynamically imported: @ricky0123/vad-web pulls in onnxruntime-web, which alone is several
     // hundred KB — statically importing it here once made it part of every board visitor's
@@ -2757,7 +2744,7 @@ function Board({
       void speechHandleRef.current?.stop();
       speechHandleRef.current = null;
     };
-  }, [captureAllowed, speechDetectionEnabled, accessToken, retroId, clockOffsetMs]);
+  }, [captureAllowed, accessToken, retroId, clockOffsetMs]);
 
   function assignSpeaker(topicId: string, speakerTag: number, assignedUserId: string) {
     const mutationId = uuidv7();
@@ -3002,7 +2989,6 @@ function Board({
               open={suggestionsPanelOpen}
               onToggleOpen={() => setSuggestionsPanelOpen((v) => !v)}
               justAcceptedIds={justAcceptedIds}
-              columnTitleById={columnTitleById}
               onHover={setHoveredSuggestionId}
               onAccept={acceptSuggestion}
               onReject={rejectSuggestion}
@@ -3243,20 +3229,10 @@ function Board({
           {recordingControls}
         </Stack>
       )}
-      {captureAllowed && transcriptionUnavailable && (
+      {transcriptionUnavailable && (
         <Alert severity="warning" sx={{ mb: 2 }}>
           Transcription unavailable. The retro continues on cards and notes.
         </Alert>
-      )}
-      {captureAllowed && (
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 2 }}>
-          <Typography variant="body2" color="text.secondary">
-            Speaker detection (your mic, timestamps only — never audio):
-          </Typography>
-          <Button size="small" type="button" onClick={() => setSpeechDetectionEnabled((v) => !v)}>
-            {speechDetectionEnabled ? 'Turn off' : 'Turn on'}
-          </Button>
-        </Stack>
       )}
       {/* Discuss and Wrap up show the transcript in their own right-edge panel (TranscriptPanel) instead. */}
       {board.phase !== 'discuss' && board.phase !== 'wrap_up' && board.transcriptSegments.length > 0 && (
