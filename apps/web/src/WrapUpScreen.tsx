@@ -6,10 +6,10 @@ import {
   CHIP_BG,
   CaptureAction,
   Icon,
-  OutlinedButton,
   PRIMARY,
   PRIMARY_TINT,
   PersonAvatar,
+  PhaseControlsBar,
   PrimaryButton,
   SURFACE,
   SecondaryButton,
@@ -641,7 +641,11 @@ export type WrapUpScreenProps = {
   isFacilitator: boolean;
   canEditActionItems: boolean;
   phaseChangePending: boolean;
+  phaseDeadline: string | null;
+  clockOffsetMs: number;
+  onExtend: (minutes: 1 | 2 | 5) => void;
   onBack: (() => void) | null;
+  onComplete: () => void;
   onSaveSummary: (topicId: string, keyPoints: TopicSummaryPoint[], decisions: TopicSummaryPoint[], disagreements: TopicSummaryPoint[], proposedActionItems: TopicSummaryPoint[]) => void;
   onRegenerateSummary: (topicId: string) => void;
   onUpdateActionItem: (id: string, patch: { ownerId?: string | null; dueDate?: string | null }) => void;
@@ -664,32 +668,25 @@ export function WrapUpScreen(props: WrapUpScreenProps) {
   const actionItems = [...props.actionItems].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
   return (
-    <Box sx={{ fontFamily: 'Roboto, system-ui, sans-serif', color: TEXT, mx: -4, mb: -4, bgcolor: SURFACE, px: '40px', pt: '32px', pb: '40px' }}>
-      {/* Figma "Recap introduction" */}
-      <Stack direction="row" sx={{ alignItems: 'flex-start', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap', mb: '28px' }}>
-        <Stack spacing="10px">
-          <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-            <Typography component="h2" sx={{ fontSize: 30, fontWeight: 600, letterSpacing: '-0.3px', color: TEXT }}>
-              Wrap Up
-            </Typography>
-            <Box sx={{ bgcolor: PRIMARY_TINT, borderRadius: '6px', px: '10px', py: '5px' }}>
-              <Typography sx={{ fontSize: 12, fontWeight: 500, color: PRIMARY, textTransform: 'uppercase' }}>{props.retroName}</Typography>
-            </Box>
-          </Stack>
-          <Typography sx={{ fontSize: 14, lineHeight: '21px', color: TEXT_SECONDARY }}>A shared record of the discussion, next steps, and topics to revisit.</Typography>
-        </Stack>
-        {isFacilitator && (
-          <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-            {props.extraControls}
-            {props.onBack && (
-              <OutlinedButton icon="arrow-left" onClick={props.onBack} disabled={props.phaseChangePending}>
-                Back
-              </OutlinedButton>
-            )}
-          </Stack>
-        )}
-      </Stack>
-
+    <Box sx={{ fontFamily: 'Roboto, system-ui, sans-serif', color: TEXT, mx: -4, mb: -4 }}>
+      <PhaseControlsBar
+        title="Wrap up"
+        isFacilitator={isFacilitator}
+        phaseDeadline={props.phaseDeadline}
+        clockOffsetMs={props.clockOffsetMs}
+        phaseChangePending={props.phaseChangePending}
+        onExtend={props.onExtend}
+        onBack={props.onBack}
+        onNext={null}
+        nextLabel=""
+        extraControls={props.extraControls}
+        endControls={
+          <PrimaryButton height={38} onClick={props.onComplete} disabled={props.phaseChangePending}>
+            Complete retro
+          </PrimaryButton>
+        }
+      />
+      <Box sx={{ bgcolor: SURFACE, px: '40px', pt: '32px', pb: '40px' }}>
       {/* Figma "Recap content" */}
       <Box
         sx={{
@@ -721,6 +718,7 @@ export function WrapUpScreen(props: WrapUpScreenProps) {
             <WhoIsThis speakers={props.unmatchedSpeakers} teamMembers={props.teamMembers} onAssign={props.onAssignSpeaker} />
           )}
         </Stack>
+      </Box>
       </Box>
     </Box>
   );
