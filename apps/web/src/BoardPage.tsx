@@ -70,7 +70,7 @@ import { audioGatewayUrl, fetchBoard, sendHeartbeat } from './board';
 import { reduceBoard, toggleReaction, type BoardState } from './boardReducer';
 import { computeClockOffsetMs, formatCountdown, remainingMs } from './clock';
 import { getCachedJoinCode, setCachedJoinCode } from './joinLinkStorage';
-import { DiscussScreen, TranscriptPanel } from './DiscussScreen';
+import { DiscussScreen, PhaseControlsBar, TranscriptPanel } from './DiscussScreen';
 import { WrapUpScreen } from './WrapUpScreen';
 import { NavDrawerContent } from './NavDrawer';
 import { postMutation } from './mutations';
@@ -2942,6 +2942,7 @@ function Board({
   // only — the current phase's own pill is inert (nothing to jump to).
   const PHASE_PILLS: RetroPhase[] = ['review', 'write', 'group', 'vote', 'discuss', 'wrap_up'];
   const currentPillIndex = PHASE_PILLS.indexOf(board.phase);
+  const hasControlsBar = board.phase === 'review' || board.phase === 'write' || board.phase === 'group' || board.phase === 'vote';
 
   // Facilitator recording controls — in the controls row on the board, and in the Discussion
   // controls bar on the Discuss screen (recording-consent.spec.ts finds "Stop recording" in both).
@@ -3078,8 +3079,8 @@ function Board({
               or portalled control is unreachable by keyboard — the Tooltip version of this sent
               the next Tab straight to "Share link"). `:focus-within` is what then reveals them,
               so tabbing in shows the same menu hovering does. */}
-          {/* The Discuss screen shows its own timer in the Discussion controls bar. */}
-          {board.phase === 'discuss' ? null : isFacilitator && board.phaseDeadline ? (
+          {/* Every phase with a controls bar (all but Wrap up and Closed) shows its timer there. */}
+          {board.phase === 'discuss' || hasControlsBar ? null : isFacilitator && board.phaseDeadline ? (
             <Box
               sx={{
                 position: 'relative',
@@ -3168,19 +3169,6 @@ function Board({
               {shareLinkCopied ? 'Copied!' : 'Share link'}
             </Button>
           )}
-          {/* Wrap up screen (Figma 96:875): RN-023's close button, renamed and moved up here from
-              the board's facilitator row — still opens the same CloseRetroDialog. */}
-          {isFacilitator && board.phase === 'wrap_up' && (
-            <Button
-              size="small"
-              variant="contained"
-              type="button"
-              onClick={() => setCloseDialogOpen(true)}
-              sx={{ flexShrink: 0, whiteSpace: 'nowrap', bgcolor: '#365cf5', textTransform: 'none', fontWeight: 500, '&:hover': { bgcolor: '#2a4bd9' } }}
-            >
-              Complete retro
-            </Button>
-          )}
         </Stack>
       </Box>
       {isReconnecting && (
@@ -3198,36 +3186,34 @@ function Board({
           {board.votingProgress && ` · ${board.votingProgress.done} of ${board.votingProgress.total} done voting`}
         </Typography>
       )}
-      {isFacilitator && board.phase !== 'discuss' && board.phase !== 'wrap_up' && (
-        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', mb: 2 }}>
-          {/* Back now jumps to whichever phase is one before current on the pill bar (same
-              phase.jumpTo the pills themselves use) — shown on every phase except Review, which
-              has nothing earlier to go back to. */}
-          {currentPillIndex > 0 && (
-            <Button size="small" type="button" onClick={() => jumpToPhase(PHASE_PILLS[currentPillIndex - 1]!)}>
-              Back
-            </Button>
-          )}
-          {/* Wrap up's door to Closed is the header's "Complete retro" (RN-023's dialog) — phase.skip
-              is rejected server-side for that target, so this row (board phases only) never needs it. */}
-          {nextPhase(board.phase) && (
-            <Button size="small" type="button" onClick={() => changePhase('skip')} disabled={phaseChangePending}>
-              Next
-            </Button>
-          )}
-          {board.phase === 'write' && !board.cardsRevealed && (
-            <Button size="small" type="button" onClick={revealCards}>
-              Reveal cards
-            </Button>
-          )}
-          {/* Recording and transcription now both start on their own the moment Discuss begins
-              (onTransition.ts's auto-start effect; captureAllowed's own effect below) — consent
-              was already given when everyone joined, so there's nothing left here to click to
-              start either one. A manual stop still exists (not every retro's discussion should
-              necessarily stay recorded start-to-finish), but only while the retro's still open —
-              a closed retro has nothing left to record. */}
-          {recordingControls}
-        </Stack>
+      {hasControlsBar && (
+        <Box sx={{ mx: -4, mb: 2 }}>
+          {/* Back jumps to whichever phase is one before current on the pill bar (same phase.jumpTo
+              the pills use), on every phase except Review. Wrap up's door to Closed is the
+              header's "Complete retro", so this bar only ever needs phase.skip for board phases.
+              Recording stop/retry controls are no longer in their own row — they ride along here. */}
+          <PhaseControlsBar
+            title={board.phase.charAt(0).toUpperCase() + board.phase.slice(1)}
+            isFacilitator={isFacilitator}
+            phaseDeadline={board.phaseDeadline}
+            clockOffsetMs={clockOffsetMs}
+            phaseChangePending={phaseChangePending}
+            onExtend={extendPhase}
+            onBack={currentPillIndex > 0 ? () => jumpToPhase(PHASE_PILLS[currentPillIndex - 1]!) : null}
+            onNext={nextPhase(board.phase) ? () => changePhase('skip') : null}
+            nextLabel={`Go to ${(nextPhase(board.phase) ?? '').replace('_', ' ')}`}
+            extraControls={
+              <>
+                {board.phase === 'write' && !board.cardsRevealed && (
+                  <Button size="small" type="button" onClick={revealCards}>
+                    Reveal cards
+                  </Button>
+                )}
+                {recordingControls}
+              </>
+            }
+          />
+        </Box>
       )}
       {transcriptionUnavailable && (
         <Alert severity="warning" sx={{ mb: 2 }}>
@@ -3331,7 +3317,11 @@ function Board({
           isFacilitator={isFacilitator}
           canEditActionItems={allowedActions(board.phase).actionItemEdit}
           phaseChangePending={phaseChangePending}
+          phaseDeadline={board.phaseDeadline}
+          clockOffsetMs={clockOffsetMs}
+          onExtend={extendPhase}
           onBack={currentPillIndex > 0 ? () => jumpToPhase(PHASE_PILLS[currentPillIndex - 1]!) : null}
+          onComplete={() => setCloseDialogOpen(true)}
           onSaveSummary={editSummary}
           onRegenerateSummary={summarizeTopic}
           onUpdateActionItem={updateActionItem}

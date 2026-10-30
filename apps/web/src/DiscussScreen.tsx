@@ -286,6 +286,73 @@ export function DiscussTimer({
   );
 }
 
+/** Figma "Discussion controls": the title / timer / facilitator-controls bar at the top of every
+ * phase screen. Everyone sees the title and timer; only the facilitator gets the extend menu,
+ * Back and the forward button (named per phase by `nextLabel`). */
+export function PhaseControlsBar({
+  title,
+  isFacilitator,
+  phaseDeadline,
+  clockOffsetMs,
+  phaseChangePending,
+  onExtend,
+  onBack,
+  onNext,
+  nextLabel,
+  extraControls,
+  endControls,
+}: {
+  title: string;
+  isFacilitator: boolean;
+  phaseDeadline: string | null;
+  clockOffsetMs: number;
+  phaseChangePending: boolean;
+  onExtend: (minutes: 1 | 2 | 5) => void;
+  onBack: (() => void) | null;
+  onNext: (() => void) | null;
+  nextLabel: string;
+  extraControls?: ReactNode;
+  /** Facilitator-only controls after Back / the forward button (Wrap up's "Complete retro"). */
+  endControls?: ReactNode;
+}) {
+  return (
+    <Stack
+      direction="row"
+      sx={{
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        gap: 1.5,
+        minHeight: 90,
+        px: '28px',
+        py: 1.5,
+        boxSizing: 'border-box',
+        bgcolor: 'white',
+        borderTop: `1px solid ${BORDER}`,
+        borderBottom: `1px solid ${BORDER}`,
+      }}
+    >
+      <Typography sx={{ fontSize: 24, fontWeight: 600, color: TEXT }}>{title}</Typography>
+      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }}>
+        {isFacilitator && <Typography sx={{ fontSize: 12, color: TEXT_SECONDARY }}>Facilitator controls</Typography>}
+        <DiscussTimer phaseDeadline={phaseDeadline} clockOffsetMs={clockOffsetMs} onExtend={isFacilitator ? onExtend : undefined} />
+        {isFacilitator && extraControls}
+        {isFacilitator && onBack && (
+          <OutlinedButton icon="arrow-left" onClick={onBack} disabled={phaseChangePending}>
+            Back
+          </OutlinedButton>
+        )}
+        {isFacilitator && onNext && (
+          <OutlinedButton icon="arrow-right" onClick={onNext} disabled={phaseChangePending}>
+            {nextLabel}
+          </OutlinedButton>
+        )}
+        {isFacilitator && endControls}
+      </Stack>
+    </Stack>
+  );
+}
+
 /** One topic card in the left "Topic queue" column. */
 function QueueTopicCard({
   topic,
@@ -801,40 +868,18 @@ export function DiscussScreen(props: DiscussScreenProps) {
 
   return (
     <Box sx={{ fontFamily: 'Roboto, system-ui, sans-serif', color: TEXT, mx: -4, mb: -4 }}>
-      {/* Figma "Discussion controls" */}
-      <Stack
-        direction="row"
-        sx={{
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: 1.5,
-          minHeight: 90,
-          px: '28px',
-          py: 1.5,
-          boxSizing: 'border-box',
-          bgcolor: 'white',
-          borderTop: `1px solid ${BORDER}`,
-          borderBottom: `1px solid ${BORDER}`,
-        }}
-      >
-        <Typography sx={{ fontSize: 24, fontWeight: 600, color: TEXT }}>Discussion</Typography>
-        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }}>
-          {isFacilitator && <Typography sx={{ fontSize: 12, color: TEXT_SECONDARY }}>Facilitator controls</Typography>}
-          <DiscussTimer phaseDeadline={props.phaseDeadline} clockOffsetMs={props.clockOffsetMs} onExtend={isFacilitator ? props.onExtend : undefined} />
-          {isFacilitator && props.extraControls}
-          {isFacilitator && props.onBack && (
-            <OutlinedButton icon="arrow-left" onClick={props.onBack} disabled={props.phaseChangePending}>
-              Back
-            </OutlinedButton>
-          )}
-          {isFacilitator && (
-            <OutlinedButton icon="arrow-right" onClick={props.onGoToWrapUp} disabled={props.phaseChangePending}>
-              Go to wrap up
-            </OutlinedButton>
-          )}
-        </Stack>
-      </Stack>
+      <PhaseControlsBar
+        title="Discussion"
+        isFacilitator={isFacilitator}
+        phaseDeadline={props.phaseDeadline}
+        clockOffsetMs={props.clockOffsetMs}
+        phaseChangePending={props.phaseChangePending}
+        onExtend={props.onExtend}
+        onBack={props.onBack}
+        onNext={props.onGoToWrapUp}
+        nextLabel="Go to wrap up"
+        extraControls={props.extraControls}
+      />
 
       {/* Figma "Guided workshop" */}
       <Box
