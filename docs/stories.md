@@ -63,6 +63,7 @@ Build the stories strictly in ID order: RN-001 to RN-029 are the v0.1 critical p
 | 38 to 49 | RN-038 to RN-049 | Remaining v1 P0 and hardening                  | T3 to T5, F5, F6            | After audio | ~8 days |
 | 50 to 54 | RN-050 to RN-054 | Demo and polish                                | Milestone 4                 | After P0    | ~4 days |
 | 55 to 61 | RN-055 to RN-061 | P1 features                                    | A6, A11, B6, F7, F8, T6, P4 | Milestone 5 | ~6 days |
+| 62       | RN-062           | Invite step after Create retro                 | RN-006                      | Added Oct 30 | 1 day   |
 
 ## Tier 1 · v0.1 Day 1 — Tue Sep 29 (4h)
 
@@ -1118,6 +1119,34 @@ Each P1 story ships behind a feature flag and reuses hooks already built in Tier
 
 - [ ] Each topic gets a default time-box (Discuss total ÷ topics, editable).
 - [ ] At zero, a soft alert shows; the topic never changes automatically.
+
+### RN-062 · Invite step after Create retro
+
+**Refs:** RN-006 · **Est:** 1 day · **Depends on:** RN-006
+
+**Story:** As a facilitator, I want a box after Create retro that asks who to invite, with a copyable link and an email option, so my team and outside guests get the link without me pasting it around.
+
+**Technical notes**
+
+- After `POST /teams/:id/retros` succeeds, the web app opens an invite dialog instead of going straight to the board. Closing or skipping it always goes to the board.
+- Dialog: team member checklist with "Add all team members"; an emails field for people outside the team; "Copy share link" (same `/join/{code}` URL as the board header button); "Send invites".
+- `GET /teams/:id/members` (team members only) returns `{id, displayName, avatarUrl}` for everyone on the team except the caller. No email addresses reach the browser.
+- `POST /retros/:id/invites` `{joinCode, userIds, emails}` (facilitator only, via `can()`): checks `joinCode` against `join_code_hash` (409 `stale_join_code` if it was regenerated), resolves team members' emails server-side, dedupes, drops the facilitator's own address, and enqueues one `email.retroInvite` job per recipient.
+- The plaintext join code is encrypted (AES-256-GCM, key `INVITE_PAYLOAD_KEY`) inside each job payload, so it is never stored in Postgres in plaintext (RN-006).
+- Worker sends through a `Notifier` interface; the first implementation is Resend (`RESEND_API_KEY`, `EMAIL_FROM`). Plain-text email only. Failed sends retry with backoff. No email addresses or retro content in logs.
+- Team members listed are an invite list only: nobody becomes a retro participant until they open the link (`GET /join/:code`).
+- With any of `RESEND_API_KEY`, `EMAIL_FROM`, `INVITE_PAYLOAD_KEY` unset, `POST /retros/:id/invites` returns 503 and the dialog shows that email is unavailable; the copy link still works.
+
+**Acceptance criteria**
+
+- [ ] Creating a retro opens the invite dialog; skipping or closing it lands on the board.
+- [ ] "Add all team members" selects every listed member; each can also be toggled individually.
+- [ ] Emails for people outside the team can be added and removed before sending; invalid addresses are rejected.
+- [ ] "Copy share link" copies the same join URL the board header copies.
+- [ ] "Send invites" queues one email per unique recipient, excluding the facilitator, and the dialog shows how many were queued.
+- [ ] Each email contains the working join link; the plaintext code is not stored in the database (job payload encrypted).
+- [ ] Selected team members are not added to `retro_participants` until they open the link.
+- [ ] A non-facilitator gets 403; a regenerated (stale) code gets 409; a closed retro is rejected.
 
 ## Deprioritized · future
 

@@ -8,6 +8,8 @@ import { runSuggestQuestionsJob } from './jobs/suggestQuestions.js';
 import { runSummarizeTopicJob } from './jobs/summarizeTopic.js';
 import { runTranscriptRetentionJob } from './jobs/transcriptRetention.js';
 import { runMatchSpeakersJob } from './jobs/matchSpeakers.js';
+import { runSendRetroInviteJob, type RetroInviteJob } from './jobs/sendRetroInvite.js';
+import type { Notifier } from './notifier.js';
 
 export type { WorkerLogger } from './logger.js';
 // RN-033: apps/api's audio gateway persists encrypted transcript text through the same
@@ -16,6 +18,12 @@ export type { WorkerLogger } from './logger.js';
 // (`{".": "./src/index.ts"}`), the only path another workspace package can import from.
 export { encryptForTeam, decryptForTeam } from './transcriptKeys.js';
 export { parseMasterKey } from './transcriptCrypto.js';
+// RN-062: same reason — apps/api encrypts the join code into the invite job payload, and builds the
+// Notifier the worker sends through, using the helpers defined here.
+export { parseInvitePayloadKey, encryptJoinCode, decryptJoinCode } from './inviteCrypto.js';
+export type { EncryptedPayload } from './inviteCrypto.js';
+export { ResendNotifier, type Notifier, type EmailMessage } from './notifier.js';
+export type { RetroInviteJob } from './jobs/sendRetroInvite.js';
 
 export const AI_GROUP_CARDS_QUEUE = 'ai.groupCards';
 // Homework: AI agent team.
@@ -29,6 +37,10 @@ export const TRANSCRIPT_RETENTION_QUEUE = 'transcript.retention';
 // RN-036: enqueued from discussHelpers.ts's endCurrentTopic, alongside ai.summarizeTopic — a
 // topic ending is also when its transcript_segments/speech_activity are complete enough to match.
 export const TRANSCRIPTION_MATCH_SPEAKERS_QUEUE = 'transcription.matchSpeakers';
+// RN-062: one job per invited address, enqueued by POST /retros/:id/invites.
+export const EMAIL_RETRO_INVITE_QUEUE = 'email.retroInvite';
+// A failed send (Resend down, rate-limited) retries with growing delay before giving up.
+export const EMAIL_QUEUE_OPTIONS = { retryLimit: 5, retryDelay: 30, retryBackoff: true } as const;
 
 /** The union of every job's own (narrower) RealtimeBusLike requirement — groupCards.ts only ever
  * needs broadcastUser, summarizeGroup.ts/suggestQuestions.ts only ever need broadcastRetro, but
@@ -43,7 +55,7 @@ export interface JobQueue {
   start(): Promise<unknown>;
   stop(options?: { graceful?: boolean }): Promise<unknown>;
   on(event: 'error', handler: (err: Error) => void): unknown;
-  createQueue(name: string): Promise<unknown>;
+  createQueue(name: string, options?: object): Promise<unknown>;
   work<T = object>(name: string, handler: (jobs: { data: T }[]) => Promise<unknown>): Promise<string>;
   /** RN-031: cron-scheduled recurring jobs (the nightly transcript-retention sweep), distinct
    * from the ai.* queues above which are only ever enqueued on demand via `JobSender.send`. */
@@ -86,6 +98,13 @@ export interface StartWorkerOptions {
    * math (no AI key needed), same optionality shape as `transcriptRetention` above. */
   transcription?: {
     supabaseAdmin: SupabaseClient<Database>;
+  };
+  /** RN-062: present only when RESEND_API_KEY, EMAIL_FROM and INVITE_PAYLOAD_KEY are all set —
+   * without them the API refuses to enqueue invites, so there is nothing to consume. */
+  email?: {
+    notifier: Notifier;
+    inviteKey: Buffer;
+    webOrigin: string;
   };
 }
 
@@ -160,6 +179,16 @@ export async function startWorker(options: StartWorkerOptions): Promise<RunningW
     });
   }
 
+  if (options.email) {
+    const { notifier, inviteKey, webOrigin } = options.email;
+    await queue.createQueue(EMAIL_RETRO_INVITE_QUEUE, EMAIL_QUEUE_OPTIONS);
+    await queue.work<RetroInviteJob>(EMAIL_RETRO_INVITE_QUEUE, async (jobs) => {
+      for (const job of jobs) {
+        await runSendRetroInviteJob(job.data, { notifier, inviteKey, webOrigin, logger: options.logger });
+      }
+    });
+  }
+
   options.logger.info('worker started');
 
   return {
@@ -188,6 +217,7 @@ export async function createJobSender(databaseUrl: string, logger: WorkerLogger)
   await boss.createQueue(AI_SUGGEST_QUESTIONS_QUEUE);
   await boss.createQueue(AI_SUMMARIZE_TOPIC_QUEUE);
   await boss.createQueue(TRANSCRIPTION_MATCH_SPEAKERS_QUEUE);
+  await boss.createQueue(EMAIL_RETRO_INVITE_QUEUE, EMAIL_QUEUE_OPTIONS);
   return {
     sender: { send: (queueName, data) => boss.send(queueName, data) },
     async stop() {

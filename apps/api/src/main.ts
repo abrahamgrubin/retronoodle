@@ -1,4 +1,4 @@
-import { createJobSender, startWorker } from '@retronoodle/worker';
+import { createJobSender, parseInvitePayloadKey, ResendNotifier, startWorker } from '@retronoodle/worker';
 import { loadDotEnv, readConfig } from './config.js';
 import { startProcess } from './process.js';
 import { buildServer, type ServerOptions } from './server.js';
@@ -42,6 +42,11 @@ const running = await startProcess(config.role, {
         mutationRegistry: createDefaultMutationRegistry(),
         jobs: jobSender?.sender,
         transcriptMasterKey: config.transcriptMasterKey,
+        // RN-062: only when the whole email chain is configured — see Config.resendApiKey.
+        invites:
+          jobSender && config.resendApiKey && config.emailFrom && config.invitePayloadKey
+            ? { jobs: jobSender.sender, payloadKey: parseInvitePayloadKey(config.invitePayloadKey) }
+            : undefined,
         // RN-033: undefined when no key is configured — audioGateway.ts's own `createProvider`
         // default (`() => null`) already closes every connection with "Transcription
         // unavailable" in that case, same shape as every other optional-external-key feature.
@@ -96,7 +101,16 @@ const running = await startProcess(config.role, {
       // shape as transcriptRetention above.
       transcription = { supabaseAdmin };
     }
-    return startWorker({ databaseUrl: config.databaseUrl, logger: log, ai, transcriptRetention, transcription });
+    // RN-062: same all-three-or-nothing rule as the API's `invites` above.
+    const email: Parameters<typeof startWorker>[0]['email'] =
+      config.resendApiKey && config.emailFrom && config.invitePayloadKey
+        ? {
+            notifier: new ResendNotifier(config.resendApiKey, config.emailFrom),
+            inviteKey: parseInvitePayloadKey(config.invitePayloadKey),
+            webOrigin: config.webOrigin,
+          }
+        : undefined;
+    return startWorker({ databaseUrl: config.databaseUrl, logger: log, ai, transcriptRetention, transcription, email });
   },
 });
 

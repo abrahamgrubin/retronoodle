@@ -37,6 +37,9 @@ export interface ServerOptions {
     // RN-033: undefined means the audio gateway closes every connection with "Transcription
     // unavailable" (see audioGateway.ts).
     transcriptMasterKey?: string;
+    // RN-062: undefined (no job queue, or Resend/INVITE_PAYLOAD_KEY not configured) makes
+    // POST /retros/:id/invites answer 503 `email_unavailable`.
+    invites?: { jobs: JobSender; payloadKey: Buffer };
     createTranscriptionProvider?: () => TranscriptionProvider | null;
   };
 }
@@ -103,7 +106,7 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
   });
 
   if (options.auth) {
-    const { verifyAccessToken, supabaseAdmin, realtimeBus, pool, mutationRegistry, jobs, transcriptMasterKey, createTranscriptionProvider } =
+    const { verifyAccessToken, supabaseAdmin, realtimeBus, pool, mutationRegistry, jobs, transcriptMasterKey, invites, createTranscriptionProvider } =
       options.auth;
     const requireAuth = createRequireAuth(verifyAccessToken);
 
@@ -130,7 +133,7 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
     });
 
     registerTeamRoutes(app, { supabaseAdmin, requireAuth, realtimeBus });
-    registerRetroRoutes(app, { supabaseAdmin, requireAuth });
+    registerRetroRoutes(app, { supabaseAdmin, requireAuth, invites });
     registerTemplateRoutes(app, { supabaseAdmin, requireAuth });
     registerBoardRoutes(app, { supabaseAdmin, requireAuth, realtimeBus, transcriptMasterKey });
     registerActionItemRoutes(app, { supabaseAdmin, requireAuth });

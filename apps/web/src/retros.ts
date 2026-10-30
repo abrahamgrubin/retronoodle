@@ -1,4 +1,11 @@
-import { CreateRetroRequest, JoinResponse, RetroCreatedResponse, TeamRetrosResponse } from '@retronoodle/shared';
+import {
+  CreateRetroRequest,
+  JoinResponse,
+  RetroCreatedResponse,
+  SendInvitesResponse,
+  TeamRetrosResponse,
+  type SendInvitesRequest,
+} from '@retronoodle/shared';
 import { uuidv7 } from 'uuidv7';
 import { API_URL } from './api';
 
@@ -40,6 +47,36 @@ export async function regenerateJoinLink(
   });
   if (!res.ok) throw new Error(`POST /retros/:id/join-link/regenerate failed: ${res.status}`);
   return RetroCreatedResponse.parse(await res.json());
+}
+
+/** Thrown by sendInvites; `code` is the API's own error string (e.g. `email_unavailable` when
+ * Resend isn't configured, `stale_join_code` after a regenerate) so the dialog can say why. */
+export class InviteError extends Error {
+  constructor(
+    public readonly code: string,
+    public readonly status: number,
+  ) {
+    super(`POST /retros/:id/invites failed: ${status} ${code}`);
+  }
+}
+
+/** POST /retros/:id/invites (RN-062, facilitator-only): queues one email per recipient. */
+export async function sendInvites(
+  accessToken: string,
+  retroId: string,
+  body: SendInvitesRequest,
+  fetchImpl: typeof fetch = fetch,
+): Promise<SendInvitesResponse> {
+  const res = await fetchImpl(`${API_URL}/retros/${retroId}/invites`, {
+    method: 'POST',
+    headers: { ...authHeaders(accessToken), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new InviteError(payload?.error ?? 'unknown', res.status);
+  }
+  return SendInvitesResponse.parse(await res.json());
 }
 
 export async function fetchTeamRetros(
