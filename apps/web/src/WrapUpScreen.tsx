@@ -6,7 +6,6 @@ import {
   CHIP_BG,
   CaptureAction,
   Icon,
-  OutlinedButton,
   PRIMARY,
   PRIMARY_TINT,
   PersonAvatar,
