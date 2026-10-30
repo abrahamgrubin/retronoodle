@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { CreateTeamRequest, TeamResponse, UpdateTeamRequest, type Database } from '@retronoodle/shared';
+import { CreateTeamRequest, TeamMembersResponse, TeamResponse, UpdateTeamRequest, type Database } from '@retronoodle/shared';
 import { can } from '../auth/can.js';
 import { getTeamRole } from '../auth/membership.js';
 import type { RealtimeBus } from '../realtime/RealtimeBus.js';
@@ -118,6 +118,44 @@ export function registerTeamRoutes(app: FastifyInstance, deps: TeamRoutesDeps): 
       role,
       createdAt: team.created_at,
     });
+  });
+
+  // RN-062: the invite dialog's checklist. Everyone on the team except the caller, no emails.
+  app.get<{ Params: { id: string } }>('/teams/:id/members', { preHandler: requireAuth }, async (request, reply) => {
+    const user = request.user;
+    if (!user) return reply.code(401).send({ error: 'unauthorized' });
+
+    const teamId = request.params.id;
+    const role = await getTeamRole(supabaseAdmin, teamId, user.id);
+    if (!can(user, 'team.read', { type: 'team', role })) {
+      return reply.code(403).send({ error: 'forbidden' });
+    }
+
+    const { data: memberRows, error: membersError } = await supabaseAdmin
+      .from('team_members')
+      .select('user_id')
+      .eq('team_id', teamId);
+    if (membersError) {
+      request.log.error({ err: membersError }, 'failed to list team members');
+      return reply.code(500).send({ error: 'members_read_failed' });
+    }
+    const ids = (memberRows ?? []).map((row) => row.user_id).filter((id) => id !== user.id);
+    if (ids.length === 0) return TeamMembersResponse.parse([]);
+
+    const { data: profiles, error: profilesError } = await supabaseAdmin
+      .from('profiles')
+      .select('id, display_name, avatar_url')
+      .in('id', ids);
+    if (profilesError) {
+      request.log.error({ err: profilesError }, 'failed to read member profiles');
+      return reply.code(500).send({ error: 'members_read_failed' });
+    }
+
+    return TeamMembersResponse.parse(
+      (profiles ?? [])
+        .map((p) => ({ id: p.id, displayName: p.display_name, avatarUrl: p.avatar_url }))
+        .sort((a, b) => a.displayName.localeCompare(b.displayName)),
+    );
   });
 
   app.get('/me/teams', { preHandler: requireAuth }, async (request, reply) => {

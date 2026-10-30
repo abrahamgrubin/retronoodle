@@ -5,29 +5,36 @@ import { AppShell } from './AppShell';
 import { SignInPage } from './SignInPage';
 import { createTeam, fetchMyTeams } from './teams';
 import { createRetro } from './retros';
+import type { RetroCreatedResponse } from '@retronoodle/shared';
 import { fetchTeamTemplates } from './templates';
 import { setCachedJoinCode } from './joinLinkStorage';
+import { InviteDialog } from './InviteDialog';
 import { NavDrawerContent } from './NavDrawer';
 import { useSession } from './useSession';
 
 function RetroCreator({ accessToken, teamId }: { accessToken: string; teamId: string }) {
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [retroName, setRetroName] = useState('');
+  // RN-062: set once the retro exists; opens the invite dialog instead of going straight to the board.
+  const [created, setCreated] = useState<RetroCreatedResponse | null>(null);
   const templates = useQuery({
     queryKey: ['templates', teamId, accessToken],
     queryFn: () => fetchTeamTemplates(accessToken, teamId),
   });
   const create = useMutation({
     mutationFn: (name: string) => createRetro(accessToken, teamId, name, selectedTemplateId as string),
-    // Straight to the board, no inline "created!" panel on this page — the join link moved to
-    // its own "Copy share link" button in the board's own header (BoardPage.tsx), so there's
-    // nothing left to show here first. Caching the code now is what lets that button work
-    // without immediately having to regenerate (and invalidate) it (joinLinkStorage.ts).
+    // RN-062: the invite dialog opens first; it always ends at the board (goToBoard). The join code
+    // is cached now either way — the board's own "Copy share link" button relies on it, without
+    // having to regenerate (and invalidate) it (joinLinkStorage.ts).
     onSuccess: (data) => {
       setCachedJoinCode(data.id, data.joinCode);
-      window.location.href = `/retros/${data.id}`;
+      setCreated(data);
     },
   });
+
+  function goToBoard(retroId: string) {
+    window.location.href = `/retros/${retroId}`;
+  }
 
   if (templates.isPending) return <Typography>Loading templates…</Typography>;
   if (templates.isError) return <Alert severity="error">Failed to load templates.</Alert>;
@@ -82,6 +89,16 @@ function RetroCreator({ accessToken, teamId }: { accessToken: string; teamId: st
           Create a retro
         </Button>
       </Stack>
+      {created && (
+        <InviteDialog
+          accessToken={accessToken}
+          teamId={teamId}
+          retroId={created.id}
+          retroName={created.name}
+          joinCode={created.joinCode}
+          onClose={() => goToBoard(created.id)}
+        />
+      )}
     </Box>
   );
 }

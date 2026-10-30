@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   AI_GROUP_CARDS_QUEUE,
+  EMAIL_RETRO_INVITE_QUEUE,
   AI_SUGGEST_QUESTIONS_QUEUE,
   AI_SUMMARIZE_GROUP_QUEUE,
   AI_SUMMARIZE_TOPIC_QUEUE,
@@ -51,6 +52,18 @@ describe('startWorker', () => {
     await startWorker({ databaseUrl: 'x', logger, createQueue: () => queue });
     expect(queue.createQueue).not.toHaveBeenCalled();
     expect(queue.work).not.toHaveBeenCalled();
+  });
+
+  it('registers the invite email consumer, with retries, only when `email` deps are provided (RN-062)', async () => {
+    const without = fakeQueue();
+    await startWorker({ databaseUrl: 'x', logger, createQueue: () => without });
+    expect(without.work).not.toHaveBeenCalledWith(EMAIL_RETRO_INVITE_QUEUE, expect.anything());
+
+    const queue = fakeQueue();
+    const email = { notifier: { sendEmail: vi.fn() }, inviteKey: Buffer.alloc(32), webOrigin: 'http://x' };
+    await startWorker({ databaseUrl: 'x', logger, createQueue: () => queue, email });
+    expect(queue.createQueue).toHaveBeenCalledWith(EMAIL_RETRO_INVITE_QUEUE, expect.objectContaining({ retryLimit: expect.any(Number) }));
+    expect(queue.work).toHaveBeenCalledWith(EMAIL_RETRO_INVITE_QUEUE, expect.any(Function));
   });
 
   it('registers ai.groupCards when `ai` deps are provided', async () => {

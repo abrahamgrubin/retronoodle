@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createRetro, fetchTeamRetros, JoinError, joinRetro } from './retros';
+import { createRetro, fetchTeamRetros, JoinError, joinRetro, sendInvites } from './retros';
 
 const retro = {
   id: '00000000-0000-4000-8000-000000000001',
@@ -78,5 +78,31 @@ describe('joinRetro', () => {
     await expect(joinRetro('code', 'token-123', fetchImpl as typeof fetch)).rejects.toMatchObject(
       new JoinError('retro_closed', 'This retro has ended'),
     );
+  });
+});
+
+describe('sendInvites', () => {
+  it('posts the code, member ids and emails and parses the queued count', async () => {
+    let seen: { url: string; body: unknown } | undefined;
+    const fetchImpl = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      seen = { url: String(url), body: JSON.parse(init?.body as string) };
+      return new Response(JSON.stringify({ queued: 2, failed: 0 }));
+    });
+    const result = await sendInvites(
+      'token',
+      retro.id,
+      { joinCode: 'abc123', userIds: [retro.facilitatorId], emails: ['guest@other.com'] },
+      fetchImpl as unknown as typeof fetch,
+    );
+    expect(result).toEqual({ queued: 2, failed: 0 });
+    expect(seen?.url).toMatch(new RegExp(`/retros/${retro.id}/invites$`));
+    expect(seen?.body).toEqual({ joinCode: 'abc123', userIds: [retro.facilitatorId], emails: ['guest@other.com'] });
+  });
+
+  it('throws an InviteError carrying the API error code', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ error: 'email_unavailable' }), { status: 503 }));
+    await expect(
+      sendInvites('token', retro.id, { joinCode: 'abc', emails: ['a@b.com'] }, fetchImpl as unknown as typeof fetch),
+    ).rejects.toMatchObject({ code: 'email_unavailable', status: 503 });
   });
 });

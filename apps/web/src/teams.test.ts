@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createTeam, fetchMyTeams } from './teams';
+import { createTeam, fetchMyTeams, fetchTeamMembers } from './teams';
 
 const team = {
   id: '00000000-0000-4000-8000-000000000001',
@@ -44,5 +44,14 @@ describe('createTeam', () => {
     expect(created.name).toBe('New Team');
     expect(seenBody?.name).toBe('New Team');
     expect(seenBody?.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  });
+});
+
+describe('fetchTeamMembers', () => {
+  it('parses the member list', async () => {
+    const id = '00000000-0000-4000-8000-000000000009';
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify([{ id, displayName: 'Bob', avatarUrl: null }])));
+    const members = await fetchTeamMembers('token', 'team-1', fetchImpl as unknown as typeof fetch);
+    expect(members).toEqual([{ id, displayName: 'Bob', avatarUrl: null }]);
   });
 });

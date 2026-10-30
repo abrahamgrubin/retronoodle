@@ -18,6 +18,7 @@ export function testAuthOptions(overrides: {
   mutationRegistry?: MutationRegistry;
   jobs?: JobSender;
   transcriptMasterKey?: string;
+  invites?: { jobs: JobSender; payloadKey: Buffer };
   createTranscriptionProvider?: () => TranscriptionProvider | null;
 }): NonNullable<ServerOptions['auth']> {
   return {
@@ -28,6 +29,7 @@ export function testAuthOptions(overrides: {
     mutationRegistry: overrides.mutationRegistry ?? new MutationRegistry(),
     jobs: overrides.jobs,
     transcriptMasterKey: overrides.transcriptMasterKey,
+    invites: overrides.invites,
     createTranscriptionProvider: overrides.createTranscriptionProvider,
   };
 }

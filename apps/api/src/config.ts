@@ -24,6 +24,12 @@ export interface Config {
   // precedent as anthropicApiKey above, just for the one external provider behind
   // TranscriptionProvider instead.
   deepgramApiKey: string | undefined;
+  // RN-062: invite emails send only when all three are set; any one missing means
+  // POST /retros/:id/invites answers 503 and the dialog's copy-link still works.
+  resendApiKey: string | undefined;
+  emailFrom: string | undefined;
+  // base64, 32 bytes once decoded — encrypts the join code inside each invite job payload.
+  invitePayloadKey: string | undefined;
   isProduction: boolean;
 }
 
@@ -45,6 +51,9 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
     aiMonthlyCapUsd: env.AI_MONTHLY_CAP_USD ? Number(env.AI_MONTHLY_CAP_USD) : undefined,
     transcriptMasterKey: env.TRANSCRIPT_MASTER_KEY || undefined,
     deepgramApiKey: env.DEEPGRAM_API_KEY || undefined,
+    resendApiKey: env.RESEND_API_KEY || undefined,
+    emailFrom: env.EMAIL_FROM || undefined,
+    invitePayloadKey: env.INVITE_PAYLOAD_KEY || undefined,
     isProduction: env.NODE_ENV === 'production',
   };
 }

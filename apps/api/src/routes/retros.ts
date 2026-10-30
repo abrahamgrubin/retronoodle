@@ -6,6 +6,8 @@ import {
   JoinResponse,
   phaseDurationMinutes,
   RetroCreatedResponse,
+  SendInvitesRequest,
+  SendInvitesResponse,
   TemplateColumn,
   TeamRetrosResponse,
   type Database,
@@ -13,11 +15,15 @@ import {
 import { can } from '../auth/can.js';
 import { getTeamRole } from '../auth/membership.js';
 import { timezoneFromHeader, upsertProfile } from '../auth/profile.js';
+import { EMAIL_RETRO_INVITE_QUEUE, encryptJoinCode, type RetroInviteJob } from '@retronoodle/worker';
 import { generateJoinCode, hashJoinCode } from '../joinCode.js';
+import type { JobSender } from '../mutations/index.js';
 
 export interface RetroRoutesDeps {
   supabaseAdmin: SupabaseClient<Database>;
   requireAuth: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
+  /** RN-062: undefined when email isn't configured — the invites route then answers 503. */
+  invites?: { jobs: JobSender; payloadKey: Buffer };
 }
 
 type RetroRow = {
@@ -49,7 +55,7 @@ function toRetroCreatedResponse(retro: RetroRow, joinCode: string) {
  * (RN-006). Join codes are never stored in plaintext — only their hash — so both the create and
  * regenerate responses are the one and only time the caller sees the code. */
 export function registerRetroRoutes(app: FastifyInstance, deps: RetroRoutesDeps): void {
-  const { supabaseAdmin, requireAuth } = deps;
+  const { supabaseAdmin, requireAuth, invites } = deps;
 
   app.post<{ Params: { teamId: string } }>(
     '/teams/:teamId/retros',
@@ -276,6 +282,95 @@ export function registerRetroRoutes(app: FastifyInstance, deps: RetroRoutesDeps)
       return toRetroCreatedResponse(updated, joinCode);
     },
   );
+
+  // RN-062: queue one invite email per recipient. The facilitator's browser sends the plaintext
+  // join code (the server only has its hash); it's checked against the current hash, then
+  // encrypted into each job so Postgres never holds it in plaintext.
+  app.post<{ Params: { id: string } }>('/retros/:id/invites', { preHandler: requireAuth }, async (request, reply) => {
+    const user = request.user;
+    if (!user) return reply.code(401).send({ error: 'unauthorized' });
+    if (!invites) return reply.code(503).send({ error: 'email_unavailable' });
+
+    const { data: retro, error: fetchError } = await supabaseAdmin
+      .from('retros')
+      .select()
+      .eq('id', request.params.id)
+      .maybeSingle();
+    if (fetchError) {
+      request.log.error({ err: fetchError }, 'failed to read retro');
+      return reply.code(500).send({ error: 'retro_read_failed' });
+    }
+    if (!retro || retro.deleted_at) return reply.code(404).send({ error: 'not_found' });
+
+    if (!can(user, 'retro.manageJoinLink', { type: 'retro', teamRole: null, facilitatorId: retro.facilitator_id })) {
+      return reply.code(403).send({ error: 'forbidden' });
+    }
+    if (retro.phase === 'closed') return reply.code(409).send({ error: 'retro_closed' });
+
+    const parsed = SendInvitesRequest.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'invalid_request' });
+    const body = parsed.data;
+
+    // A regenerated code means the facilitator's cached one no longer works — emailing it would
+    // send people a dead link.
+    if (hashJoinCode(body.joinCode) !== retro.join_code_hash) {
+      return reply.code(409).send({ error: 'stale_join_code' });
+    }
+
+    // Only people actually on this team can be picked by id; anything else is silently dropped
+    // rather than letting a caller turn arbitrary user ids into email addresses.
+    let memberIds: string[] = [];
+    if (body.userIds.length > 0) {
+      const { data: memberRows, error: memberError } = await supabaseAdmin
+        .from('team_members')
+        .select('user_id')
+        .eq('team_id', retro.team_id)
+        .in('user_id', body.userIds);
+      if (memberError) {
+        request.log.error({ err: memberError }, 'failed to check invitees against team');
+        return reply.code(500).send({ error: 'invite_failed' });
+      }
+      memberIds = (memberRows ?? []).map((row) => row.user_id);
+    }
+
+    // One profiles read covers the picked members and the inviter (for the email's "who invited you").
+    const { data: profiles, error: profilesError } = await supabaseAdmin
+      .from('profiles')
+      .select('id, email, display_name')
+      .in('id', [...memberIds, user.id]);
+    if (profilesError) {
+      request.log.error({ err: profilesError }, 'failed to read invitee profiles');
+      return reply.code(500).send({ error: 'invite_failed' });
+    }
+    const inviter = profiles?.find((p) => p.id === user.id);
+    const ownEmail = (inviter?.email ?? user.email ?? '').toLowerCase();
+
+    const recipients = new Set<string>();
+    for (const p of profiles ?? []) {
+      if (p.id !== user.id && p.email) recipients.add(p.email.toLowerCase());
+    }
+    for (const email of body.emails) recipients.add(email);
+    recipients.delete(ownEmail);
+    if (recipients.size === 0) return reply.code(400).send({ error: 'no_recipients' });
+
+    const encryptedJoinCode = encryptJoinCode(invites.payloadKey, body.joinCode);
+    const results = await Promise.allSettled(
+      [...recipients].map((to) => {
+        const job: RetroInviteJob = {
+          to,
+          inviterName: inviter?.display_name ?? '',
+          retroName: retro.name,
+          encryptedJoinCode,
+        };
+        return invites.jobs.send(EMAIL_RETRO_INVITE_QUEUE, job);
+      }),
+    );
+    const queued = results.filter((r) => r.status === 'fulfilled' && r.value !== null).length;
+    const failed = results.length - queued;
+    if (failed > 0) request.log.error({ failed }, 'some invite emails could not be enqueued');
+
+    return SendInvitesResponse.parse({ queued, failed });
+  });
 
   app.get<{ Params: { code: string } }>('/join/:code', { preHandler: requireAuth }, async (request, reply) => {
     const user = request.user;
