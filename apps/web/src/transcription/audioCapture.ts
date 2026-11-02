@@ -41,8 +41,23 @@ export async function acquireCaptureStreams(deps: AcquireCaptureStreamsDeps = {}
   const getUserMedia = deps.getUserMedia ?? ((constraints) => navigator.mediaDevices.getUserMedia(constraints));
   const getDisplayMedia = deps.getDisplayMedia ?? ((constraints) => navigator.mediaDevices.getDisplayMedia(constraints));
 
-  const micStream = await getUserMedia({ audio: true });
-  const displayStream = await getDisplayMedia({ video: true, audio: true });
+  // Both requests start in this same synchronous tick: each needs the click's transient user
+  // activation, which a prompt answered between them (the mic permission dialog) can outlive —
+  // awaiting getUserMedia first made getDisplayMedia fail with NotAllowedError.
+  const micPromise = getUserMedia({ audio: true });
+  const displayPromise = getDisplayMedia({ video: true, audio: true });
+  const [micResult, displayResult] = await Promise.allSettled([micPromise, displayPromise]);
+  if (micResult.status === 'rejected' || displayResult.status === 'rejected') {
+    for (const result of [micResult, displayResult]) {
+      if (result.status === 'fulfilled') for (const track of result.value.getTracks()) track.stop();
+    }
+    const failed = micResult.status === 'rejected' ? 'microphone' : 'tab/screen share';
+    const reason = micResult.status === 'rejected' ? micResult.reason : (displayResult as PromiseRejectedResult).reason;
+    console.error(`[transcription] ${failed} request was rejected`);
+    throw reason;
+  }
+  const micStream = micResult.value;
+  const displayStream = displayResult.value;
   for (const track of displayStream.getVideoTracks()) track.stop();
   return { micStream, displayStream };
 }

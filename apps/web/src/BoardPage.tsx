@@ -78,7 +78,13 @@ import { colorForId, columnPalette, initialsFor } from './palette';
 import { regenerateJoinLink } from './retros';
 import { createRetroStore } from './retroStore';
 import { supabase } from './supabaseClient';
-import type { AudioCaptureHandle, CaptureStreams } from './transcription/audioCapture';
+import {
+  acquireCaptureStreams,
+  openCaptureGateway,
+  releaseCaptureStreams,
+  type AudioCaptureHandle,
+  type CaptureStreams,
+} from './transcription/audioCapture';
 import type { SpeechDetectionHandle } from './transcription/speechDetection';
 import { useSession } from './useSession';
 
@@ -2639,7 +2645,7 @@ function Board({
   function startCaptureIfLandingOnDiscuss(targetPhase: RetroPhase): Promise<CaptureStreams> | null {
     if (!isFacilitator || targetPhase !== 'discuss' || captureHandleRef.current) return null;
     setTranscriptionUnavailable(false);
-    const streamsPromise = import('./transcription/audioCapture').then(({ acquireCaptureStreams }) => acquireCaptureStreams());
+    const streamsPromise = acquireCaptureStreams();
     streamsPromise.catch((err) => {
       // Was a bare no-op before — a rejected share picker (permission denied, a "Window" source
       // with no audio track, cancelling the dialog) left zero trace anywhere, server or console,
@@ -2687,15 +2693,15 @@ function Board({
     void streamsPromise.then(async (streams) => {
       const stillAllowed = await waitForCaptureAllowed();
       if (!stillAllowed || captureHandleRef.current) {
-        void import('./transcription/audioCapture').then(({ releaseCaptureStreams }) => releaseCaptureStreams(streams));
+        releaseCaptureStreams(streams);
         if (!stillAllowed) {
           console.error('[transcription] gave up waiting for captureAllowed to become true');
           setTranscriptionUnavailable(true);
         }
         return;
       }
-      void import('./transcription/audioCapture')
-        .then(({ openCaptureGateway }) =>
+      Promise.resolve()
+        .then(() =>
           openCaptureGateway(streams, audioGatewayUrl(accessToken, retroId), {
             onUnavailable: () => {
               setTranscriptionUnavailable(true);
