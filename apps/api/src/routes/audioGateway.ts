@@ -112,11 +112,25 @@ export function registerAudioGatewayRoutes(app: FastifyInstance, deps: AudioGate
         return closeWith(socket, 4409, 'not_recording');
       }
 
-      if (!deps.transcriptMasterKey) return closeWith(socket, 4503, 'transcription_unavailable');
-      const masterKey = parseMasterKey(deps.transcriptMasterKey);
+      // Each of these closes the socket with the same `transcription_unavailable` reason (the
+      // browser only needs one message), so log which one it was — no values, just the cause.
+      if (!deps.transcriptMasterKey) {
+        request.log.error('audio gateway: TRANSCRIPT_MASTER_KEY is not set');
+        return closeWith(socket, 4503, 'transcription_unavailable');
+      }
+      let masterKey: ReturnType<typeof parseMasterKey>;
+      try {
+        masterKey = parseMasterKey(deps.transcriptMasterKey);
+      } catch (err) {
+        request.log.error(err, 'audio gateway: TRANSCRIPT_MASTER_KEY is invalid (must be base64 for exactly 32 bytes)');
+        return closeWith(socket, 4503, 'transcription_unavailable');
+      }
 
       const provider = deps.createProvider();
-      if (!provider) return closeWith(socket, 4503, 'transcription_unavailable');
+      if (!provider) {
+        request.log.error('audio gateway: no transcription provider configured (DEEPGRAM_API_KEY is not set)');
+        return closeWith(socket, 4503, 'transcription_unavailable');
+      }
 
       const streamStartedAt = Date.now();
 
