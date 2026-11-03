@@ -23,6 +23,8 @@ export const admin: SupabaseClient<Database> = createClient(SUPABASE_URL ?? 'htt
 
 export interface TestUser {
   userId: string;
+  /** RN-062's home.spec.ts greets by (and signs out via) the account's email-derived name. */
+  email: string;
   accessToken: string;
   refreshToken: string;
 }
@@ -35,7 +37,7 @@ export async function createSignedInUser(label: string): Promise<TestUser> {
   const anon = createClient<Database>(SUPABASE_URL!, SUPABASE_ANON_KEY!);
   const { data: session, error: signInErr } = await anon.auth.signInWithPassword({ email, password });
   if (signInErr || !session.session) throw signInErr ?? new Error(`failed to sign in ${label}`);
-  return { userId: data.user.id, accessToken: session.session.access_token, refreshToken: session.session.refresh_token };
+  return { userId: data.user.id, email, accessToken: session.session.access_token, refreshToken: session.session.refresh_token };
 }
 
 /** Throws with the status and body on failure, instead of the caller getting an opaque
