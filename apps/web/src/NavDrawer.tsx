@@ -30,7 +30,6 @@ export function NavDrawerContent({ teamId, collapsed }: { teamId: string; collap
       <DrawerNavItem icon="/icons/house.svg" label="Home" href="/" collapsed={collapsed} />
       <DrawerNavItem icon="/icons/panels-top-left.svg" label="Retros" href={`/teams/${teamId}/retros`} collapsed={collapsed} />
       <DrawerNavItem icon="/icons/list-checks.svg" label="Action Items" href={`/teams/${teamId}/actions`} collapsed={collapsed} />
-      <DrawerNavItem icon="/icons/users.svg" label="Your Team" collapsed={collapsed} />
     </List>
   );
 }
