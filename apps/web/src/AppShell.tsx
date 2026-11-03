@@ -1,8 +1,9 @@
-import { Box, Container, Divider, Drawer } from '@mui/material';
+import { Box, Container, Drawer, useMediaQuery } from '@mui/material';
 import { useState, type ReactNode } from 'react';
+import { BORDER, MUTED, WORDMARK } from './designTokens';
 
-/** Figma "Drawer · permanent" / "Drawer · mini variant" (node 31:915 / 31:975) — 240px expanded,
- * 64px collapsed to icon-only, toggled by the chevron button this component owns. */
+/** Figma "Navigation" (131:1214 on "Home · team workspace") — 240px expanded, 64px collapsed to
+ * icon-only, toggled by the chevron button this component owns. */
 const DRAWER_WIDTH_EXPANDED = 240;
 const DRAWER_WIDTH_COLLAPSED = 64;
 
@@ -11,10 +12,14 @@ const DRAWER_WIDTH_COLLAPSED = 64;
  *
  * `drawer`, when given, renders the Figma-specified collapsible permanent drawer on the left —
  * a render-prop (not a plain node) because the nav items it wraps need to know the collapse
- * state too (icon-only vs. icon+label). AppShell owns the collapse toggle itself (the chevron
- * button + divider are generic drawer chrome, identical regardless of which page's links go
- * inside) so any future page that wants one gets the same collapse behavior for free. Omitted
- * entirely on every page that doesn't pass one, so this changes nothing for them.
+ * state too (icon-only vs. icon+label). AppShell owns the collapse toggle itself (the wordmark
+ * row + chevron are generic drawer chrome, identical regardless of which page's links go inside)
+ * so any future page that wants one gets the same collapse behavior for free. Omitted entirely on
+ * every page that doesn't pass one, so this changes nothing for them.
+ *
+ * Below the `md` breakpoint the drawer starts collapsed (RN-062: the home page has to fit a
+ * 360px-wide viewport with no horizontal scroll, and a 240px drawer would leave 120px for it);
+ * the chevron still expands it on demand.
  *
  * `fullWidth` skips the `maxWidth="md"` Container (and its own padding) in favor of a plain
  * flex-growing Box — BoardPage's own layout is already full-bleed with its own padding, and
@@ -37,7 +42,11 @@ export function AppShell({
   rightPanel?: ReactNode;
   children: ReactNode;
 }) {
-  const [collapsed, setCollapsed] = useState(false);
+  const narrow = useMediaQuery((theme) => theme.breakpoints.down('md'), { noSsr: true });
+  // `null` until the user clicks the chevron — the viewport width decides until then, and keeps
+  // deciding (rotate a tablet, resize the window) until they've expressed a preference.
+  const [collapsedOverride, setCollapsedOverride] = useState<boolean | null>(null);
+  const collapsed = collapsedOverride ?? narrow;
   const drawerWidth = collapsed ? DRAWER_WIDTH_COLLAPSED : DRAWER_WIDTH_EXPANDED;
 
   return (
@@ -62,41 +71,62 @@ export function AppShell({
                 // thousands of pixels of empty scroll below the content (found live).
                 height: '100%',
                 minHeight: '100vh',
-                borderRight: '1px solid #e0e0e0',
+                borderRight: `1px solid ${BORDER}`,
                 transition: (theme) => theme.transitions.create('width'),
               },
             }}
           >
-            {/* "Collapse drawer" / "Expand drawer" row (Figma: 64px tall, 20px padding; the
-                chevron sits flush right while expanded, flush left once collapsed — there's no
-                room to keep it right-aligned at 64px wide without it butting against the icons
-                below). */}
+            {/* Figma "Collapse navigation" (131:1216): 64px tall, 24px padding, the "RetroNoodle"
+                wordmark with the chevron flush right while expanded; chevron only, centered, once
+                collapsed (there's no room for the wordmark at 64px wide). */}
             <Box
-              component="button"
-              type="button"
-              onClick={() => setCollapsed((c) => !c)}
-              aria-label={collapsed ? 'Expand drawer' : 'Collapse drawer'}
               sx={{
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: collapsed ? 'flex-start' : 'flex-end',
+                justifyContent: collapsed ? 'center' : 'space-between',
                 height: 64,
-                px: '20px',
-                width: '100%',
-                border: 0,
-                bgcolor: 'transparent',
-                cursor: 'pointer',
-                font: 'inherit',
+                px: collapsed ? 0 : '24px',
+                borderBottom: `1px solid ${BORDER}`,
+                flexShrink: 0,
               }}
             >
+              {!collapsed && (
+                <Box
+                  component="span"
+                  sx={{ fontFamily: 'Inter, Roboto, system-ui, sans-serif', fontSize: 18, letterSpacing: '-0.5px', color: WORDMARK, whiteSpace: 'nowrap' }}
+                >
+                  RetroNoodle
+                </Box>
+              )}
               <Box
-                component="img"
-                src={collapsed ? '/icons/chevrons-right.svg' : '/icons/chevrons-left.svg'}
-                alt=""
-                sx={{ width: 24, height: 24 }}
-              />
+                component="button"
+                type="button"
+                onClick={() => setCollapsedOverride(!collapsed)}
+                aria-label={collapsed ? 'Expand drawer' : 'Collapse drawer'}
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 32,
+                  height: 32,
+                  p: 0,
+                  border: 0,
+                  borderRadius: '6px',
+                  bgcolor: 'transparent',
+                  color: MUTED,
+                  cursor: 'pointer',
+                  font: 'inherit',
+                  '&:hover': { bgcolor: '#f1f5f9' },
+                }}
+              >
+                <Box
+                  component="img"
+                  src={collapsed ? '/icons/chevrons-right-slate.svg' : '/icons/chevrons-left-slate.svg'}
+                  alt=""
+                  sx={{ width: 24, height: 24 }}
+                />
+              </Box>
             </Box>
-            <Divider sx={{ borderColor: '#e0e0e0' }} />
             {drawer(collapsed)}
           </Drawer>
         )}

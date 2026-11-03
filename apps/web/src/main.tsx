@@ -2,6 +2,10 @@ import '@fontsource/roboto/300.css';
 import '@fontsource/roboto/400.css';
 import '@fontsource/roboto/500.css';
 import '@fontsource/roboto/700.css';
+// RN-062: the drawer's "RetroNoodle" wordmark and avatar initials are set in Inter in Figma
+// (131:1214); everything else stays Roboto.
+import '@fontsource/inter/400.css';
+import '@fontsource/inter/600.css';
 import { CssBaseline, ThemeProvider } from '@mui/material';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { StrictMode } from 'react';
