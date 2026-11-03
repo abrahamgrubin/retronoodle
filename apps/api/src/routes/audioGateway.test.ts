@@ -47,6 +47,9 @@ function recordingSessionRow() {
 function supabaseWith(opts: {
   retro?: { team_id: string; facilitator_id: string; phase: string } | null;
   session?: ReturnType<typeof recordingSessionRow> | null;
+  /** Receives every call made on the `transcript_segments` chain, so a test can inspect the
+   * row the gateway actually inserted. */
+  segmentCalls?: unknown[][];
 }) {
   const { retro = retroRow('discuss'), session = recordingSessionRow() } = opts;
   let teamKeyCallCount = 0;
@@ -63,7 +66,8 @@ function supabaseWith(opts: {
       return chain({ data: teamKeyCallCount === 1 ? null : undefined, error: null });
     }
     if (table === 'transcript_segments') {
-      return chain({
+      return chain(
+        {
         data: {
           id: '00000000-0000-4000-8000-0000000000e1',
           topic_id: null,
@@ -75,7 +79,9 @@ function supabaseWith(opts: {
           created_at: new Date('2026-01-01T00:00:00.000Z').toISOString(),
         },
         error: null,
-      });
+        },
+        opts.segmentCalls,
+      );
     }
     throw new Error(`unexpected table ${table}`);
   });
@@ -149,14 +155,15 @@ describe('GET /retros/:id/audio-gateway', () => {
     expect(code).toBe(4503);
   });
 
-  it('persists and broadcasts a final line from the provider', async () => {
+  it('persists and broadcasts a final line from the provider, with epoch-ms timestamps', async () => {
     const provider = new FakeTranscriptionProvider();
     const broadcastRetro = vi.fn().mockResolvedValue(undefined);
+    const segmentCalls: unknown[][] = [];
     app = await buildServer({
       webOrigin: 'http://localhost',
       auth: testAuthOptions({
         verifyAccessToken,
-        supabaseAdmin: supabaseWith({}),
+        supabaseAdmin: supabaseWith({ segmentCalls }),
         transcriptMasterKey: masterKey,
         createTranscriptionProvider: () => provider,
         realtimeBus: { broadcastRetro, broadcastUser: vi.fn() } as never,
@@ -169,8 +176,18 @@ describe('GET /retros/:id/audio-gateway', () => {
     // Give the handler's async auth/gating chain a tick to finish and register the provider
     // session before the test emits a line through it.
     await new Promise((resolve) => setTimeout(resolve, 10));
+    const before = Date.now();
     provider.emitLine({ text: 'we should automate releases', startMs: 0, endMs: 1200, isFinal: true, speakerTag: 0 });
     await vi.waitFor(() => expect(broadcastRetro).toHaveBeenCalled());
+
+    // The provider's offsets are relative to its stream; the stored row must be absolute epoch
+    // ms (the frame speech_activity uses), or RN-036's speaker matching can never overlap them
+    // (found live: every voice was unmatched). Stream start is a moment before `before`.
+    const inserted = segmentCalls.find((call) => call[0] === 'insert')?.[1] as { start_ms: number; end_ms: number } | undefined;
+    expect(inserted).toBeDefined();
+    expect(inserted!.start_ms).toBeGreaterThan(before - 5_000);
+    expect(inserted!.start_ms).toBeLessThanOrEqual(before);
+    expect(inserted!.end_ms - inserted!.start_ms).toBe(1200);
 
     expect(broadcastRetro).toHaveBeenCalledWith(
       retroId,
