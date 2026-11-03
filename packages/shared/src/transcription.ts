@@ -23,7 +23,9 @@ export const SPEAKER_MATCH_DELAY_SEARCH_MS = { minMs: 0, maxMs: 1000, stepMs: 50
 /**
  * One line from a TranscriptionProvider (RN-033) — `speakerTag` is the provider's own diarization
  * index (0, 1, 2, ...), not yet a real participant; RN-036 maps tags to users per topic.
- * Timestamps are milliseconds since the gateway's own stream started, not wall-clock.
+ * Timestamps are milliseconds since the provider's own stream started, not wall-clock — the
+ * gateway converts them to epoch ms before a segment is stored (audioGateway.ts), so stored
+ * `TranscriptSegment`s and `SpeechActivityInterval`s share one time frame.
  */
 export const TranscriptLine = z.object({
   text: z.string(),
@@ -39,6 +41,8 @@ export type TranscriptLine = z.infer<typeof TranscriptLine>;
  * the DB row itself is what's encrypted (transcriptKeys.ts); the live broadcast and this response
  * shape both carry real text, same reasoning as the recording indicator itself: every listener on
  * `retro:{id}` already consented to this retro being recorded (RN-032).
+ * `startMs`/`endMs` are absolute epoch milliseconds — the same frame as `SpeechActivityInterval`,
+ * which is what lets matchSpeakers.ts overlap the two.
  */
 export const TranscriptSegment = z.object({
   id: z.string().uuid(),

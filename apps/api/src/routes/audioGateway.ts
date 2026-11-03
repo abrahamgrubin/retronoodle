@@ -132,16 +132,23 @@ export function registerAudioGatewayRoutes(app: FastifyInstance, deps: AudioGate
         return closeWith(socket, 4503, 'transcription_unavailable');
       }
 
+      // Deepgram's line offsets are relative to the start of this one stream; everything stored
+      // or compared downstream is absolute epoch ms — topic started_at/ended_at here, and the
+      // speech_activity intervals the worker's speaker matcher overlaps segments with
+      // (matchSpeakers.ts). Segments used to be persisted with the relative offsets, which made
+      // every speaker match score zero against epoch-ms intervals (found live: every voice
+      // landed in "Who is this?" on every retro), so the conversion happens once, right here.
       const streamStartedAt = Date.now();
+      const toEpochMs = (relativeMs: number) => streamStartedAt + relativeMs;
 
-      async function tagToTopic(relativeStartMs: number): Promise<string | null> {
+      async function tagToTopic(startMs: number): Promise<string | null> {
         const { data: topics } = await deps.supabaseAdmin.from('topics').select('id, started_at, ended_at').eq('retro_id', retroId);
         const candidates = (topics ?? []).map((t) => ({
           id: t.id,
           startedAt: t.started_at ? new Date(t.started_at).getTime() : null,
           endedAt: t.ended_at ? new Date(t.ended_at).getTime() : null,
         }));
-        return tagLineToTopic({ startMs: streamStartedAt + relativeStartMs }, candidates);
+        return tagLineToTopic({ startMs }, candidates);
       }
 
       // Callers fire this and forget (`void persistAndBroadcast(...)`), so a throw here — a master
@@ -202,7 +209,7 @@ export function registerAudioGatewayRoutes(app: FastifyInstance, deps: AudioGate
         session_ = await provider.startSession({
           onLine: (line) => {
             if (!line.isFinal) return;
-            void persistAndBroadcast(line.text, line.startMs, line.endMs, line.speakerTag, false);
+            void persistAndBroadcast(line.text, toEpochMs(line.startMs), toEpochMs(line.endMs), line.speakerTag, false);
           },
           onError: (err) => {
             request.log.error(err, 'transcription provider error');
@@ -216,7 +223,8 @@ export function registerAudioGatewayRoutes(app: FastifyInstance, deps: AudioGate
             request.log.warn({ reason }, 'transcription provider connection closed');
             // RN-033: "facilitator tab drop records a gap and the next facilitator can resume" —
             // a marker with no text, at the moment the provider's own connection ended.
-            void persistAndBroadcast('', Date.now() - streamStartedAt, Date.now() - streamStartedAt, null, true);
+            const closedAt = Date.now();
+            void persistAndBroadcast('', closedAt, closedAt, null, true);
           },
           // Found live: a session that runs its full course and is torn down normally (recording
           // stopped, left Discuss) never fires onClose at all — this is the only way to tell "ran
