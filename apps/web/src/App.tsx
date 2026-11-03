@@ -186,6 +186,9 @@ function TemplatePicker({
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'stretch',
+              // ButtonBase centres its content by default; in a column that pushes the image down
+              // from the top edge whenever the card is taller than its content (equal-height rows).
+              justifyContent: 'flex-start',
               textAlign: 'left',
               minHeight: TEMPLATE_CARD_HEIGHT,
               minWidth: 0,
