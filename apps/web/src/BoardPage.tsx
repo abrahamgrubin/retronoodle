@@ -1311,12 +1311,15 @@ const RIGHT_PANEL_DRAWER_WIDTH = 288;
  * caller before this ever sees them — rendered rows are always still-actionable. */
 function SuggestionRow({
   suggestion,
+  cardColor,
   justAccepted,
   onAccept,
   onReject,
   onHover,
 }: {
   suggestion: GroupSuggestion;
+  // The grouped cards' column sticky-note color, so the box reads as the cards it would merge.
+  cardColor: string;
   justAccepted: boolean;
   onAccept: () => void;
   onReject: () => void;
@@ -1331,12 +1334,12 @@ function SuggestionRow({
   }
   return (
     <Box
-      sx={{ border: '1px solid #bfbfbf', borderRadius: '10px', p: '7px' }}
       onMouseEnter={() => onHover(true)}
       onMouseLeave={() => onHover(false)}
+      sx={{ background: cardColor, borderRadius: '6px', p: 1.5, boxShadow: '0 2px 2px rgba(0,0,0,0.14)' }}
     >
       <Stack spacing="5px">
-        <Typography sx={{ fontSize: 10, fontWeight: 600, color: '#151922' }}>{suggestion.name}</Typography>
+        <Typography sx={{ fontSize: 16, fontWeight: 600, color: '#151922' }}>{suggestion.name}</Typography>
       </Stack>
       <Stack direction="row" spacing={2} sx={{ mt: '6px' }}>
         <Button
@@ -1362,6 +1365,7 @@ function SuggestionRow({
 
 function SuggestionsPanel({
   suggestions,
+  cardColorForColumn,
   loading,
   open,
   onToggleOpen,
@@ -1369,9 +1373,9 @@ function SuggestionsPanel({
   onHover,
   onAccept,
   onReject,
-  onAcceptAll,
 }: {
   suggestions: GroupSuggestion[];
+  cardColorForColumn: (columnId: string) => string;
   loading: boolean;
   open: boolean;
   onToggleOpen: () => void;
@@ -1379,7 +1383,6 @@ function SuggestionsPanel({
   onHover: (suggestionId: string | null) => void;
   onAccept: (suggestion: GroupSuggestion) => void;
   onReject: (suggestionId: string) => void;
-  onAcceptAll: () => void;
 }) {
   if (!open) {
     return (
@@ -1458,20 +1461,13 @@ function SuggestionsPanel({
         )}
         {!loading && suggestions.length > 0 && (
           <Stack spacing="7px" sx={{ alignItems: 'flex-start' }}>
-            <Button
-              size="small"
-              type="button"
-              onClick={onAcceptAll}
-              sx={{ minWidth: 0, p: 0, fontSize: 10, fontWeight: 500, color: '#304ffe', textTransform: 'uppercase' }}
-            >
-              Accept all
-            </Button>
             <Box sx={{ border: '1px solid #e0e2e7', borderRadius: '13px', p: '7px', width: '100%' }}>
               <Stack spacing={1}>
                 {suggestions.map((s) => (
                   <SuggestionRow
                     key={s.id}
                     suggestion={s}
+                    cardColor={cardColorForColumn(s.columnId)}
                     justAccepted={justAcceptedIds.has(s.id)}
                     onAccept={() => onAccept(s)}
                     onReject={() => onReject(s.id)}
@@ -1733,10 +1729,10 @@ function Board({
   // user:{id} channel listener below) — never re-fetched.
   const [suggestions, setSuggestions] = useState<GroupSuggestion[]>(initialBoard.suggestions ?? []);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
-  const [suggestionsPanelOpen, setSuggestionsPanelOpen] = useState(false);
+  const [suggestionsPanelOpen, setSuggestionsPanelOpen] = useState(true);
   // Discuss and Wrap up screens' transcript sidebar (Figma 77:821 collapsed / 69:2772 expanded) —
   // starts collapsed, matching the design's default frame.
-  const [transcriptPanelOpen, setTranscriptPanelOpen] = useState(false);
+  const [transcriptPanelOpen, setTranscriptPanelOpen] = useState(true);
   const [hoveredSuggestionId, setHoveredSuggestionId] = useState<string | null>(null);
   // "accepted (collapses to 'Grouped' for 2s, then disappears)" — tracked separately from
   // actually removing the suggestion so the collapsed state has something to render first.
@@ -1786,10 +1782,6 @@ function Board({
       optimisticReduce: (b) => b,
       send: () => postMutation(accessToken, retroId, { mutationId, type: 'suggestion.reject', payload: { suggestionId } }),
     });
-  }
-
-  function acceptAllSuggestions() {
-    for (const s of visibleSuggestions) acceptSuggestion(s);
   }
 
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -2992,6 +2984,9 @@ function Board({
           {isFacilitator && board.phase === 'group' && (
             <SuggestionsPanel
               suggestions={visibleSuggestions}
+              cardColorForColumn={(columnId) =>
+                columnPalette(board.columns.find((c) => c.id === columnId)?.color ?? 'green').card
+              }
               loading={suggestionsLoading}
               open={suggestionsPanelOpen}
               onToggleOpen={() => setSuggestionsPanelOpen((v) => !v)}
@@ -2999,7 +2994,6 @@ function Board({
               onHover={setHoveredSuggestionId}
               onAccept={acceptSuggestion}
               onReject={rejectSuggestion}
-              onAcceptAll={acceptAllSuggestions}
             />
           )}
           {/* RN-045 follow-up: closed retros now have their own dedicated recap page
