@@ -100,6 +100,12 @@ const running = await startProcess(config.role, {
   },
 });
 
+// Node 22 exits on an unhandled rejection; one failed background task (a transcript write, a
+// Realtime send) shouldn't take the API down for everyone. Log it and keep serving.
+process.on('unhandledRejection', (reason) => {
+  log.error(reason, 'unhandled promise rejection (process kept running)');
+});
+
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, () => {
     running.stop().finally(() => process.exit(0));
