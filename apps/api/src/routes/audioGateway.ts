@@ -144,7 +144,18 @@ export function registerAudioGatewayRoutes(app: FastifyInstance, deps: AudioGate
         return tagLineToTopic({ startMs: streamStartedAt + relativeStartMs }, candidates);
       }
 
+      // Callers fire this and forget (`void persistAndBroadcast(...)`), so a throw here — a master
+      // key that can't unwrap the team key, a DB or Realtime error — would be an unhandled
+      // rejection, which exits the whole API process for every user. Log and drop that one line.
       async function persistAndBroadcast(text: string, startMs: number, endMs: number, speakerTag: number | null, isGapMarker: boolean) {
+        try {
+          await persistAndBroadcastSegment(text, startMs, endMs, speakerTag, isGapMarker);
+        } catch (err) {
+          request.log.error(err, 'failed to save or broadcast transcript segment');
+        }
+      }
+
+      async function persistAndBroadcastSegment(text: string, startMs: number, endMs: number, speakerTag: number | null, isGapMarker: boolean) {
         const topicId = await tagToTopic(startMs);
         const encrypted = await encryptForTeam(deps.supabaseAdmin, masterKey, retro!.team_id, text);
         const { data: inserted, error: insertError } = await deps.supabaseAdmin
