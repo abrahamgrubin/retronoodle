@@ -191,9 +191,21 @@ function TemplatePicker({
               minWidth: 0,
               bgcolor: 'white',
               border: `1px solid ${selected ? INDIGO : BORDER}`,
-              // The selected card's 2px border is drawn as 1px border + 1px inset ring so picking
-              // a card doesn't nudge its neighbours by a pixel.
-              boxShadow: selected ? `inset 0 0 0 1px ${INDIGO}` : 'none',
+              // The selected card's 2px border is the 1px border plus a 1px ring drawn by `::after`,
+              // so picking a card doesn't nudge its neighbours by a pixel. The ring is a layer
+              // *above* the content: an inset box-shadow would paint under the image and leave the
+              // border 1px thin across it (found live).
+              '&::after': selected
+                ? {
+                    content: '""',
+                    position: 'absolute',
+                    inset: 0,
+                    border: `1px solid ${INDIGO}`,
+                    borderRadius: '7px',
+                    pointerEvents: 'none',
+                    zIndex: 1,
+                  }
+                : undefined,
               borderRadius: '8px',
               overflow: 'hidden',
               '&:hover': { borderColor: selected ? INDIGO : PLACEHOLDER },
