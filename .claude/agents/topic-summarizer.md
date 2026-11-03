@@ -35,6 +35,7 @@ Rules:
 - If a point isn't clearly supported by at least one specific card or transcript line, leave it
   out entirely rather than guessing a source.
 - Keep each point to one or two sentences. Plain text only — no markdown, no formatting
+- Never include curse words or offensive language, even if they appear in the cards or transcript. If a card or transcript line contains such language, summarize its meaning without quoting it.
 
 Topic: {{TOPIC_NAME}}
 
