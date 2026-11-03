@@ -63,6 +63,7 @@ Build the stories strictly in ID order: RN-001 to RN-029 are the v0.1 critical p
 | 38 to 49 | RN-038 to RN-049 | Remaining v1 P0 and hardening                  | T3 to T5, F5, F6            | After audio | ~8 days |
 | 50 to 54 | RN-050 to RN-054 | Demo and polish                                | Milestone 4                 | After P0    | ~4 days |
 | 55 to 61 | RN-055 to RN-061 | P1 features                                    | A6, A11, B6, F7, F8, T6, P4 | Milestone 5 | ~6 days |
+| 62       | RN-062           | Home page redesign                             | Figma 131:1213              | Next        | 1 day   |
 
 ## Tier 1 · v0.1 Day 1 — Tue Sep 29 (4h)
 
@@ -1044,6 +1045,59 @@ Gate: a visitor can see a finished retro in one click, and the app meets WCAG 2.
 - [ ] k6 run with 30 participants and 300 cards shows round trips under 500 ms p95 locally and once against production.
 - [ ] Write-phase lock throughput sustains 15 changes per second without errors.
 - [ ] Fault-injection suite passes in CI.
+
+### RN-062 · Home page redesign
+
+**Refs:** Figma "Home · team workspace" (131:1213) and "Home · no team (mock)" (156:923) · **Est:** 1 day · **Depends on:** RN-005, RN-024, RN-026
+
+**Story:** As a signed-in user, I want a welcoming home page where I can start a retro in two steps, so I can get a team into a retro quickly.
+
+**Technical notes**
+
+- Restyles `App()` in `apps/web/src/App.tsx` and the nav drawer; the create-retro and create-team mutations are unchanged.
+- No template is preselected. The summary line under the form from the first Figma draft is dropped.
+- Retros are created in the user's first team, as today. A team switcher is a separate follow-up story.
+- The sidebar always renders, so a user with no team can still reach the account menu and sign out. `signOut()` already exists in `apps/web/src/auth.ts`.
+
+**Acceptance criteria**
+
+*Layout and welcome*
+
+- [ ] Home shows "Welcome <first name>" and the tagline. The first name comes from the user's profile and falls back to the local part of their email.
+- [ ] At desktop width the page matches the Figma frame (fonts, colours, spacing).
+- [ ] Below desktop width the template cards go four across, then two, then one; the name field and button stack, and the shortcut cards stack. No horizontal scroll at 360px wide.
+
+*Create a retro*
+
+- [ ] Four template cards show image, name and description. No template is selected when the page loads.
+- [ ] The cards form one radio group labelled "Template": Tab enters the group, arrow keys move and select, Space or Enter selects. Clicking the selected card keeps it selected.
+- [ ] "Create a retro" is disabled until a template is selected and the name is not blank. The name field starts empty.
+- [ ] There is no summary line under the form.
+- [ ] Creating a retro opens its board, as today. Progress and failure behave as today.
+- [ ] While templates load, four skeleton cards show. If loading fails, an error alert with Retry appears in the panel, and the welcome header and shortcuts stay visible.
+
+*Between retros*
+
+- [ ] Two shortcut cards, "Action Items" and "Previous Retros", link to the team's actions and retros pages and are keyboard-focusable.
+
+*Sidebar and account*
+
+- [ ] The sidebar shows Home, Retros, Action Items and, pinned at the bottom, the account row (initials avatar and full name).
+- [ ] With the drawer collapsed, the account row shows the avatar only.
+- [ ] Clicking the account row opens a small menu with one item, "Sign out". Esc or a click outside closes it.
+- [ ] Choosing Sign out ends the session, clears cached data and shows the sign-in page at `/`, with no confirmation step.
+- [ ] The placeholder "Your Team" drawer item is removed.
+
+*No-team users*
+
+- [ ] A user with no team still sees the sidebar, with Home and the account menu only.
+- [ ] The panel shows "Create a team" with the copy "You're not on a team yet. Create one to start running retros.", a "Team name" field and a "Create a team" button, styled like the retro form.
+
+*Tests*
+
+- [ ] A unit test covers the first-name fallback.
+- [ ] A Playwright test covers creating a retro from Home and creating a team as a user with no team.
+- [ ] A Playwright test covers signing out through the account menu.
 
 ## Tier 5 · Milestone 5 — P1 features behind flags
 
